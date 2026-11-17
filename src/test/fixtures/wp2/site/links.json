@@ -1,0 +1,1 @@
+{ "version": 1, "networks": { "fixture_guesthouse": { "second_peer": "https://other-peer.example/shuttle" } } }

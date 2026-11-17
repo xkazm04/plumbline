@@ -1,0 +1,6 @@
+{
+  "brand": "Fixture Guesthouse Assistant",
+  "networks": [
+    { "name": "fixture_guesthouse", "front_man": "fixture_assistant", "hocon": "./fixture_guesthouse.network.json" }
+  ]
+}

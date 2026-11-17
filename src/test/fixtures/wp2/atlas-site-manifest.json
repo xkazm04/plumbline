@@ -1,0 +1,91 @@
+{
+  "brand": "Agent Atlas",
+  "networks": [
+    {
+      "name": "agent_atlas",
+      "front_man": "atlas_guide",
+      "hocon": "./agent_atlas.network.json",
+      "description": "Ask Atlas to find agentic websites by what they do, or to check a site before you link to it. Add your AI provider key in the settings to start.",
+      "tags": [
+        "directory",
+        "registry",
+        "conformance",
+        "trust",
+        "infrastructure",
+        "agentified-website"
+      ],
+      "sample_queries": [
+        "Is there an agentic website that books boat tours? Is it safe to link to?",
+        "Check https://example.com/my_network against the spec and tell me what to fix.",
+        "Which sites in the directory are fully conformant?",
+        "Compare the two sites that sell food and tell me which one I could call from my own site.",
+        "Book me a table at a restaurant."
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "allowed_peers": [
+    "https://agent-atlas-phi.vercel.app"
+  ],
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Contacts only Atlas's own MCP server, plus page-local actions."
+  },
+  "agent_mcp": {
+    "protocol": "nsdeploy-agent-mcp/v1",
+    "network": "agent_atlas",
+    "front_man": "atlas_guide",
+    "available": true,
+    "url": "https://agent-atlas-phi.vercel.app/api/mcp",
+    "tools": [
+      "search_directory",
+      "check_site",
+      "list_sites"
+    ],
+    "reason": "Atlas hosts an MCP server next to its static bundle. Its tools are read-only."
+  },
+  "theme": {
+    "primary": "#1d5672"
+  },
+  "linking": {
+    "protocol": "nsdeploy-link/v1",
+    "exports": [
+      {
+        "network": "agent_atlas",
+        "front_man": "atlas_guide",
+        "aliases": [
+          "agent_atlas",
+          "atlas_guide"
+        ],
+        "url": "agent_atlas"
+      }
+    ],
+    "imports": [],
+    "link_updates": {
+      "mode": "browser-local"
+    }
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true,
+    "direct_mcp_requires_cors": true,
+    "public_mcp_facade": true
+  },
+  "actions": {
+    "version": 1,
+    "module": "./site-actions.js",
+    "bridge": "./bridge/action-bridge.html",
+    "agentTools": [
+      "get_page_state",
+      "show_report",
+      "filter_directory"
+    ]
+  }
+}

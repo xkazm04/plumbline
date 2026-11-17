@@ -1,0 +1,94 @@
+# Plumbline watch: a daily check for three drifts (grounding, runtime, peer) against plumbline.lock.json.
+# Copy this file to .github/workflows/plumbline-watch.yml in the site's repository.
+# Needs plumbline.lock.json committed first: run `npx plumbline watch --init` once and commit the lock.
+# It only reads the repository and opens or updates ONE issue titled "Plumbline drift"; it never pushes or opens a PR.
+name: Plumbline watch
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # every day at 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: plumbline-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Third-party actions are pinned by full commit SHA; the tag is only a comment for humans.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Run plumbline watch
+        id: watch
+        shell: bash
+        run: |
+          report="$RUNNER_TEMP/plumbline-watch.json"
+          # Exit 1 means warn or block findings, which is not a failure of this job; 2 is a real error.
+          set +e
+          npx --yes plumbline watch --json > "$report"
+          code=$?
+          set -e
+          cat "$report"
+          if [ "$code" -gt 1 ]; then
+            echo "::error::plumbline watch failed with exit code $code"
+            exit "$code"
+          fi
+          # Build the issue body from findings of severity warn or block only. info stays in the job log.
+          node - "$report" "$RUNNER_TEMP/plumbline-issue.md" >> "$GITHUB_OUTPUT" <<'JS'
+          const fs = require("node:fs");
+          const [report, out] = process.argv.slice(2);
+          const findings = JSON.parse(fs.readFileSync(report, "utf8")).findings.filter(
+            (f) => f.severity === "warn" || f.severity === "block",
+          );
+          const cell = (text) => String(text ?? "").replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ");
+          const rows = findings.map(
+            (f) => `| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`,
+          );
+          const noLock = findings.some((f) => f.summary === "no lock");
+          const body = [
+            "Plumbline watch found drift since `plumbline.lock.json` was written.",
+            "",
+            "| Severity | Kind | Ref | What |",
+            "| --- | --- | --- | --- |",
+            ...rows,
+            "",
+            noLock
+              ? "There is no lock yet. Run `npx plumbline watch --init`, review the lock and commit it."
+              : "`block` means a vendored runtime file or a peer's definition changed: look before the next release. " +
+                "After reviewing a change you accept, update the lock and close this issue.",
+            "",
+            "A clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.",
+          ].join("\n");
+          fs.writeFileSync(out, body + "\n");
+          console.log(`has_findings=${findings.length > 0}`);
+          JS
+
+      - name: Open or update the drift issue
+        if: steps.watch.outputs.has_findings == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          body="$RUNNER_TEMP/plumbline-issue.md"
+          # One open issue only: edit it if it exists, create it if it does not.
+          number=$(gh issue list --state open --search '"Plumbline drift" in:title' --json number,title --jq '[.[] | select(.title == "Plumbline drift")][0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file "$body"
+            echo "Updated issue #$number"
+          else
+            gh issue create --title "Plumbline drift" --body-file "$body"
+          fi

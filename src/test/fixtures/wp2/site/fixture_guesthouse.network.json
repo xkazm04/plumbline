@@ -1,0 +1,6 @@
+{
+  "link_labels": { "https://peer.example/partner": "Partner Tours" },
+  "tools": [
+    { "name": "fixture_assistant", "instructions": "Answer from the rooms data only.", "tools": ["https://peer.example/partner", "https://mcp.example/mcp"] }
+  ]
+}

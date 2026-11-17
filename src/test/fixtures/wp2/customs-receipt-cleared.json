@@ -1,0 +1,36 @@
+{
+  "receipt": {
+    "type": "agent-customs-receipt",
+    "version": 1,
+    "network": "https://montbaga.github.io/agent-customs/agent_customs",
+    "fingerprint": "sha256:84a9b5ed327f0ecc129640c695d55003cfb9aac479a6c5b5bae1340c902cc045",
+    "verdict": "CLEARED",
+    "stamp": "Cleared",
+    "summary": "No issues found. Pin the fingerprint so you notice if it changes.",
+    "counts": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "info": 0
+    },
+    "findings": [],
+    "conformance": {
+      "passed": 16,
+      "total": 16
+    },
+    "inspectedAt": "2026-11-16T09:21:10.921Z",
+    "expiresAt": "2026-12-21T09:21:10.921Z",
+    "inspector": {
+      "name": "Agent Customs",
+      "version": "1.0.0",
+      "site": "https://montbaga.github.io/agent-customs/",
+      "keyId": "-DC99sDa-qJjBp2N"
+    }
+  },
+  "signature": {
+    "alg": "ES256",
+    "keyId": "-DC99sDa-qJjBp2N",
+    "value": "4doYUDZ4qgBOCKnAWYvkm_lwMe3fjZ2bGjhY60L350oE4OOWebFxYhtde2217magQuBbc3xIJv4tfS5ZXyKc0g"
+  }
+}

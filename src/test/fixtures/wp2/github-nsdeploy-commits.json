@@ -1,0 +1,89 @@
+[
+  {
+    "sha": "4e4cb36731ae71cbbb905d3fe98f26299ac3b4f2",
+    "node_id": "C_kwDOVkSHTNoAKDRlNGNiMzY3MzFhZTcxY2JiYjkwNWQzZmU5OGYyNjI5OWFjM2I0ZjI",
+    "commit": {
+      "author": {
+        "name": "Dan Fink",
+        "email": "11446656+d1donlydfink@users.noreply.github.com",
+        "date": "2026-11-13T19:15:30Z"
+      },
+      "committer": {
+        "name": "GitHub",
+        "email": "noreply@github.com",
+        "date": "2026-11-13T19:15:30Z"
+      },
+      "message": "Merge pull request #19 from cognizant-ai-lab/DEF-type-hints\n\nHU: Add type hints to python",
+      "tree": {
+        "sha": "c0cefec7591d6ae44decfc454f4b1deb7e259926",
+        "url": "https://api.github.com/repos/cognizant-ai-lab/nsdeploy/git/trees/c0cefec7591d6ae44decfc454f4b1deb7e259926"
+      },
+      "url": "https://api.github.com/repos/cognizant-ai-lab/nsdeploy/git/commits/4e4cb36731ae71cbbb905d3fe98f26299ac3b4f2",
+      "comment_count": 0,
+      "verification": {
+        "verified": true,
+        "reason": "valid",
+        "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq92HSCRC1aQ7uu5UhlAAAYiIQAF+V/vzr66IdtKl7S7r/LJcQ\nltTJ1euDQ8kXpz+xRacoSA7W95RJWC1pz6V7oEKM4wiDozJyXdvCgRNJ0GCqHrhq\niQWQOiAnVllPTzXtO1Hx3laS08dJ0Er6nEk6xG0VzcVsH82R/Bask3bvboqT0Z4/\n0G+dr1Qxc7VxLdnAVuN7LEtSQgUJUVLv4osioe9+prk9HEfJLE0bGVb2VHRiJzXQ\nDU0u+B0UpKcp/1nrIKjtLKxAWMSk1PjCzgYNHW28K7QO85cW4D8uEzdXIfnV8P6O\nrRDtHfI2M9TIGrLaV9B5e5H+lYrzuZp6IeXICDeFUtfGProkThEKAD9TGTlY97s/\njFpd32Zr3mgOigdaKhMcZ9O5Htreixg4J9PoYxwberFb9ZSFL8dZyLkEUjEVrqd8\n8w2RXSTIJVv/UM+R6lNU1233RDiKWrVQDWnu9sb6M61VwTx46QLgcX5xaQ86+wtf\n4B7eaq8AOnRHzeLSMjnsR1HXJ30t6AdwsSSgbN9xM5QLYWBFQjhV9sb/29EFeiaQ\nM0Qdx1i88HoHszbF+pnnbaDHWIIg71dpAp0aZj5oq9VxGSJVE7M51A2eDSjLtNZ9\n0iVxD0R5AqZgzp54WpR6da+Jyo3yqgNesZl7DDHZgCAiCENH7a5OWUqTUX6+6rYX\n2MyOu63HtegdmvXcZOJo\n=tXSd\n-----END PGP SIGNATURE-----\n",
+        "payload": "tree c0cefec7591d6ae44decfc454f4b1deb7e259926\nparent 622422171be9b3256fc69f987e969151989724ff\nparent 8b115a81baa368bc15f6e6545293a907d3de6e14\nauthor Dan Fink <11446656+d1donlydfink@users.noreply.github.com> 1794597330 -0800\ncommitter GitHub <noreply@github.com> 1794597330 -0800\n\nMerge pull request #19 from cognizant-ai-lab/DEF-type-hints\n\nHU: Add type hints to python",
+        "verified_at": "2026-11-13T19:15:30Z"
+      }
+    },
+    "url": "https://api.github.com/repos/cognizant-ai-lab/nsdeploy/commits/4e4cb36731ae71cbbb905d3fe98f26299ac3b4f2",
+    "html_url": "https://github.com/cognizant-ai-lab/nsdeploy/commit/4e4cb36731ae71cbbb905d3fe98f26299ac3b4f2",
+    "comments_url": "https://api.github.com/repos/cognizant-ai-lab/nsdeploy/commits/4e4cb36731ae71cbbb905d3fe98f26299ac3b4f2/comments",
+    "author": {
+      "login": "d1donlydfink",
+      "id": 11446656,
+      "node_id": "MDQ6VXNlcjExNDQ2NjU2",
+      "avatar_url": "https://avatars.githubusercontent.com/u/11446656?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/d1donlydfink",
+      "html_url": "https://github.com/d1donlydfink",
+      "followers_url": "https://api.github.com/users/d1donlydfink/followers",
+      "following_url": "https://api.github.com/users/d1donlydfink/following{/other_user}",
+      "gists_url": "https://api.github.com/users/d1donlydfink/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/d1donlydfink/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/d1donlydfink/subscriptions",
+      "organizations_url": "https://api.github.com/users/d1donlydfink/orgs",
+      "repos_url": "https://api.github.com/users/d1donlydfink/repos",
+      "events_url": "https://api.github.com/users/d1donlydfink/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/d1donlydfink/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "committer": {
+      "login": "web-flow",
+      "id": 19864447,
+      "node_id": "MDQ6VXNlcjE5ODY0NDQ3",
+      "avatar_url": "https://avatars.githubusercontent.com/u/19864447?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/web-flow",
+      "html_url": "https://github.com/web-flow",
+      "followers_url": "https://api.github.com/users/web-flow/followers",
+      "following_url": "https://api.github.com/users/web-flow/following{/other_user}",
+      "gists_url": "https://api.github.com/users/web-flow/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/web-flow/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/web-flow/subscriptions",
+      "organizations_url": "https://api.github.com/users/web-flow/orgs",
+      "repos_url": "https://api.github.com/users/web-flow/repos",
+      "events_url": "https://api.github.com/users/web-flow/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/web-flow/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "parents": [
+      {
+        "sha": "622422171be9b3256fc69f987e969151989724ff",
+        "url": "https://api.github.com/repos/cognizant-ai-lab/nsdeploy/commits/622422171be9b3256fc69f987e969151989724ff",
+        "html_url": "https://github.com/cognizant-ai-lab/nsdeploy/commit/622422171be9b3256fc69f987e969151989724ff"
+      },
+      {
+        "sha": "8b115a81baa368bc15f6e6545293a907d3de6e14",
+        "url": "https://api.github.com/repos/cognizant-ai-lab/nsdeploy/commits/8b115a81baa368bc15f6e6545293a907d3de6e14",
+        "html_url": "https://github.com/cognizant-ai-lab/nsdeploy/commit/8b115a81baa368bc15f6e6545293a907d3de6e14"
+      }
+    ]
+  }
+]

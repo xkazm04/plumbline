@@ -1,0 +1,99 @@
+{
+  "about": "Signed Agent Customs stamps. Check them with the public key at .well-known/agent-customs-key.json.",
+  "issuer": "Agent Customs",
+  "site": "https://montbaga.github.io/agent-customs/",
+  "keyId": "-DC99sDa-qJjBp2N",
+  "signedAt": "2026-11-16T09:21:10.921Z",
+  "receipts": [
+    {
+      "network": "https://montbaga.github.io/agent-customs/agent_customs",
+      "path": "montbaga.github.io/agent-customs/agent_customs.json",
+      "stamp": "Cleared",
+      "verdict": "CLEARED",
+      "fingerprint": "sha256:84a9b5ed327f0ecc129640c695d55003cfb9aac479a6c5b5bae1340c902cc045",
+      "inspectedAt": "2026-11-16T09:21:10.921Z",
+      "expiresAt": "2026-12-21T09:21:10.921Z"
+    },
+    {
+      "network": "https://montbaga.github.io/agent-customs/practice/main_street_guide",
+      "path": "montbaga.github.io/agent-customs/practice/main_street_guide.json",
+      "stamp": "Cleared",
+      "verdict": "CLEARED",
+      "fingerprint": "sha256:90d70c899938db2854956b7a3e5332b7f8eedb7d5c8026c3192c5dd036ae623a",
+      "inspectedAt": "2026-11-16T09:21:10.921Z",
+      "expiresAt": "2026-12-21T09:21:10.921Z"
+    },
+    {
+      "network": "https://agent-customs-range.github.io/sunny_bakery/sunny_bakery",
+      "path": "agent-customs-range.github.io/sunny_bakery/sunny_bakery.json",
+      "stamp": "Cleared",
+      "verdict": "CLEARED",
+      "fingerprint": "sha256:e403214d633034cff370002d93e27c6a60d116eb90a95b1372a64e889b93e02b",
+      "inspectedAt": "2026-11-16T09:21:10.921Z",
+      "expiresAt": "2026-12-21T09:21:10.921Z"
+    },
+    {
+      "network": "https://agent-customs-range.github.io/shady_pizza/shady_pizza",
+      "path": "agent-customs-range.github.io/shady_pizza/shady_pizza.json",
+      "stamp": "Entry denied",
+      "verdict": "DENIED",
+      "fingerprint": "sha256:e378fff842fdedab545d7bda45c97be935518dc2bd5d5f742641205611b2f5bb",
+      "inspectedAt": "2026-11-16T09:21:10.921Z",
+      "expiresAt": "2026-12-21T09:21:10.921Z"
+    },
+    {
+      "network": "https://agent-customs-range.github.io/bank_helper/bank_helper",
+      "path": "agent-customs-range.github.io/bank_helper/bank_helper.json",
+      "stamp": "Entry denied",
+      "verdict": "DENIED",
+      "fingerprint": "sha256:065a2e71a8e80ac6efeda1f0435aed98aee92c83211e9aedb32e6c52247013ba",
+      "inspectedAt": "2026-11-16T09:21:10.921Z",
+      "expiresAt": "2026-12-21T09:21:10.921Z"
+    },
+    {
+      "network": "https://agent-customs-range.github.io/loop_maze/loop_maze",
+      "path": "agent-customs-range.github.io/loop_maze/loop_maze.json",
+      "stamp": "Held for review",
+      "verdict": "HOLD",
+      "fingerprint": "sha256:4e77c29f286a6486ef9a0105dad68fb325df8d4808cf8cfcb88e88fd07f087dc",
+      "inspectedAt": "2026-11-16T09:21:10.921Z",
+      "expiresAt": "2026-12-21T09:21:10.921Z"
+    },
+    {
+      "network": "https://agent-customs-range.github.io/rugpull/sunny_bakery",
+      "path": "agent-customs-range.github.io/rugpull/sunny_bakery.json",
+      "stamp": "Held for review",
+      "verdict": "HOLD",
+      "fingerprint": "sha256:29b9ab4e2e43e6e4efe48f9ff1af565c68dd168ce5f62df1b0ed88d8a8a17a49",
+      "inspectedAt": "2026-11-16T09:21:10.921Z",
+      "expiresAt": "2026-12-21T09:21:10.921Z"
+    },
+    {
+      "network": "https://agent-customs-range.github.io/official/pizza_restaurant_agentified/pizza_restaurant_website_assistant",
+      "path": "agent-customs-range.github.io/official/pizza_restaurant_agentified/pizza_restaurant_website_assistant.json",
+      "stamp": "Cleared",
+      "verdict": "CLEARED",
+      "fingerprint": "sha256:2a71a2b808a5856051301cd074bfc92047c1bc6a7128b5352e3b329f02ec9d39",
+      "inspectedAt": "2026-11-16T09:21:10.921Z",
+      "expiresAt": "2026-12-21T09:21:10.921Z"
+    },
+    {
+      "network": "https://agent-customs-range.github.io/official/guesthouse_agentified/tidewhistle_guesthouse",
+      "path": "agent-customs-range.github.io/official/guesthouse_agentified/tidewhistle_guesthouse.json",
+      "stamp": "Cleared",
+      "verdict": "CLEARED",
+      "fingerprint": "sha256:bee68f4b3b9fc9af9947531d69b183ba37ede8f5b466511abfbab2115dea5c14",
+      "inspectedAt": "2026-11-16T09:21:10.921Z",
+      "expiresAt": "2026-12-21T09:21:10.921Z"
+    },
+    {
+      "network": "https://agent-customs-range.github.io/official/harbor_tours_agentified/marrow_point_harbor_tours",
+      "path": "agent-customs-range.github.io/official/harbor_tours_agentified/marrow_point_harbor_tours.json",
+      "stamp": "Cleared",
+      "verdict": "CLEARED",
+      "fingerprint": "sha256:50447193394f22d5d37f93474f9d09a697d7b0c9b4c211a9f59c0dd88eb9fc2a",
+      "inspectedAt": "2026-11-16T09:21:10.921Z",
+      "expiresAt": "2026-12-21T09:21:10.921Z"
+    }
+  ]
+}

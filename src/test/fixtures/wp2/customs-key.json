@@ -1,0 +1,13 @@
+{
+  "about": "Agent Customs' public key. Use it to check signed stamps (receipts).",
+  "issuer": "Agent Customs",
+  "site": "https://montbaga.github.io/agent-customs/",
+  "alg": "ES256",
+  "keyId": "-DC99sDa-qJjBp2N",
+  "publicKey": {
+    "crv": "P-256",
+    "kty": "EC",
+    "x": "Wzq2yNI2mFX6Iz-GBeV7LKacVokiI396oifQRocfzxo",
+    "y": "qdaCQ4K-07HN5yiq8CfFVUgRVtJm5uszNMsjuBqWQic"
+  }
+}

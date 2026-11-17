@@ -1,0 +1,82 @@
+{
+  "receipt": {
+    "type": "agent-customs-receipt",
+    "version": 1,
+    "network": "https://agent-customs-range.github.io/shady_pizza/shady_pizza",
+    "fingerprint": "sha256:e378fff842fdedab545d7bda45c97be935518dc2bd5d5f742641205611b2f5bb",
+    "verdict": "DENIED",
+    "stamp": "Entry denied",
+    "summary": "3 critical problem(s): hidden instructions in invisible Unicode tag characters; asks for passwords, codes or card details; tries to leak the conversation or private data.",
+    "counts": {
+      "critical": 3,
+      "high": 4,
+      "medium": 1,
+      "low": 1,
+      "info": 0
+    },
+    "findings": [
+      {
+        "rule": "H-TAGS",
+        "severity": "critical",
+        "title": "Hidden instructions in invisible Unicode tag characters"
+      },
+      {
+        "rule": "C-SECRETS",
+        "severity": "critical",
+        "title": "Asks for passwords, codes or card details"
+      },
+      {
+        "rule": "C-EXFIL",
+        "severity": "critical",
+        "title": "Tries to leak the conversation or private data"
+      },
+      {
+        "rule": "C-CALLER",
+        "severity": "high",
+        "title": "Gives orders to the calling site's assistant"
+      },
+      {
+        "rule": "C-CONCEAL",
+        "severity": "high",
+        "title": "Hides what it does from the visitor"
+      },
+      {
+        "rule": "C-BEACON",
+        "severity": "high",
+        "title": "Puts a remote image or tracking link in answers"
+      },
+      {
+        "rule": "C-INSPECTOR",
+        "severity": "high",
+        "title": "Tries to influence safety reviewers"
+      },
+      {
+        "rule": "C-FOREIGN-TOOLS",
+        "severity": "medium",
+        "title": "Names website tools it does not publish"
+      },
+      {
+        "rule": "R-MENTION",
+        "severity": "low",
+        "title": "Mentions an outside address (cdn.shadypizza.invalid)"
+      }
+    ],
+    "conformance": {
+      "passed": 15,
+      "total": 15
+    },
+    "inspectedAt": "2026-11-16T09:21:10.921Z",
+    "expiresAt": "2026-12-21T09:21:10.921Z",
+    "inspector": {
+      "name": "Agent Customs",
+      "version": "1.0.0",
+      "site": "https://montbaga.github.io/agent-customs/",
+      "keyId": "-DC99sDa-qJjBp2N"
+    }
+  },
+  "signature": {
+    "alg": "ES256",
+    "keyId": "-DC99sDa-qJjBp2N",
+    "value": "LiD1CnPR1U3yd9ndrgpLn2sdF9gt8DKpGKPhsUnXWC1Nmf_usnIV727u63KcaI5lraU2nYJsEn6Mgz1Wt6lyFQ"
+  }
+}

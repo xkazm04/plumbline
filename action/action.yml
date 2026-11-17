@@ -1,0 +1,56 @@
+name: Plumbline gate
+description: Check an agentic website with Plumbline's validator port, Agent Atlas and Agent Customs. An adapter that cannot be reached is `unavailable`, never `pass`.
+author: Plumbline
+
+inputs:
+  target:
+    description: The site address or the network address to check, for example https://example.com/ or https://example.com/my_network.
+    required: true
+  adapters:
+    description: Comma-separated adapters to run, from validator, atlas, customs. Default is all three.
+    required: false
+    default: validator,atlas,customs
+  fail-on:
+    description: "`fail` fails the step only when the gate state is fail. `unavailable` also fails it when an adapter could not be reached."
+    required: false
+    default: fail
+
+outputs:
+  state:
+    description: The gate state, pass, fail or unavailable.
+    value: ${{ steps.gate.outputs.state }}
+  report:
+    description: Path to the JSON report the gate wrote.
+    value: ${{ steps.gate.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run plumbline gate
+      id: gate
+      shell: bash
+      # Inputs reach the script through the environment, never by interpolation into the script text.
+      env:
+        PLUMBLINE_TARGET: ${{ inputs.target }}
+        PLUMBLINE_ADAPTERS: ${{ inputs.adapters }}
+        PLUMBLINE_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        case "$PLUMBLINE_FAIL_ON" in
+          fail|unavailable) ;;
+          *) echo "::error::fail-on must be fail or unavailable"; exit 2 ;;
+        esac
+        report="$RUNNER_TEMP/plumbline-gate.json"
+        # GitHub runs this with -e; the exit code is needed, so errexit is off for the one command.
+        # It is read straight from the command, not through a pipe: 0 passed by fail-on, 1 failed by it, 2 usage.
+        set +e
+        npx --yes plumbline gate "$PLUMBLINE_TARGET" --adapters "$PLUMBLINE_ADAPTERS" --fail-on "$PLUMBLINE_FAIL_ON" --json > "$report"
+        code=$?
+        cat "$report"
+        state=$(node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(String(r.state));' "$report" 2>/dev/null || echo unknown)
+        echo "state=$state" >> "$GITHUB_OUTPUT"
+        echo "report=$report" >> "$GITHUB_OUTPUT"
+        {
+          echo "### Plumbline gate: $state"
+          node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); for (const f of r.findings) console.log("- **" + f.adapter + "**: " + f.state + ". " + f.summary);' "$report" 2>/dev/null || true
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit "$code"
