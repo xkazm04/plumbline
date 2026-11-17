@@ -1,6 +1,7 @@
 # Plumbline watch: a daily check for three drifts (grounding, runtime, peer) against plumbline.lock.json.
 # Copy this file to .github/workflows/plumbline-watch.yml in the site's repository.
-# Needs plumbline.lock.json committed first: run `npx --yes github:xkazm04/plumbline#<PLUMBLINE_REF> watch --init` once, then sign, and commit both.
+# Needs plumbline.lock.json committed first: in a clone of xkazm04/plumbline at the pinned commit, run
+# `npm ci && node dist/cli/index.js watch --root <your site> --init`, then sign the site, and commit both.
 # It only reads the repository and opens or updates ONE issue titled "Plumbline drift"; it never pushes or opens a PR.
 name: Plumbline watch
 
@@ -31,25 +32,21 @@ jobs:
         with:
           node-version: 22
 
+      # The Action builds plumbline from its own checkout: pinning it by commit SHA pins the code that runs.
       - name: Run plumbline watch
         id: watch
+        uses: xkazm04/plumbline/action@1718bff64c63a245a248b054fc64aebaaee3e0da
+        with:
+          command: watch
+          root: "."
+
+      - name: Build the issue body
+        id: issue
         shell: bash
         env:
-          # The exact commit of xkazm04/plumbline this template runs (installed from GitHub; the npm name belongs to someone else).
-          PLUMBLINE_REF: 2bb7c23c75671b9144b9b9d314b7784a651b5899
+          REPORT: ${{ steps.watch.outputs.report }}
         run: |
-          report="$RUNNER_TEMP/plumbline-watch.json"
-          # Exit 1 means warn or block findings, which is not a failure of this job; 2 is a real error.
-          set +e
-          npx --yes "github:xkazm04/plumbline#$PLUMBLINE_REF" watch --json > "$report"
-          code=$?
-          set -e
-          cat "$report"
-          if [ "$code" -gt 1 ]; then
-            echo "::error::plumbline watch failed with exit code $code"
-            exit "$code"
-          fi
-          # Build the issue body from findings of severity warn or block only. info stays in the job log.
+          report="$REPORT"
           node - "$report" "$RUNNER_TEMP/plumbline-issue.md" >> "$GITHUB_OUTPUT" <<'JS'
           const fs = require("node:fs");
           const [report, out] = process.argv.slice(2);
@@ -69,7 +66,7 @@ jobs:
             ...rows,
             "",
             noLock
-              ? "There is no lock yet. Run `npx --yes github:xkazm04/plumbline#" + process.env.PLUMBLINE_REF + " watch --init`, review the lock, sign the site again and commit both."
+              ? "There is no lock yet. In a clone of xkazm04/plumbline at the pinned commit run `npm ci && node dist/cli/index.js watch --root <your site> --init`, review the lock, sign the site again and commit both."
               : "`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. " +
                 "After reviewing a change you accept, update the lock, sign the site again if it is signed, and close this issue.",
             "",
@@ -80,7 +77,7 @@ jobs:
           JS
 
       - name: Open or update the drift issue
-        if: steps.watch.outputs.has_findings == 'true'
+        if: steps.issue.outputs.has_findings == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

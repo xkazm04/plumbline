@@ -1,6 +1,6 @@
-// The Action and the watch template run plumbline from THIS repository at one exact commit, never from npm: the npm
-// name `plumbline` belongs to an unrelated package, so `npx plumbline@...` would run a stranger's code in an adopter's
-// CI. Pinning the action by commit SHA then pins the code that runs. A text check plus git; no YAML dependency.
+// The Action runs the code of the commit an adopter pins: it builds plumbline from its own checkout and calls the CLI,
+// with no package registry in between (the npm name `plumbline` belongs to an unrelated package, and npx's git
+// installs fail on the runner's npm). The watch template uses that Action, pinned by full commit SHA. Text plus git.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -12,47 +12,39 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 const read = (rel: string): string => readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
 const git = (...args: string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8" });
 
-const REPO = "xkazm04/plumbline";
 const action = read("action/action.yml");
 const template = read("action/templates/plumbline-watch.yml");
+const code = (text: string): string => text.split("\n").filter((line) => !line.trim().startsWith("#")).join("\n");
 
-const actionDefault = /\n {2}plumbline-ref:\n(?: {4}.*\n)*? {4}default: *"?([^"\n]+)"?\n/.exec(action)?.[1]?.trim();
-const templatePins = [...template.matchAll(/PLUMBLINE_REF: *"?([0-9a-f]+)"?/g)].map((m) => m[1]);
-
-test("action.yml: plumbline-ref defaults to a full commit SHA and reaches the script through the environment", () => {
-  assert.ok(actionDefault, "action.yml declares a plumbline-ref input with a default");
-  assert.match(actionDefault, /^[0-9a-f]{40}$/);
-  assert.match(action, /PLUMBLINE_REF: \$\{\{ inputs\.plumbline-ref \}\}/);
+test("the Action builds plumbline from its own checkout and runs the built CLI", () => {
+  assert.match(action, /cd "\$GITHUB_ACTION_PATH\/\.\."\n\s+npm ci /);
+  assert.match(action, /npm run build/);
+  assert.match(action, /cli="\$GITHUB_ACTION_PATH\/\.\.\/dist\/cli\/index\.js"/);
 });
 
-test("the watch template pins the same commit as the Action", () => {
-  assert.ok(templatePins.length > 0, "the template sets PLUMBLINE_REF");
-  for (const pin of templatePins) assert.equal(pin, actionDefault);
+test("nothing installs plumbline from a registry or by name: no npx, no plumbline@", () => {
+  for (const text of [code(action), code(template)]) {
+    assert.doesNotMatch(text, /\bnpx\b/);
+    assert.doesNotMatch(text, /plumbline@/);
+  }
 });
 
-test("the pinned commit is in this repository's history and builds itself on a git install", () => {
-  assert.ok(actionDefault);
+test("the watch template uses this repository's Action pinned to a full commit SHA that holds the self-building Action", () => {
+  const uses = [...template.matchAll(/uses: xkazm04\/plumbline\/action@([^\s#]+)/g)].map((m) => m[1]);
+  assert.equal(uses.length, 1, "the template uses the Action once");
+  const sha = uses[0]!;
+  assert.match(sha, /^[0-9a-f]{40}$/);
   // check.yml checks out with fetch-depth 0, so an older commit is present in CI too.
-  git("cat-file", "-e", `${actionDefault}^{commit}`);
-  const pkg = JSON.parse(git("show", `${actionDefault}:package.json`)) as {
-    private?: boolean; files?: string[]; scripts?: Record<string, string>; bin?: Record<string, string>;
-  };
+  git("cat-file", "-e", `${sha}^{commit}`);
+  const pinned = git("show", `${sha}:action/action.yml`);
+  assert.match(pinned, /cd "\$GITHUB_ACTION_PATH\/\.\."/, "the pinned commit's Action builds itself");
+  assert.match(pinned, /\n {2}command:\n/, "the pinned commit's Action has the command input the template uses");
+  const pkg = JSON.parse(git("show", `${sha}:package.json`)) as { private?: boolean; scripts?: Record<string, string> };
   assert.equal(pkg.private, true, "never publishable to npm under a name we do not own");
-  assert.ok(pkg.scripts?.prepare, "a git install runs prepare to build dist/");
-  assert.ok(pkg.files?.includes("dist"), "the packed install keeps dist/ although .gitignore excludes it");
-  assert.equal(pkg.bin?.plumbline, "dist/cli/index.js");
-});
-
-test("every npx line installs from this repository at the pinned ref; none names the npm package", () => {
-  // the lines that RUN npx (a quoted package spec after `npx --yes`), not prose that tells a person what to type
-  const lines = [action, template].flatMap((t) => t.split("\n")).filter((l) => /\bnpx --yes "/.test(l) && !l.trim().startsWith("#"));
-  assert.ok(lines.length >= 2, `found the npx lines: ${lines.length}`);
-  for (const line of lines) assert.ok(line.includes(`github:${REPO}#$PLUMBLINE_REF`), line.trim());
-  assert.doesNotMatch(action + template, /plumbline@/);
+  assert.ok(pkg.scripts?.build);
 });
 
 test("the Action and the template never pass --allow-local (a comment may name it)", () => {
-  const code = (text: string): string => text.split("\n").filter((line) => !line.trim().startsWith("#")).join("\n");
   assert.doesNotMatch(code(action), /allow-local/);
   assert.doesNotMatch(code(template), /allow-local/);
 });

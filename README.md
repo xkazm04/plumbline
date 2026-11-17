@@ -30,8 +30,9 @@ node dist/cli/index.js gate https://agent-atlas-phi.vercel.app/
 ```
 
 Exit codes: 0 clean, 1 findings, 2 usage or I/O error. `gate --allow-local` checks a site on your own machine over
-http and still refuses every private range. In CI: `action/action.yml` (gate) and `action/templates/plumbline-watch.yml`
-(daily drift issue); both run an exact plumbline version.
+http and still refuses every private range. In CI: `uses: xkazm04/plumbline/action@<commit sha>` (gate or watch) and
+`action/templates/plumbline-watch.yml` (daily drift issue). The Action builds Plumbline from the commit you pin, so the
+code that runs is exactly that commit's (`action/README.md`).
 
 ## Documents
 
