@@ -38,7 +38,8 @@ node <agentic-web>/skills/agentify-website/scripts/build_network.mjs site/plumbl
 The tests are the skill's template suite filled in for the Desk, plus the Desk's own rules: no private key material
 reaches the model (tool results and the whole transcript are searched), every sample query can be answered, the decline
 query has no tool to misuse, an unreachable checker is never `pass`, and sign then verify gives `unverifiable`, then
-`verified` once trusted, then `invalid tampered` after an edit. They use a scripted model and a scripted fetcher; they
+`verified` once trusted, then `invalid tampered` after an edit, and `csp.test.mjs` keeps the Content-Security-Policy
+(below) strict and in step with the runtime. They use a scripted model and a scripted fetcher; they
 call no LLM and no network. They check the plumbing, not how a real model follows the instructions.
 
 ## What it does
@@ -78,6 +79,59 @@ the key. The page's own Sign button opens the same dialog.
 - In a browser the gate's `customs` adapter reports "failed unexpectedly" (`unavailable`) for targets that have an Agent
   Customs receipt: `src/gate/adapter-customs.ts` uses Node's `Buffer`. Targets without a receipt are unaffected.
 
+## Content-Security-Policy
+
+The Desk holds the visitor's LLM key and, while signing, a private key in memory, and it renders model-written content
+(the runtime's CRUSE forms, tables and HTML reports). So `index.html` sets a strict policy in a `<meta>` tag, the one
+place every static host honours, GitHub Pages included:
+
+```text
+default-src 'none';
+script-src 'self';
+style-src 'self' 'unsafe-hashes' <7 sha256 hashes>;
+img-src 'self';
+connect-src 'self' https: http://localhost:* http://127.0.0.1:*;
+worker-src 'self';
+frame-src https://agent-atlas-phi.vercel.app https://montbaga.github.io https://agent-customs-range.github.io;
+base-uri 'none'; form-action 'none'; object-src 'none'
+```
+
+The comment beside the tag gives the evidence (file and line) for each source. In short:
+
+- **Scripts.** Every script is a same-origin module, including the runtime's dynamic imports. There is no inline script,
+  no inline handler and no `eval` or `new Function`, so the policy has neither `'unsafe-inline'` nor `'unsafe-eval'`.
+- **Styles.** The vendored runtime, which we do not edit, adds one `<style>` block (`runtime/ui.js`, its `BASE_CSS`) and
+  six fixed `style=""` attributes (`runtime/ui.js`). The policy allows those seven texts by hash, with `'unsafe-hashes'`
+  for the attributes, and no other inline style: a style attribute in model-written HTML is refused (and the runtime's
+  HTML sanitizer drops it anyway). `site/tests/csp.test.mjs` recomputes the hashes from the runtime, so a runtime update
+  that changes its inline styles fails the tests until the hashes are updated here.
+- **Why `connect-src` is broad.** It cannot be a short allow-list. The gate, drift and verify read any https site the
+  visitor names, and the model router is the visitor's own choice: hosted Otari, Groq, OpenAI, Google, Anthropic, any
+  OpenAI-compatible URL, or Ollama on `http://localhost`. The partners' networks also run in this browser and fetch their
+  own files and MCP endpoints. So the policy allows `https:` everywhere, plain `http` only on `localhost` and
+  `127.0.0.1`, and nothing else (no `ws:`, no `data:`). What keeps a key in place is that no script but our own and the
+  vendored runtime can run, not a list of hosts.
+- **Frames.** When the assistant asks a partner, the runtime loads that partner's action bridge in a hidden frame:
+  Agent Atlas, Agent Customs and Customs' own peer, `agent-customs-range.github.io`. For a partner outside this list the
+  frame is refused and the runtime falls back to a popup the visitor opens (read from the code, not tried in a browser). Add a new partner's origin to `frame-src` when you add it to
+  `allowed_peers`; the test checks that.
+- **Worker.** The coded-tool sandbox is a same-origin worker. Its own, stricter policy comes from its response headers,
+  not from this page (below).
+
+**Headers.** `frame-ancestors` does not work in a `<meta>` tag, and a worker's policy comes from its own response.
+`site/_headers` (the Netlify and Cloudflare Pages format) sends both: `frame-ancestors 'none'` on the page, so no other
+site can frame the Desk, and on `runtime/sandbox-worker.js` the policy that file asks for. Hosts that honour response
+headers should send them; GitHub Pages cannot, so there the Desk can be framed by another site and the sandbox worker
+refuses to run a peer's coded tools (the Desk's partners publish none today). `bridge/action-bridge.html` is left
+framable on purpose: other agentic sites load it in a hidden frame.
+
+**Checked in a browser** (headless Chromium, 2026-11-17, served from `http://127.0.0.1`): boot with no key, boot with the
+assistant blocked, the gate, drift and partner check on `https://agent-atlas-phi.vercel.app/`, key generation, signing a
+fixture, verify (unverifiable, trust, verified), the AI model settings panel with a key, a chat turn with a CRUSE form
+and a model-written HTML report (scripted model responses), and a partner call to Agent Atlas through its consent card
+and bridge frame. No CSP violation, except the one the policy is for: a `style` attribute in the scripted model's HTML
+report was refused (`runtime/cruse-render.js`), which changes nothing, because the sanitizer drops it.
+
 ## Network URL and callers
 
 The network URL is the folder that holds `agent-manifest.json`, then `plumbline_desk`, for example
@@ -103,7 +157,8 @@ own card.
 
 | Path | What |
 | --- | --- |
-| `index.html` | the page: structure only; every visible string is in `strings.js` |
+| `index.html` | the page: structure only, and the Content-Security-Policy; every visible string is in `strings.js` |
+| `_headers` | response headers for hosts that read it: `frame-ancestors` and the sandbox worker's policy |
 | `strings.js` | every visible string |
 | `assistant.css` | the page's baseline styles and the skill's assistant CSS (`--ns-*` colours) |
 | `desk.js` | the page object (`App.page`) and its rendering; the page's buttons call it |

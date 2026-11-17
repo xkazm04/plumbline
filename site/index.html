@@ -2,6 +2,33 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <!--
+    Content-Security-Policy. The Desk holds the visitor's LLM key and, while signing, a private key in memory, and
+    renders model-written content, so it runs under the strictest policy that keeps every Desk function working.
+    site/tests/csp.test.mjs checks this tag; site/README.md (Content-Security-Policy) explains it. Each relaxation:
+    - script-src 'self': every script is a same-origin module (desk.js, site.js and their imports; the runtime's dynamic
+      imports in site.js and runtime/action-transport.js are same-origin). No inline script, no inline handler, no
+      eval or new Function anywhere the page runs, so no 'unsafe-inline' and no 'unsafe-eval'.
+    - style-src: assistant.css ('self'), plus hashes for the vendored runtime's fixed inline styles, which we may not
+      edit: the <style> block runtime/ui.js:279 builds from BASE_CSS (runtime/ui.js:85 + runtime/cruse-render.js:3),
+      and six constant style="" attributes in runtime/ui.js (356, 370, 372, 1595, 1624, 1642), which need
+      'unsafe-hashes'. That allows exactly those seven texts, not inline styles in general: model-written content
+      cannot add a style. The test recomputes the hashes from the runtime, so a runtime update that changes them fails.
+    - img-src 'self': the page shows no image today; the runtime renders a theme logo <img> (runtime/ui.js:337) if the
+      manifest ever sets one. No fonts are loaded, so font-src stays at default-src 'none'.
+    - connect-src cannot be a short allow-list: the gate, drift and verify read ANY https site the visitor names
+      (desk.js:69), and the model router is the visitor's choice (hosted Otari, Groq, OpenAI, Google, Anthropic or any
+      OpenAI-compatible URL, runtime/ui.js:31-75 and runtime/llm.js:123), including Ollama on http://localhost. So: 'self',
+      https:, and http on localhost and 127.0.0.1 only. Plain http to other hosts is refused.
+    - worker-src 'self': the coded-tool sandbox is a same-origin module worker loaded by URL (runtime/sandbox.js:35).
+      Its blob: import happens inside the worker, under the worker's own policy (see site/_headers), not this one.
+    - frame-src: when the assistant calls a partner, the runtime frames that partner's action bridge in a hidden frame
+      (runtime/action-transport.js:107-113): Agent Atlas and Agent Customs (our allowed_peers in agent-manifest.json)
+      and Agent Customs' own peer, agent-customs-range.github.io. A bridge outside this list falls back to the
+      runtime's user-opened popup (runtime/action-transport.js:153-154).
+    - frame-ancestors does not work in a meta tag; site/_headers sends it on hosts that honour that file.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-hashes' 'sha256-w9bymhJ4S9BFR8jkOL9IzPIelA+8lILrhSALVNM7y5k=' 'sha256-Dh8E4+n+gtXPNPjrXtaww2ge8cPC+vOqjhX7MXHBbqw=' 'sha256-q3nqK4VzeI/SowYCYQ/tCfo056B/JMutuSpzbJbHczk=' 'sha256-i4PrIz85o9AfEDwwB+ARpsK/O/5ma+Q5EDKQLdXZ/1M=' 'sha256-LJVOt4FAE3nNOLZf7+FWk9PQifzUZwTAOUbh4kRjs/E=' 'sha256-aqNNdDLnnrDOnTNdkJpYlAxKVJtLt9CtFLklmInuUAE=' 'sha256-5QovU8lFNNr8yzeA3ON3wVRo1xAkOwVzhgpX8jFwsWE='; img-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; worker-src 'self'; frame-src https://agent-atlas-phi.vercel.app https://montbaga.github.io https://agent-customs-range.github.io; base-uri 'none'; form-action 'none'; object-src 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Plumbline Desk</title>
   <link rel="stylesheet" href="assistant.css">

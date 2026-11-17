@@ -1,0 +1,16 @@
+# Response headers for static hosts that read a _headers file (Netlify, Cloudflare Pages). GitHub Pages ignores this
+# file; there the Content-Security-Policy <meta> tag in index.html is the policy that applies, and these two protections
+# are missing. See site/README.md, "Content-Security-Policy".
+
+# frame-ancestors works only as a header, never in a <meta> tag. The Desk holds keys in memory, so no other site may
+# frame it. It is set on the page only: bridge/action-bridge.html must stay framable, because other agentic sites load
+# it in a hidden frame.
+/
+  Content-Security-Policy: frame-ancestors 'none'
+/index.html
+  Content-Security-Policy: frame-ancestors 'none'
+
+# The coded-tool sandbox worker gets its policy from its own response, not from the page. This is the policy the
+# runtime asks for (runtime/sandbox-worker.js); without it the worker refuses to run any peer's coded tool.
+/runtime/sandbox-worker.js
+  Content-Security-Policy: default-src 'none'; script-src blob:; connect-src 'none'; worker-src 'none'
