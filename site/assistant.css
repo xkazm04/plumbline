@@ -1,0 +1,187 @@
+/* Plumbline Desk: a restrained baseline. The page palette and the assistant's --ns-* variables share one set of
+   colours. White text sits on --ns-primary and --ns-accent (both at least 4.5:1 against white). States never rely on
+   colour alone: every chip carries an icon and words. The visual direction is an owner decision; this is the floor. */
+:root {
+  --page-bg: #ffffff;
+  --page-fg: #1f2328;
+  --page-muted: #4b5563;
+  --page-border: #d0d7de;
+  --page-panel: #f6f8fa;
+  --page-primary: #1f4e79;
+  --page-focus: #1f4e79;
+  --chip-good-bg: #e6f4ea;
+  --chip-good-fg: #14532d;
+  --chip-bad-bg: #fde8e8;
+  --chip-bad-fg: #7f1d1d;
+  --chip-unknown-bg: #fff4d6;
+  --chip-unknown-fg: #713f12;
+  --chip-none-bg: #eceff3;
+  --chip-none-fg: #1f2328;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: var(--page-fg); background: var(--page-bg); }
+.site-header, main, .site-footer { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+.site-header { padding-top: 24px; }
+.site-header h1 { margin: 0 0 4px; font-size: 1.9rem; }
+.tagline { margin: 0 0 8px; color: var(--page-muted); }
+main section { margin: 32px 0; }
+h2 { font-size: 1.35rem; margin: 0 0 8px; }
+h3 { font-size: 1.05rem; margin: 16px 0 6px; }
+h4 { font-size: 1rem; margin: 12px 0 4px; }
+pre { background: var(--page-panel); border: 1px solid var(--page-border); border-radius: 6px; padding: 8px 12px; overflow-x: auto; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; overflow-wrap: anywhere; }
+a { color: var(--page-primary); }
+.note { color: var(--page-muted); font-size: 0.95em; }
+.empty { color: var(--page-muted); }
+.skip { position: absolute; left: -9999px; }
+.skip:focus { left: 12px; top: 12px; background: var(--page-bg); padding: 6px 10px; z-index: 10; }
+
+/* Visible focus everywhere, the assistant included. */
+:focus-visible { outline: 3px solid var(--page-focus); outline-offset: 2px; }
+.desk:focus { outline: none; }
+
+.panel { border: 1px solid var(--page-border); border-radius: 10px; padding: 16px 20px; background: var(--page-bg); }
+.target-form, .fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 12px; align-items: center; margin: 8px 0; }
+.target-form button { grid-column: 2; justify-self: start; }
+.panel input[type="url"], .panel input[type="number"] { font: inherit; padding: 6px 8px; border: 1px solid #6b7280; border-radius: 6px; width: 100%; }
+.panel input[type="number"] { max-width: 8em; }
+.panel button, .assistant-review button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--page-primary); background: var(--page-primary); color: #ffffff; cursor: pointer; }
+.panel button.secondary, .assistant-review button.assistant-decline { background: transparent; color: var(--page-primary); }
+.panel button:disabled { opacity: 0.6; cursor: not-allowed; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.status { min-height: 1.5em; color: var(--page-muted); margin: 4px 0; }
+.result { margin-top: 8px; }
+.findings { list-style: none; padding: 0; margin: 8px 0; }
+.finding { border-left: 4px solid var(--page-border); padding: 4px 0 4px 12px; margin: 8px 0; }
+.finding .summary { margin: 4px 0 0; }
+.finding-pass, .finding-info { border-left-color: #2f855a; }
+.finding-fail, .finding-block { border-left-color: #b91c1c; }
+.finding-unavailable, .finding-warn { border-left-color: #a16207; }
+.unreachable { margin: 4px 0 0; font-weight: 600; }
+.hashes { color: var(--page-muted); font-family: ui-monospace, Consolas, monospace; font-size: 0.85em; overflow-wrap: anywhere; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; }
+.facts dt { font-weight: 600; }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.first-contact { border: 1px solid #a16207; border-radius: 8px; padding: 8px 16px; background: #fffbeb; margin: 12px 0; }
+.first-contact .check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
+.trust-entries { padding-left: 1.2em; }
+.trust-entries button { margin-left: 8px; padding: 2px 10px; }
+.downloads { padding-left: 1.2em; }
+.subjects { padding-left: 1.2em; }
+.custody li { margin: 4px 0; }
+.verdict-list dt { margin-top: 10px; }
+.verdict-list dd { margin: 4px 0 0 0; }
+.assistant-review dd { white-space: pre-line; }
+.site-footer { color: var(--page-muted); font-size: 0.9em; padding-bottom: 32px; }
+
+/* State chips: an icon and words, with tinted backgrounds that keep dark text at AA contrast. */
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 10px 1px 6px; border-radius: 999px; font-weight: 600; font-size: 0.92em; border: 1px solid currentColor; }
+.chip-icon { display: inline-block; min-width: 1.1em; text-align: center; font-weight: 700; }
+.chip-pass, .chip-verified, .chip-info { background: var(--chip-good-bg); color: var(--chip-good-fg); }
+.chip-fail, .chip-invalid, .chip-block { background: var(--chip-bad-bg); color: var(--chip-bad-fg); }
+.chip-unverifiable, .chip-warn { background: var(--chip-unknown-bg); color: var(--chip-unknown-fg); }
+.chip-unavailable { background: var(--chip-none-bg); color: var(--chip-none-fg); }
+
+@media (max-width: 640px) {
+  .target-form, .fields { grid-template-columns: 1fr; }
+  .target-form button { grid-column: 1; }
+  .facts { grid-template-columns: 1fr; }
+}
+
+/* ---- The assistant: templates/assistant.css from the agentify-website skill, colours set to the Desk's. ---- */
+/* Assistant layout. Append to the site's stylesheet and set the colors to the site's palette. */
+.assistant { margin-top: 48px; }
+
+/* The runtime reads these variables for its chat, settings and agent panels.
+   The chat background below also uses --ns-bg. White text sits on --ns-primary (the
+   visitor's messages, Send, and the chat form and settings buttons) and on --ns-accent
+   (Send while a turn is steered), so give both at least 4.5:1 contrast with white.
+   --ns-accent also underlines the chat header. */
+#agent-app {
+  --ns-font: system-ui, sans-serif;
+  --ns-bg: #ffffff;
+  --ns-fg: #1f2328;
+  --ns-primary: #1f4e79;
+  --ns-accent: #1f4e79;
+  --ns-border: #d0d7de;
+  --ns-panelbg: #ffffff;
+  --ns-msgbg: #f6f8fa;
+  --ns-muted: #59636e;
+}
+
+.assistant-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+/* Set the height once the runtime has mounted the chat, so a failed load leaves no
+   empty box. */
+#agent-app.ns-composed-app [data-ns-slot="chat"] { height: 720px; }
+/* The runtime gives the chat no background of its own. Keep --ns-msgbg different from
+   --ns-bg, or bot replies lose their bubble. */
+#agent-app .ns-chat { background: var(--ns-bg); }
+
+/* Site-wide form rules often stretch the runtime's own controls. Undo them here. */
+#agent-app input[type="checkbox"],
+#agent-app input[type="radio"] { width: auto; }
+#agent-app .ns-header { flex-wrap: wrap; }
+/* Site label rules add margins and bold text, and the inputs inside the labels inherit
+   the weight. */
+#agent-app .ns-settings-body label { margin: 4px 0; font-weight: 400; }
+/* Chat forms label radio groups with a legend, so site legend fonts would reach them. */
+#agent-app .ns-w-label { font-family: inherit; }
+/* Site label rules add margins to chat form fields and make their options bold. */
+#agent-app .ns-widget label { margin: 0; }
+#agent-app .ns-w-radio label,
+#agent-app .ns-w-multi label,
+#agent-app .ns-w-toggle { font-weight: 400; }
+/* The runtime sizes radio and multi-choice options but not the checkbox label. */
+#agent-app .ns-w-toggle { font-size: 13px; }
+/* The runtime spaces its buttons with gap. A site's button margin pushes Send below the input. */
+#agent-app button { margin: 0; }
+/* Chat choices are buttons with a light background. A site's button color can hide their
+   titles. */
+#agent-app .ns-w-choice { color: var(--ns-fg); }
+/* A site's button:hover background also reaches the runtime's plain buttons, behind
+   their dark text. Keep the runtime's own backgrounds. */
+#agent-app .ns-devtoggle:not(.on):hover,
+#agent-app .ns-modal-close:hover { background: transparent; }
+#agent-app .ns-w-choice:disabled:hover { background: #fafbfc; }
+/* The runtime's message rule hides the partner consent card's own background, and its
+   Decline label then has too little contrast. */
+#agent-app .ns-consent { background: #fffbeb; }
+/* While a consent card waits, the status line above it already says "Contacting", though
+   nothing has been sent. Hide it until the visitor answers. */
+#agent-app .ns-msgs:has(.ns-consent-actions) > .ns-turn-status { display: none; }
+/* Long links in a reply would run out of the bubble on a phone. "anywhere" would also
+   let the consent card's buttons shrink and split their labels. */
+#agent-app .ns-msg { overflow-wrap: break-word; }
+/* On a phone the consent card is too narrow for its three buttons in one row, and
+   "Always allow" breaks onto two lines. Keep each label whole and wrap the row. */
+#agent-app .ns-consent-actions { flex-wrap: wrap; }
+#agent-app .ns-consent-actions button { white-space: nowrap; }
+
+/* site.js and the runtime add their confirmation dialogs to <body>, outside #agent-app.
+   Site h2 rules reach the heading, and the two buttons touch. A right margin keeps
+   wrapped buttons lined up on the left. */
+body > dialog h2 { margin: 0 0 12px; font: 700 1.25em system-ui, sans-serif; }
+body > dialog button { margin-right: 8px; }
+/* site.js's dialog: the details in two columns, and a plain decline button, so the two
+   choices do not look the same. */
+.assistant-review { max-width: 640px; width: 85%; max-height: 85vh; overflow: auto; border: 1px solid #888; border-radius: 12px; padding: 24px; font: 16px system-ui, sans-serif; }
+.assistant-review dl { display: grid; grid-template-columns: fit-content(40%) 1fr; gap: 4px 16px; margin: 12px 0; }
+.assistant-review dt { font-weight: 600; }
+.assistant-review dd { margin: 0; overflow-wrap: anywhere; }
+.assistant-review details { margin: 12px 0; }
+.assistant-review pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-review .assistant-decline { background: transparent; color: inherit; border: 1px solid currentColor; }
+
+@media (max-width: 760px) {
+  .assistant-panels { grid-template-columns: 1fr; }
+  /* On a phone, each detail goes under its label, so an email is not split. */
+  .assistant-review dl { grid-template-columns: 1fr; gap: 0; }
+  .assistant-review dd { margin-bottom: 8px; }
+}

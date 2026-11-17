@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plumbline Desk</title>
+  <link rel="stylesheet" href="assistant.css">
+  <script type="module" src="desk.js"></script>
+  <script type="module" src="site.js"></script>
+</head>
+<body>
+  <!-- Structure only: every visible string comes from strings.js (data-s keys). -->
+  <a class="skip" href="#desk" data-s="header.skip"></a>
+  <header class="site-header">
+    <h1 data-s="header.name"></h1>
+    <p class="tagline" data-s="header.tagline"></p>
+    <noscript><p data-s="meta.noscript">The Plumbline Desk runs in your browser and needs JavaScript.</p></noscript>
+  </header>
+
+  <main>
+    <section id="about" aria-labelledby="about-heading">
+      <h2 id="about-heading" data-s="about.heading"></h2>
+      <p data-s="about.lead"></p>
+      <ul>
+        <li data-s="about.sign"></li>
+        <li data-s="about.gate"></li>
+        <li data-s="about.watch"></li>
+      </ul>
+      <p data-s="about.desk"></p>
+    </section>
+
+    <section id="verdicts" aria-labelledby="verdicts-heading">
+      <h2 id="verdicts-heading" data-s="verdicts.heading"></h2>
+      <p data-s="verdicts.lead"></p>
+      <dl class="verdict-list">
+        <dt><span class="chip chip-verified"><span class="chip-icon" aria-hidden="true">✓</span><span class="chip-words" data-s="verdicts.verifiedTitle"></span></span></dt>
+        <dd data-s="verdicts.verifiedMeaning"></dd>
+        <dt><span class="chip chip-invalid"><span class="chip-icon" aria-hidden="true">✕</span><span class="chip-words" data-s="verdicts.invalidTitle"></span></span></dt>
+        <dd data-s="verdicts.invalidMeaning"></dd>
+        <dt><span class="chip chip-unverifiable"><span class="chip-icon" aria-hidden="true">?</span><span class="chip-words" data-s="verdicts.unverifiableTitle"></span></span></dt>
+        <dd data-s="verdicts.unverifiableMeaning"></dd>
+      </dl>
+    </section>
+
+    <section id="publish" aria-labelledby="publish-heading">
+      <h2 id="publish-heading" data-s="publish.heading"></h2>
+      <p data-s="publish.lead"></p>
+      <pre><code data-s="publish.keygen"></code></pre>
+      <pre><code data-s="publish.sign"></code></pre>
+      <pre><code data-s="publish.lock"></code></pre>
+      <p data-s="publish.publishFiles"></p>
+      <p data-s="publish.lockEncouraged"></p>
+      <p data-s="publish.tellKid"></p>
+      <p data-s="publish.tools"></p>
+      <p class="note" data-s="publish.repoPending"></p>
+    </section>
+
+    <div id="desk" class="desk" tabindex="-1">
+      <section id="gate" class="panel" aria-labelledby="gate-heading">
+        <h2 id="gate-heading" data-s="gate.heading"></h2>
+        <p data-s="gate.lead"></p>
+        <form id="gate-form" class="target-form">
+          <label for="gate-target" data-s="gate.label"></label>
+          <input id="gate-target" name="target" type="url" required autocomplete="url" data-placeholder="gate.placeholder">
+          <button id="gate-run" type="submit" data-s="gate.button"></button>
+        </form>
+        <p id="gate-status" class="status" role="status" aria-live="polite"></p>
+        <div id="gate-result" class="result"></div>
+      </section>
+
+      <section id="drift" class="panel" aria-labelledby="drift-heading">
+        <h2 id="drift-heading" data-s="drift.heading"></h2>
+        <p data-s="drift.lead"></p>
+        <form id="drift-form" class="target-form">
+          <label for="drift-target" data-s="drift.label"></label>
+          <input id="drift-target" name="target" type="url" required autocomplete="url" data-placeholder="drift.placeholder">
+          <button id="drift-run" type="submit" data-s="drift.button"></button>
+        </form>
+        <p id="drift-status" class="status" role="status" aria-live="polite"></p>
+        <div id="drift-result" class="result"></div>
+      </section>
+
+      <section id="verify" class="panel" aria-labelledby="verify-heading">
+        <h2 id="verify-heading" data-s="verify.heading"></h2>
+        <p data-s="verify.lead"></p>
+        <form id="verify-form" class="target-form">
+          <label for="verify-target" data-s="verify.label"></label>
+          <input id="verify-target" name="target" type="url" required autocomplete="url" data-placeholder="verify.placeholder">
+          <button id="verify-run" type="submit" data-s="verify.button"></button>
+        </form>
+        <p id="verify-status" class="status" role="status" aria-live="polite"></p>
+        <div id="verify-result" class="result"></div>
+        <h3 id="trust-heading" data-s="verify.trustListHeading"></h3>
+        <p class="note" data-s="verify.trustListNote"></p>
+        <div id="trust-list" class="result"></div>
+      </section>
+
+      <section id="key" class="panel" aria-labelledby="key-heading">
+        <h2 id="key-heading" data-s="key.heading"></h2>
+        <p data-s="key.lead"></p>
+        <h3 id="custody-heading" data-s="key.custodyHeading"></h3>
+        <ul id="custody-list" class="custody"></ul>
+        <div class="actions">
+          <button id="key-generate" type="button" data-s="key.button"></button>
+          <button id="key-discard" type="button" class="secondary" hidden data-s="key.discard"></button>
+        </div>
+        <p id="key-status" class="status" role="status" aria-live="polite"></p>
+        <div id="key-result" class="result"></div>
+      </section>
+
+      <section id="sign" class="panel" aria-labelledby="sign-heading">
+        <h2 id="sign-heading" data-s="sign.heading"></h2>
+        <p data-s="sign.lead"></p>
+        <div class="fields">
+          <label for="sign-origin" data-s="sign.originLabel"></label>
+          <input id="sign-origin" type="url" autocomplete="off" data-placeholder="sign.originPlaceholder">
+          <label for="sign-days" data-s="sign.daysLabel"></label>
+          <input id="sign-days" type="number" min="1" max="3650" step="1" value="90">
+          <label for="sign-key" data-s="sign.keyLabel"></label>
+          <input id="sign-key" type="file" accept=".json,application/json">
+          <label for="sign-files" data-s="sign.filesLabel"></label>
+          <input id="sign-files" type="file" multiple accept=".json,application/json">
+        </div>
+        <div class="actions">
+          <button id="sign-button" type="button" data-s="sign.button"></button>
+          <button id="sign-clear" type="button" class="secondary" data-s="sign.clear"></button>
+        </div>
+        <p id="sign-status" class="status" role="status" aria-live="polite"></p>
+        <div id="sign-result" class="result"></div>
+      </section>
+
+      <section id="partners" class="panel" aria-labelledby="partners-heading">
+        <h2 id="partners-heading" data-s="partners.heading"></h2>
+        <p data-s="partners.lead"></p>
+        <ul>
+          <li><a data-href="partners.atlasLink" data-s="partners.atlasName"></a>: <span data-s="partners.atlasText"></span></li>
+          <li><a data-href="partners.customsLink" data-s="partners.customsName"></a>: <span data-s="partners.customsText"></span></li>
+        </ul>
+        <button id="partners-check" type="button" class="secondary" data-s="partners.button"></button>
+        <p id="partners-status" class="status" role="status" aria-live="polite"></p>
+        <div id="partners-result" class="result"></div>
+      </section>
+    </div>
+
+    <section id="assistant" class="assistant" aria-labelledby="assistant-heading">
+      <h2 id="assistant-heading" data-s="assistant.heading"></h2>
+      <p data-s="assistant.lead"></p>
+      <p class="assistant-note" data-s="assistant.note"></p>
+      <p id="assistant-status" role="status" data-s="assistant.connecting"></p>
+      <div id="agent-app">
+        <div data-ns-slot="header"></div>
+        <div class="assistant-panels">
+          <div data-ns-slot="chat"></div>
+          <div data-ns-slot="agents"></div>
+        </div>
+        <div data-ns-slot="settings"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p data-s="footer.license"></p>
+  </footer>
+</body>
+</html>

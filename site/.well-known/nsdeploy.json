@@ -1,0 +1,18 @@
+{
+  "protocol": "nsdeploy-link/v1",
+  "exports": [
+    {
+      "network": "plumbline_desk",
+      "front_man": "desk_guide",
+      "aliases": [
+        "plumbline_desk",
+        "desk_guide"
+      ],
+      "url": "plumbline_desk"
+    }
+  ],
+  "imports": [],
+  "link_updates": {
+    "mode": "browser-local"
+  }
+}

@@ -1,0 +1,252 @@
+// Every string the Desk shows a visitor. index.html holds structure only: an element with data-s="a.b" gets the text
+// of STRINGS.a.b, and data-href="a.b" gets its link. desk.js and site.js read the rest from here.
+
+export const STRINGS = {
+  meta: {
+    title: "Plumbline Desk",
+    noscript: "The Plumbline Desk runs in your browser and needs JavaScript.",
+  },
+
+  header: {
+    name: "Plumbline Desk",
+    tagline: "Keep an agentic website true after it ships: check it, read its drift, and sign its agent files under your own key, here in your browser.",
+    skip: "Skip to the Desk",
+  },
+
+  about: {
+    heading: "What Plumbline is",
+    lead: "An agentic website publishes agent-manifest.json and a network file, and each visitor's browser runs them. Those files go stale, and nothing in the spec says who published them. Plumbline is the layer after generation:",
+    sign: "Sign. The publisher signs the agent files with an Ed25519 key only they hold, and publishes plumbline.signature.json.",
+    gate: "Gate. One check asks three independent checkers about a site: Plumbline's port of the reference validation rules, Agent Atlas and Agent Customs. Each says pass, fail or unavailable.",
+    watch: "Watch. A published lock (plumbline.lock.json) records the runtime files, the grounding sources and the peers a site depends on; drift is any change since.",
+    desk: "This Desk does all of it live. Every check runs in your browser, with your browser's rules: it can read only what the site lets other origins read.",
+  },
+
+  verdicts: {
+    heading: "Three verdicts, never two",
+    lead: "A signature check ends in one of three states. A verdict is about who published the files, never about whether the site is safe.",
+    verifiedTitle: "Verified",
+    verifiedMeaning: "These files came from the holder of a key you already trust for this origin, and they have not changed since they were signed. It does not mean the site is safe, honest or correct.",
+    invalidTitle: "Invalid",
+    invalidMeaning: "Something is wrong: a signed file changed or is missing, the signature expired, or it does not check out under the key you trust. Do not treat these files as the publisher's.",
+    unverifiableTitle: "Unverifiable",
+    unverifiableMeaning: "You have not met this signer yet, or the site publishes no signature. The files may be fine, but nothing here can vouch for them until you trust the publisher's key yourself.",
+  },
+
+  publish: {
+    heading: "Publish a signature and a lock",
+    lead: "Keep the private key off the site and off this page if you can: sign on your build machine with the CLI.",
+    keygen: "plumbline keygen --out ~/plumbline-keys",
+    sign: "plumbline sign --root ./site --key ~/plumbline-keys/plumbline.private.json --origin https://your.site",
+    lock: "plumbline watch --root ./site --init",
+    publishFiles: "Publish plumbline.signature.json, .well-known/plumbline-key.json and plumbline.lock.json next to agent-manifest.json. Serve them with Access-Control-Allow-Origin: * like the other public agent files, or no browser on another site, this Desk included, can read them.",
+    lockEncouraged: "Sites are encouraged to publish their lock: it lets anyone, here or in their own CI, see drift since the publisher last looked.",
+    tellKid: "Tell your visitors your key id through a channel that is not the site itself, so they can trust it on first contact.",
+    tools: "The plumbline CLI and the GitHub Action that runs the gate and the watch in CI are in the Plumbline repository.",
+    repoPending: "Repository link: added when the repository is published.",
+  },
+
+  gate: {
+    heading: "Check a site (the gate)",
+    lead: "Give a site address, a network address or the address of its agent-manifest.json. Three checkers answer independently.",
+    label: "Site address",
+    placeholder: "https://example.com/",
+    button: "Run the gate",
+    running: "Asking the three checkers…",
+    empty: "No gate run yet.",
+    overall: "Overall",
+    corsNote: "In a browser, \"the connection failed\" also covers a server that does not allow cross-origin reads (CORS). It is never counted as a pass.",
+    adapters: {
+      validator: "Validator port",
+      atlas: "Agent Atlas",
+      customs: "Agent Customs",
+    },
+    unreachable: "{name} could not be reached",
+  },
+
+  drift: {
+    heading: "Read a site's drift",
+    lead: "Reads the site's published plumbline.lock.json and re-checks, live, what a browser can: each locked runtime file, each grounding source and each peer's network definition.",
+    label: "Site address",
+    placeholder: "https://example.com/",
+    button: "Read drift",
+    running: "Reading the lock and re-checking…",
+    empty: "No drift read yet.",
+    clean: "No drift: everything the lock records matches what the site publishes now.",
+    noLock: "This site publishes no plumbline.lock.json, so there is nothing to compare against. Publishing a lock is how a site lets others see drift.",
+    lockAt: "Lock read from",
+    notChecked: "Not checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub).",
+    kinds: {
+      grounding: "Grounding",
+      runtime: "Runtime",
+      peer: "Peers",
+    },
+    severity: {
+      info: "Note",
+      warn: "Warning",
+      block: "Blocking",
+    },
+    expected: "locked",
+    actual: "now",
+  },
+
+  verify: {
+    heading: "Verify a site's signature",
+    lead: "Fetches the site's plumbline.signature.json and the files it covers, and checks them against the publishers you trust in this browser.",
+    label: "Site address",
+    placeholder: "https://example.com/",
+    button: "Verify",
+    running: "Fetching the signature and the signed files…",
+    empty: "No verification yet.",
+    signer: "Signer key id",
+    origin: "Signed for origin",
+    fetchedFrom: "Files fetched from",
+    covered: "Signed files",
+    unsigned: "This site publishes no plumbline.signature.json, so nothing can be verified.",
+    originMismatch: "The signature names a different origin than the one these files were fetched from, so no trusted publisher can vouch for them here.",
+    reasons: {
+      "bad-signature": "the signature does not check out under the key you trust",
+      tampered: "a signed file changed, or is missing",
+      expired: "the signature has expired",
+      "kid-mismatch": "your trust entry for this key is defective (its key id does not belong to its key)",
+      malformed: "the signature file is not well formed",
+    },
+    firstContactHeading: "First contact: trust this publisher?",
+    firstContactLead: "Trust is a decision you make, not something a site can announce about itself. Before you trust this key:",
+    firstContactStep1: "Learn the publisher's key id through a channel that is not this site: in person, on a call, in a signed message or in a repository you already trust.",
+    firstContactStep2: "Compare it with the key id below, character by character.",
+    firstContactStep3: "Skipping this turns your trust store into a rubber stamp for whoever controls the site right now, which is exactly the attacker a signature is meant to exclude.",
+    publishedKid: "Key id the site publishes",
+    publishedKey: "Public key",
+    compared: "I compared this key id, character by character, with one the publisher gave me through another channel.",
+    trustButton: "Trust this publisher for this origin",
+    trustNeedsCheck: "Tick the box first: trust needs the out-of-band comparison.",
+    trustBadKey: "The published key id does not belong to the published key, so it cannot be trusted.",
+    trusted: "Trusted. Verify again to see the verdict under your trust store.",
+    trustListHeading: "Publishers you trust in this browser",
+    trustListEmpty: "You trust no publishers yet.",
+    trustListNote: "Kept in this browser's storage for this page only. Only these buttons change it; the assistant cannot.",
+    forget: "Forget",
+    storageUnavailable: "This browser does not let the page keep a trust list, so trust lasts until you reload.",
+  },
+
+  key: {
+    heading: "Generate a publisher key",
+    lead: "Makes an Ed25519 key in your browser with WebCrypto and offers the two files to download. Nothing is stored or sent anywhere.",
+    button: "Generate a key",
+    discard: "Discard the key and its downloads",
+    made: "Key made. Key id:",
+    downloadPrivate: "Download plumbline.private.json (keep it secret)",
+    downloadPublic: "Download plumbline-key.json (publish at .well-known/plumbline-key.json)",
+    discarded: "Discarded. The downloads are gone from this page.",
+    custodyHeading: "Key custody",
+    custody: [
+      "Key loss is identity loss. There is no recovery: nobody else holds the private key. Back up plumbline.private.json offline, and keep a second copy apart from the first.",
+      "Never commit the private key, and never put it in the published site directory.",
+      "A leaked key lets anyone sign as you. Rotate at once and tell your verifiers out of band.",
+      "A key held in browser memory is exposed to every script running on that origin. Anything on the page can use it or export it. Keep signing keys on a build machine or a hardware-backed store, not in the page.",
+      "Signatures expire. Re-sign before the expiry date.",
+    ],
+  },
+
+  sign: {
+    heading: "Sign a site's agent files",
+    lead: "Pick your private key file and your site's agent-manifest.json, its network file(s) and links.json. The page reads them here; nothing is uploaded, and neither the key nor the files reach the assistant.",
+    originLabel: "Origin the files are published from",
+    originPlaceholder: "https://your.site",
+    daysLabel: "Valid for (days)",
+    keyLabel: "Private key file (plumbline.private.json)",
+    filesLabel: "Site files (agent-manifest.json, network files, links.json)",
+    button: "Sign…",
+    clear: "Clear the chosen files",
+    preparing: "Reading the chosen files…",
+    ready: "Ready to sign",
+    notReady: "Not ready",
+    signed: "Signed. Download plumbline.signature.json and publish it next to agent-manifest.json.",
+    download: "Download plumbline.signature.json",
+    declined: "Not signed. Nothing changed.",
+    keyMemory: "While chosen, your private key sits in this page's memory, where any script on this origin could reach it. It is dropped after signing or when you clear the files.",
+    refusals: {
+      noKey: "Choose your private key file (plumbline.private.json) on the page first.",
+      badKey: "The chosen key file is not a Plumbline private key file, or its key id does not match its key.",
+      noManifest: "Choose your site's agent-manifest.json on the page first.",
+      badManifest: "The chosen agent-manifest.json is not valid JSON.",
+      missingNetwork: "The manifest names a network file that was not chosen: {path}.",
+      badJson: "A chosen file is not valid JSON: {path}.",
+      duplicate: "Two chosen files have the same name: {path}.",
+      badOrigin: "Give the origin the files are published from, such as https://your.site (http only for localhost).",
+      badDays: "Give a number of days from 1 to 3650.",
+      stale: "The chosen files changed since this was read. Read the page state again and use its version.",
+      busy: "The chosen files are still being read. Try again in a moment.",
+    },
+  },
+
+  dialog: {
+    signTitle: "Sign these files under your name?",
+    signSentence: "A signature is a statement under your name: anyone who trusts your key will accept these exact files from this origin as yours until it expires. Once you publish it you cannot take it back; only rotating your key ends it.",
+    signConfirm: "Sign and offer the file",
+    signDecline: "Don't sign",
+    technical: "Technical details",
+    origin: "Origin",
+    kid: "Your key id",
+    expires: "Valid until",
+    files: "Files covered (path and SHA-256)",
+  },
+
+  partners: {
+    heading: "Partner sites",
+    lead: "The assistant can ask these agentic sites what they offer, after you agree on a card. Their networks run in your browser on your key; they get none of this page's tools.",
+    atlasName: "Agent Atlas",
+    atlasText: "a directory of agentic websites that checks them against the spec",
+    atlasLink: "https://agent-atlas-phi.vercel.app/",
+    customsName: "Agent Customs",
+    customsText: "border control that inspects an agent network before it runs in your browser",
+    customsLink: "https://montbaga.github.io/agent-customs/",
+    button: "Check the partners now",
+    checking: "Checking…",
+    reachable: "{name} answered just now",
+    unreachable: "{name} could not be reached",
+  },
+
+  assistant: {
+    heading: "Ask the Plumbline Desk",
+    lead: "The assistant can run the gate, read drift, verify a signature, make a key and, after you confirm, sign the files you picked on the page. It never sees your private key.",
+    note: "Your messages and the results it reads go to the LLM provider you choose in the settings below. You confirm anything that cannot be undone before it happens.",
+    connecting: "Connecting the assistant… If this message stays, the assistant could not load. You can still use the page directly.",
+    needsKey: "Assistant needs your AI provider key. Add it in AI model settings below.",
+    connected: "Assistant connected to this page.",
+    failed: "The assistant could not load. You can still use the page directly.",
+    greeting: "I can run the gate on a site, read its drift, verify its signature, make you a publisher key and, after you confirm, sign the files you picked on this page. I can also ask Agent Atlas or Agent Customs what they offer.",
+    bundled: "Nothing ran. \"{confirm}\" needs its own confirmation, so ask the assistant to do that on its own.",
+  },
+
+  states: {
+    pass: "Passed",
+    fail: "Failed",
+    unavailable: "Unavailable: no verdict",
+    verified: "Verified",
+    invalid: "Invalid",
+    unverifiable: "Unverifiable",
+  },
+
+  errors: {
+    badTarget: "Give a full address that starts with https:// (http only for localhost).",
+    unexpected: "Something went wrong in the page; nothing was changed.",
+    storage: "The trust list could not be saved in this browser.",
+  },
+
+  footer: {
+    license: "Apache-2.0. The browser runtime in runtime/ is a copy of nsdeploy's (Apache-2.0), unchanged.",
+  },
+};
+
+/** Looks up "a.b.c" in STRINGS; an unknown key throws, so a typo never shows as an empty element. */
+export function t(key, vars = {}) {
+  let value = STRINGS;
+  for (const part of key.split(".")) {
+    if (value === null || typeof value !== "object" || !Object.hasOwn(value, part)) throw new Error(`No string ${key}`);
+    value = value[part];
+  }
+  if (typeof value !== "string") throw new Error(`String ${key} is not text`);
+  return value.replace(/\{(\w+)\}/g, (all, name) => (Object.hasOwn(vars, name) ? String(vars[name]) : all));
+}

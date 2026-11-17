@@ -1,0 +1,88 @@
+{
+  "brand": "Plumbline Desk",
+  "networks": [
+    {
+      "name": "plumbline_desk",
+      "front_man": "desk_guide",
+      "hocon": "./plumbline_desk.network.json",
+      "description": "Check an agentic website with the gate, read its drift, verify its publisher signature, and make a key and sign agent files in your browser.",
+      "tags": [
+        "agentified-website",
+        "trust-and-safety",
+        "conformance",
+        "signing"
+      ],
+      "sample_queries": [
+        "Run the gate on https://agent-atlas-phi.vercel.app/ and tell me what each checker said.",
+        "Has https://montbaga.github.io/agent-customs/ drifted from its published lock?",
+        "Verify the Plumbline signature of https://agent-atlas-phi.vercel.app/ and explain the verdict.",
+        "Make me a new publisher key.",
+        "Sign the agent files I picked on the page.",
+        "Certify that https://agent-atlas-phi.vercel.app/ is safe for everyone to use."
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "allowed_peers": [
+    "https://agent-atlas-phi.vercel.app",
+    "https://montbaga.github.io"
+  ],
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls the partner sites in allowed_peers (Agent Atlas and Agent Customs) only after the visitor agrees on a card, plus page-local actions."
+  },
+  "agent_mcp": {
+    "protocol": "nsdeploy-agent-mcp/v1",
+    "network": "plumbline_desk",
+    "front_man": "desk_guide",
+    "available": false,
+    "reason": "This is a static bundle; a public MCP facade requires an application host."
+  },
+  "theme": {
+    "primary": "#1f4e79"
+  },
+  "linking": {
+    "protocol": "nsdeploy-link/v1",
+    "exports": [
+      {
+        "network": "plumbline_desk",
+        "front_man": "desk_guide",
+        "aliases": [
+          "plumbline_desk",
+          "desk_guide"
+        ],
+        "url": "plumbline_desk"
+      }
+    ],
+    "imports": [],
+    "link_updates": {
+      "mode": "browser-local"
+    }
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true,
+    "direct_mcp_requires_cors": true,
+    "public_mcp_facade": false
+  },
+  "actions": {
+    "version": 1,
+    "module": "./site-actions.js",
+    "bridge": "./bridge/action-bridge.html",
+    "agentTools": [
+      "get_desk_state",
+      "run_gate",
+      "read_drift",
+      "verify_site",
+      "generate_key",
+      "sign_files"
+    ]
+  }
+}

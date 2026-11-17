@@ -1,0 +1,109 @@
+// The Desk's fetcher: the browser's own fetch, shaped like safeFetch's response so the gate, the locator and the drift
+// detector run unchanged. A browser needs no SSRF guard: same-origin and CORS rules decide what a page may read, and
+// the page cannot reach a private address for anyone but the visitor. What it keeps from safeFetch:
+//   - https only, with http allowed for localhost and 127.0.0.1 (local checks);
+//   - the same body ceiling (MAX_BODY_BYTES, from the pure net/fetch-types module) and one absolute timeout;
+//   - no cookies or credentials, no referrer.
+// Failures throw SafeFetchError with safeFetch's codes, so describeFetchError in the gate words them. A response the
+// browser will not let the page read (no CORS header, offline, refused) is a TypeError from fetch: it becomes code
+// "network", and the gate reports that adapter `unavailable`, never `pass`. A browser follows up to 20 redirects
+// itself, so safeFetch's limit of 3 is not enforced here.
+
+import { DEFAULT_TIMEOUT_MS, MAX_BODY_BYTES, SafeFetchError } from "./lib/plumbline/net/fetch-types.js";
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+async function readCapped(response, limit, controller) {
+  if (!response.body || typeof response.body.getReader !== "function") {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > limit) throw new SafeFetchError("body-too-large", "body over the ceiling");
+    return bytes;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      controller.abort();
+      throw new SafeFetchError("body-too-large", "body over the ceiling");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return bytes;
+}
+
+/**
+ * Make a fetcher with safeFetch's signature over a fetch implementation (the browser's by default).
+ *
+ * :param fetchImpl: A WHATWG fetch.
+ * :return: async (url, options) => SafeFetchResponse-shaped object.
+ */
+export function makeBrowserFetcher(fetchImpl = (...args) => globalThis.fetch(...args)) {
+  return async function browserFetch(url, options = {}) {
+    let target;
+    try {
+      target = new URL(url);
+    } catch {
+      throw new SafeFetchError("bad-url", "not a valid URL");
+    }
+    const loopbackHttp = target.protocol === "http:" && LOOPBACK_HOSTS.has(target.hostname);
+    if (target.protocol !== "https:" && !loopbackHttp) throw new SafeFetchError("insecure-scheme", "only https is fetched");
+    const limit = Math.min(Number.isFinite(options.maxBytes) ? options.maxBytes : MAX_BODY_BYTES, MAX_BODY_BYTES);
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    try {
+      let response;
+      try {
+        response = await fetchImpl(target.href, {
+          method: "GET",
+          credentials: "omit",
+          cache: "no-store",
+          redirect: "follow",
+          referrerPolicy: "no-referrer",
+          headers: { ...(options.headers || {}) },
+          signal: controller.signal,
+        });
+      } catch {
+        if (timedOut) throw new SafeFetchError("timeout", "timed out");
+        throw new SafeFetchError("network", "the browser could not read the address (offline, refused, or no cross-origin read allowed)");
+      }
+      let bytes;
+      try {
+        bytes = await readCapped(response, limit, controller);
+      } catch (error) {
+        if (error instanceof SafeFetchError) throw error;
+        if (timedOut) throw new SafeFetchError("timeout", "timed out");
+        throw new SafeFetchError("network", "the body could not be read");
+      }
+      const headers = {};
+      response.headers.forEach((value, name) => {
+        headers[name.toLowerCase()] = value;
+      });
+      return {
+        status: response.status,
+        ok: response.ok,
+        url: response.url || target.href,
+        redirects: response.redirected ? 1 : 0,
+        headers,
+        bytes,
+        text: () => new TextDecoder().decode(bytes),
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
