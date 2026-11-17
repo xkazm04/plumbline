@@ -8,7 +8,7 @@
 **Screenshots:** [SCREENSHOT: the gate on Agent Atlas] [SCREENSHOT: the signing dialog] [SCREENSHOT: verified,
 unverifiable and invalid side by side]
 
-**Live Desk:** [HOSTED URL] · **Repository:** [REPOSITORY URL]
+**Live Desk:** https://plumbline.xkazm04.workers.dev · **Repository:** https://github.com/xkazm04/plumbline
 
 ## What it does
 
