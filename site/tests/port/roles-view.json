@@ -1,0 +1,16 @@
+{
+  "about": "The Fix (contest B/3) promoted into the Desk: one tool view (Check a site), measured after the same click on both sides. Capture: python style-contract.py capture <winner index.html> roles-view.json contract-view.json --drive click:.pl[data-tool=check] --drive wait:1500. Check: python style-contract.py check <served Desk> roles-view.json contract-view.json --drive click:[data-role=port-item][data-tool=check] --drive wait:1500.",
+  "roles": {
+    "tool-kicker":     { "winner": ".tool__kicker",                 "port": "[data-role=tool-kicker]" },
+    "tool-title":      { "winner": ".tool__title",                  "port": "[data-role=tool-title]" },
+    "tool-sub":        { "winner": ".tool__sub",                    "port": "[data-role=tool-sub]" },
+    "strip-button":    { "winner": ".strip__b",                     "port": "[data-role=strip-button]" },
+    "tool-panel":      { "winner": ".tool__panel",                  "port": "[data-role=tool-panel]" },
+    "panel-heading":   { "winner": ".tool__panel .panel-h",         "port": "[data-role=panel-heading]" },
+    "field-label":     { "winner": ".tool__panel .field label",     "port": "[data-role=field-label]" },
+    "field-input":     { "winner": ".tool__panel .field input",     "port": "[data-role=field-input]" },
+    "primary-button":  { "winner": ".tool__panel .btn",             "port": "[data-role=primary-button]" },
+    "trail-back":      { "winner": ".trail__back",                  "port": "[data-role=trail-back]" },
+    "assistant-button":{ "winner": "#dockTab",                      "port": "[data-role=assistant-button]" }
+  }
+}

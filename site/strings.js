@@ -9,7 +9,10 @@ export const STRINGS = {
 
   header: {
     name: "Plumbline Desk",
-    tagline: "Keep an agentic website true after it ships: check it, read its drift, and sign its agent files under your own key, here in your browser.",
+    question: "Is it still what it claims to be?",
+    tagline: "Keep an agentic website true after it ships.",
+    plain: "The Desk checks an agentic website three independent ways, reads how it has drifted from what its publisher locked, and verifies who published its files.",
+    aboutLink: "What Plumbline is, and how to publish",
     skip: "Skip to the Desk",
   },
 
@@ -47,11 +50,13 @@ export const STRINGS = {
   },
 
   gate: {
-    heading: "Check a site (the gate)",
+    heading: "Check a site",
     lead: "Give a site address, a network address or the address of its agent-manifest.json. Three checkers answer independently.",
-    label: "Site address",
+    formHeading: "Site address",
+    label: "The site, its network or its agent-manifest.json",
     placeholder: "https://example.com/",
-    button: "Run the gate",
+    button: "Check this site",
+    resultHeading: "The fix",
     running: "Asking the three checkers…",
     empty: "No gate run yet.",
     overall: "Overall",
@@ -65,9 +70,13 @@ export const STRINGS = {
   },
 
   drift: {
-    heading: "Read a site's drift",
+    heading: "Read drift",
     lead: "Reads the site's published plumbline.lock.json and re-checks, live, what a browser can: each locked runtime file, each grounding source and each peer's network definition.",
-    label: "Site address",
+    formHeading: "Site address",
+    label: "The site whose lock to read",
+    resultHeading: "What the reading found",
+    caption: "Stylised: the vector shows the worst severity found, not a measured distance.",
+    noReading: "No reading yet: the course is not plotted.",
     placeholder: "https://example.com/",
     button: "Read drift",
     running: "Reading the lock and re-checking…",
@@ -91,9 +100,13 @@ export const STRINGS = {
   },
 
   verify: {
-    heading: "Verify a site's signature",
+    heading: "Verify a signature",
     lead: "Fetches the site's plumbline.signature.json and the files it covers, and checks them against the publishers you trust in this browser.",
-    label: "Site address",
+    formHeading: "Site address",
+    label: "The site whose signature to verify",
+    resultHeading: "The verdict",
+    sheetEmpty: "No signature read yet. Verify a site and its signature lands here, with its seal.",
+    sheetFiles: "Signed files",
     placeholder: "https://example.com/",
     button: "Verify",
     running: "Fetching the signature and the signed files…",
@@ -140,7 +153,7 @@ export const STRINGS = {
   },
 
   key: {
-    heading: "Generate a publisher key",
+    heading: "Make a publisher key",
     lead: "Makes an Ed25519 key in your browser with WebCrypto and offers the two files to download. Nothing is stored or sent anywhere.",
     button: "Generate a key",
     discard: "Discard the key and its downloads",
@@ -149,6 +162,8 @@ export const STRINGS = {
     downloadPublic: "Download plumbline-key.json (publish at .well-known/plumbline-key.json)",
     discarded: "Discarded. The downloads are gone from this page.",
     custodyHeading: "Key custody",
+    sealBlank: "No key yet: the die is blank.",
+    sealMade: "Seal of key {kid}",
     custody: [
       "Key loss is identity loss. There is no recovery: nobody else holds the private key. Back up plumbline.private.json offline, and keep a second copy apart from the first.",
       "Never commit the private key, and never put it in the published site directory.",
@@ -160,7 +175,14 @@ export const STRINGS = {
   },
 
   sign: {
-    heading: "Sign a site's agent files",
+    heading: "Sign a site's files",
+    filesHeading: "1. The files",
+    keyHeading: "2. The key",
+    originHeading: "3. Origin and lifetime",
+    ledgerHeading: "The manifest",
+    ledgerSub: "One line for every file the signature will cover, with its SHA-256. Nothing is signed until you confirm the same list in the dialog.",
+    ledgerEmpty: "No files chosen yet. The signature covers agent-manifest.json, the network files it names, and links.json.",
+    ledgerIgnored: "Chosen but not signed (not part of what plumbline sign signs): {names}.",
     lead: "Pick your private key file and your site's agent-manifest.json, its network file(s) and links.json. The page reads them here; nothing is uploaded, and neither the key nor the files reach the assistant.",
     originLabel: "Origin the files are published from",
     originPlaceholder: "https://your.site",
@@ -204,7 +226,8 @@ export const STRINGS = {
   },
 
   partners: {
-    heading: "Partner sites",
+    heading: "Peer ports",
+    lane: "The assistant may call these, after you agree.",
     lead: "The assistant can ask these agentic sites what they offer, after you agree on a card. Their networks run in your browser on your key; they get none of this page's tools.",
     atlasName: "Agent Atlas",
     atlasText: "a directory of agentic websites that checks them against the spec",
@@ -228,6 +251,58 @@ export const STRINGS = {
     failed: "The assistant could not load. You can still use the page directly.",
     greeting: "I can run the gate on a site, read its drift, verify its signature, make you a publisher key and, after you confirm, sign the files you picked on this page. I can also ask Agent Atlas or Agent Customs what they offer.",
     bundled: "Nothing ran. \"{confirm}\" needs its own confirmation, so ask the assistant to do that on its own.",
+  },
+
+  fix: {
+    portsHeading: "Five ports of call",
+    portsLabel: "The five ports",
+    portKicker: "Port {n} of 5",
+    portPreviewKicker: "Port {n} of 5 · {sub}",
+    ports: {
+      check: { name: "Check a site", sub: "Take a fix", what: "Three independent checkers answer: a validator port, Agent Atlas and Agent Customs." },
+      drift: { name: "Read drift", sub: "Set and drift", what: "Compares a site with its published lock: grounding, runtime and peer drift." },
+      verify: { name: "Verify a signature", sub: "Read the papers", what: "Checks a site's signature against the publishers you trust." },
+      key: { name: "Make a publisher key", sub: "Cast a seal", what: "An Ed25519 key made in your browser, offered as downloads, never stored or sent." },
+      sign: { name: "Sign a site's files", sub: "Sign the manifest", what: "Signs your agent files after a confirmation that lists every file and its SHA-256." },
+    },
+    aboutKicker: "The Desk",
+    aboutSub: "The pilot's notes",
+    sitesHeading: "Sites checked",
+    sitesLabel: "Sites checked: choose one to show its fix",
+    live: "live",
+    example: "example",
+    examplesNote: "Examples were captured {date} by Plumbline's CLI against the live sites, not run here. Each gate you run on this page takes an example's place.",
+    verdictKicker: "Verdict · {site}",
+    exampleKicker: "Example · {site}",
+    checkerKicker: "Checker · {state}",
+    noFixKicker: "No gate run yet",
+    noFixWord: "No fix yet",
+    noFixSub: "Check a site to take a fix: three rings, one per checker.",
+    checkersLabel: "The three checkers",
+    badgeLabel: "{name}: {state}. Shows its sentence in the verdict card.",
+    gateMeanings: {
+      pass: "Every checker answered and found no problem. A pass is not a guarantee about the site.",
+      fail: "At least one checker found a problem. Read its sentence.",
+      unavailable: "No checker failed, but at least one could not answer. That is no verdict, never a pass.",
+    },
+    short: {
+      pass: "Passed",
+      fail: "Failed",
+      unavailable: "Unavailable",
+      verified: "Verified",
+      invalid: "Invalid",
+      unverifiable: "Unverifiable",
+    },
+    shortAdapters: { validator: "Validator", atlas: "Atlas", customs: "Customs" },
+    howToReadHeading: "How to read the fix",
+    howToRead: "Each checker is a ring around its own station. Where all three cross at the site, there is a fix: a pass. A ring that misses the site is a fail. A dotted, unfinished ring is a checker that could not answer: no fix, never a pass.",
+    rule: "Overall is the worst of the three: any fail makes it fail; otherwise any unavailable makes it unavailable; only three passes pass.",
+    home: "The Desk",
+    back: "Back",
+    trailLabel: "You are here",
+    homeCompass: "Back to the Desk",
+    assistantButton: "Assistant",
+    assistantClose: "Close the assistant",
   },
 
   states: {

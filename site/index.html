@@ -6,11 +6,12 @@
     Content-Security-Policy. The Desk holds the visitor's LLM key and, while signing, a private key in memory, and
     renders model-written content, so it runs under the strictest policy that keeps every Desk function working.
     site/tests/csp.test.mjs checks this tag; site/README.md (Content-Security-Policy) explains it. Each relaxation:
-    - script-src 'self': every script is a same-origin module (desk.js, site.js and their imports; the runtime's dynamic
+    - script-src 'self': every script is a same-origin module (desk.js, shell.js, site.js and their imports; the runtime's dynamic
       imports in site.js and runtime/action-transport.js are same-origin). No inline script, no inline handler, no
       eval or new Function anywhere the page runs, so no 'unsafe-inline' and no 'unsafe-eval'.
-    - style-src: assistant.css ('self'), plus hashes for the vendored runtime's fixed inline styles, which we may not
-      edit: the <style> block runtime/ui.js:279 builds from BASE_CSS (runtime/ui.js:85 + runtime/cruse-render.js:3),
+    - style-src: fix.css and assistant.css ('self'; the page's own code adds no inline style: shell.js sets only custom
+      properties through the CSSOM, which style-src does not govern), plus hashes for the vendored runtime's fixed
+      inline styles, which we may not edit: the <style> block runtime/ui.js:279 builds from BASE_CSS (runtime/ui.js:85 + runtime/cruse-render.js:3),
       and six constant style="" attributes in runtime/ui.js (356, 370, 372, 1595, 1624, 1642), which need
       'unsafe-hashes'. That allows exactly those seven texts, not inline styles in general: model-written content
       cannot add a style. The test recomputes the hashes from the runtime, so a runtime update that changes them fails.
@@ -31,149 +32,298 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-hashes' 'sha256-w9bymhJ4S9BFR8jkOL9IzPIelA+8lILrhSALVNM7y5k=' 'sha256-Dh8E4+n+gtXPNPjrXtaww2ge8cPC+vOqjhX7MXHBbqw=' 'sha256-q3nqK4VzeI/SowYCYQ/tCfo056B/JMutuSpzbJbHczk=' 'sha256-i4PrIz85o9AfEDwwB+ARpsK/O/5ma+Q5EDKQLdXZ/1M=' 'sha256-LJVOt4FAE3nNOLZf7+FWk9PQifzUZwTAOUbh4kRjs/E=' 'sha256-aqNNdDLnnrDOnTNdkJpYlAxKVJtLt9CtFLklmInuUAE=' 'sha256-5QovU8lFNNr8yzeA3ON3wVRo1xAkOwVzhgpX8jFwsWE='; img-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; worker-src 'self'; frame-src https://agent-atlas-phi.vercel.app https://montbaga.github.io https://agent-customs-range.github.io; base-uri 'none'; form-action 'none'; object-src 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Plumbline Desk</title>
+  <link rel="stylesheet" href="fix.css">
   <link rel="stylesheet" href="assistant.css">
   <script type="module" src="desk.js"></script>
+  <script type="module" src="shell.js"></script>
   <script type="module" src="site.js"></script>
 </head>
 <body>
-  <!-- Structure only: every visible string comes from strings.js (data-s keys). -->
-  <a class="skip" href="#desk" data-s="header.skip"></a>
-  <header class="site-header">
-    <h1 data-s="header.name"></h1>
-    <p class="tagline" data-s="header.tagline"></p>
-    <noscript><p data-s="meta.noscript">The Plumbline Desk runs in your browser and needs JavaScript.</p></noscript>
-  </header>
+  <!-- Structure only: every visible string comes from strings.js (data-s keys; data-label gives an aria-label).
+       The Desk is "The Fix" (contest B/3): a chart, a compass card with five ports, and one focused view per port,
+       chosen by the address hash (#/check, #/drift, #/verify, #/key, #/sign, #/about). shell.js shows one view at a
+       time and draws the art; desk.js runs every tool. site/PORT.md lists each view and what it leaves out. -->
+  <a class="skip" href="#main" data-s="header.skip"></a>
+  <noscript><p class="noscript" data-s="meta.noscript">The Plumbline Desk runs in your browser and needs JavaScript.</p></noscript>
 
-  <main>
-    <section id="about" aria-labelledby="about-heading">
-      <h2 id="about-heading" data-s="about.heading"></h2>
-      <p data-s="about.lead"></p>
-      <ul>
-        <li data-s="about.sign"></li>
-        <li data-s="about.gate"></li>
-        <li data-s="about.watch"></li>
-      </ul>
-      <p data-s="about.desk"></p>
-    </section>
+  <!-- The chart: drawn paper and a graduated border. Decorative. -->
+  <div class="paper" id="paper" aria-hidden="true" data-role="page"></div>
 
-    <section id="verdicts" aria-labelledby="verdicts-heading">
-      <h2 id="verdicts-heading" data-s="verdicts.heading"></h2>
-      <p data-s="verdicts.lead"></p>
-      <dl class="verdict-list">
-        <dt><span class="chip chip-verified"><span class="chip-icon" aria-hidden="true">✓</span><span class="chip-words" data-s="verdicts.verifiedTitle"></span></span></dt>
-        <dd data-s="verdicts.verifiedMeaning"></dd>
-        <dt><span class="chip chip-invalid"><span class="chip-icon" aria-hidden="true">✕</span><span class="chip-words" data-s="verdicts.invalidTitle"></span></span></dt>
-        <dd data-s="verdicts.invalidMeaning"></dd>
-        <dt><span class="chip chip-unverifiable"><span class="chip-icon" aria-hidden="true">?</span><span class="chip-words" data-s="verdicts.unverifiableTitle"></span></span></dt>
-        <dd data-s="verdicts.unverifiableMeaning"></dd>
-      </dl>
-    </section>
+  <div class="stage" id="stage" data-level="1">
+    <header class="title" id="title">
+      <h1 class="title__h">
+        <span class="title__brand" data-role="brand"><span class="brandmark" aria-hidden="true"></span><span data-s="header.name"></span></span>
+        <span class="title__q" data-role="title" data-s="header.question"></span>
+      </h1>
+      <p class="title__tag" data-role="subtitle" data-s="header.tagline"></p>
+      <p class="title__plain" data-role="lead" data-s="header.plain"></p>
+      <p class="title__more"><a href="#/about" data-s="header.aboutLink"></a></p>
+    </header>
 
-    <section id="publish" aria-labelledby="publish-heading">
-      <h2 id="publish-heading" data-s="publish.heading"></h2>
-      <p data-s="publish.lead"></p>
-      <pre><code data-s="publish.keygen"></code></pre>
-      <pre><code data-s="publish.sign"></code></pre>
-      <pre><code data-s="publish.lock"></code></pre>
-      <p data-s="publish.publishFiles"></p>
-      <p data-s="publish.lockEncouraged"></p>
-      <p data-s="publish.tellKid"></p>
-      <p data-s="publish.tools"></p>
-      <p class="note" data-s="publish.repoPending"></p>
-    </section>
+    <p class="ghost" id="ghost" aria-hidden="true"></p>
 
-    <div id="desk" class="desk" tabindex="-1">
-      <section id="gate" class="panel" aria-labelledby="gate-heading">
-        <h2 id="gate-heading" data-s="gate.heading"></h2>
-        <p data-s="gate.lead"></p>
-        <form id="gate-form" class="target-form">
-          <label for="gate-target" data-s="gate.label"></label>
-          <input id="gate-target" name="target" type="url" required autocomplete="url" data-placeholder="gate.placeholder">
-          <button id="gate-run" type="submit" data-s="gate.button"></button>
-        </form>
-        <p id="gate-status" class="status" role="status" aria-live="polite"></p>
-        <div id="gate-result" class="result"></div>
-      </section>
-
-      <section id="drift" class="panel" aria-labelledby="drift-heading">
-        <h2 id="drift-heading" data-s="drift.heading"></h2>
-        <p data-s="drift.lead"></p>
-        <form id="drift-form" class="target-form">
-          <label for="drift-target" data-s="drift.label"></label>
-          <input id="drift-target" name="target" type="url" required autocomplete="url" data-placeholder="drift.placeholder">
-          <button id="drift-run" type="submit" data-s="drift.button"></button>
-        </form>
-        <p id="drift-status" class="status" role="status" aria-live="polite"></p>
-        <div id="drift-result" class="result"></div>
-      </section>
-
-      <section id="verify" class="panel" aria-labelledby="verify-heading">
-        <h2 id="verify-heading" data-s="verify.heading"></h2>
-        <p data-s="verify.lead"></p>
-        <form id="verify-form" class="target-form">
-          <label for="verify-target" data-s="verify.label"></label>
-          <input id="verify-target" name="target" type="url" required autocomplete="url" data-placeholder="verify.placeholder">
-          <button id="verify-run" type="submit" data-s="verify.button"></button>
-        </form>
-        <p id="verify-status" class="status" role="status" aria-live="polite"></p>
-        <div id="verify-result" class="result"></div>
-        <h3 id="trust-heading" data-s="verify.trustListHeading"></h3>
-        <p class="note" data-s="verify.trustListNote"></p>
-        <div id="trust-list" class="result"></div>
-      </section>
-
-      <section id="key" class="panel" aria-labelledby="key-heading">
-        <h2 id="key-heading" data-s="key.heading"></h2>
-        <p data-s="key.lead"></p>
-        <h3 id="custody-heading" data-s="key.custodyHeading"></h3>
-        <ul id="custody-list" class="custody"></ul>
-        <div class="actions">
-          <button id="key-generate" type="button" data-s="key.button"></button>
-          <button id="key-discard" type="button" class="secondary" hidden data-s="key.discard"></button>
+    <main id="main" class="main" tabindex="-1">
+      <!-- The overview: the compass card, the five ports, the sites checked and the peer ports. No tool runs here. -->
+      <section class="home" id="home" data-label="fix.portsLabel">
+        <div class="dial" id="dial" data-role="compass"></div>
+        <ul class="homelogs" id="homelogs" data-label="fix.checkersLabel"></ul>
+        <nav class="portlist" id="portlist" aria-labelledby="ports-heading">
+          <h2 class="portlist__h" id="ports-heading" data-role="port-list-heading" data-s="fix.portsHeading"></h2>
+          <ul id="portlist-items"></ul>
+        </nav>
+        <div class="pager" id="pager" role="group" aria-labelledby="sites-heading">
+          <h2 class="pager__h" id="sites-heading" data-role="sites-heading" data-s="fix.sitesHeading"></h2>
+          <div class="pager__list" id="pager-list"></div>
+          <p class="note pager__note" id="pager-note"></p>
         </div>
-        <p id="key-status" class="status" role="status" aria-live="polite"></p>
-        <div id="key-result" class="result"></div>
+        <aside class="peers" id="partners" aria-labelledby="partners-heading">
+          <h2 class="peers__h" id="partners-heading" data-role="peers-heading" data-s="partners.heading"></h2>
+          <p class="peers__lane" data-s="partners.lane"></p>
+          <div class="peer">
+            <p class="peer__name" data-role="peer-name"><a data-href="partners.atlasLink" data-s="partners.atlasName"></a></p>
+            <span class="peer__role" data-s="partners.atlasText"></span>
+          </div>
+          <div class="peer">
+            <p class="peer__name"><a data-href="partners.customsLink" data-s="partners.customsName"></a></p>
+            <span class="peer__role" data-s="partners.customsText"></span>
+          </div>
+          <button id="partners-check" type="button" class="btn btn--ghost btn--small" data-s="partners.button"></button>
+          <p id="partners-status" class="msg" role="status" aria-live="polite"></p>
+          <div id="partners-result" class="result"></div>
+        </aside>
       </section>
 
-      <section id="sign" class="panel" aria-labelledby="sign-heading">
-        <h2 id="sign-heading" data-s="sign.heading"></h2>
-        <p data-s="sign.lead"></p>
-        <div class="fields">
-          <label for="sign-origin" data-s="sign.originLabel"></label>
-          <input id="sign-origin" type="url" autocomplete="off" data-placeholder="sign.originPlaceholder">
-          <label for="sign-days" data-s="sign.daysLabel"></label>
-          <input id="sign-days" type="number" min="1" max="3650" step="1" value="90">
-          <label for="sign-key" data-s="sign.keyLabel"></label>
-          <input id="sign-key" type="file" accept=".json,application/json">
-          <label for="sign-files" data-s="sign.filesLabel"></label>
-          <input id="sign-files" type="file" multiple accept=".json,application/json">
+      <!-- Port 1: check a site (the gate). The fix on the left, the address and the checkers' sentences on the right. -->
+      <section class="tool" id="gate" data-tool="check" hidden aria-labelledby="gate-heading">
+        <header class="tool__head">
+          <p class="tool__kicker" data-role="tool-kicker" data-port-kicker="1"></p>
+          <h2 class="tool__title" id="gate-heading" tabindex="-1" data-role="tool-title" data-s="gate.heading"></h2>
+          <p class="tool__sub" data-role="tool-sub" data-s="fix.ports.check.sub"></p>
+        </header>
+        <ol class="strip" data-strip="check"></ol>
+        <div class="tool__body">
+          <div class="tool__art">
+            <div class="fixwrap" id="gate-fix"></div>
+          </div>
+          <div class="tool__panel" data-role="tool-panel">
+            <h3 class="panel-h" data-role="panel-heading" data-s="gate.formHeading"></h3>
+            <form id="gate-form" class="field">
+              <label for="gate-target" data-role="field-label" data-s="gate.label"></label>
+              <input id="gate-target" name="target" type="url" required autocomplete="url" spellcheck="false" data-role="field-input" data-placeholder="gate.placeholder">
+              <div class="btnrow"><button id="gate-run" class="btn" type="submit" data-role="primary-button" data-s="gate.button"></button></div>
+            </form>
+            <p id="gate-status" class="msg" role="status" aria-live="polite"></p>
+            <p class="note" data-s="gate.lead"></p>
+            <h3 class="panel-h" data-s="gate.resultHeading"></h3>
+            <div id="gate-result" class="result"></div>
+            <h3 class="panel-h" data-s="fix.howToReadHeading"></h3>
+            <p class="serif-note" data-s="fix.howToRead"></p>
+            <p class="note rule" data-s="fix.rule"></p>
+          </div>
         </div>
-        <div class="actions">
-          <button id="sign-button" type="button" data-s="sign.button"></button>
-          <button id="sign-clear" type="button" class="secondary" data-s="sign.clear"></button>
+      </section>
+
+      <!-- Port 2: read drift. The plotted course on the left, the lock and its findings on the right. -->
+      <section class="tool" id="drift" data-tool="drift" hidden aria-labelledby="drift-heading">
+        <header class="tool__head">
+          <p class="tool__kicker" data-port-kicker="2"></p>
+          <h2 class="tool__title" id="drift-heading" tabindex="-1" data-s="drift.heading"></h2>
+          <p class="tool__sub" data-s="fix.ports.drift.sub"></p>
+        </header>
+        <ol class="strip" data-strip="drift"></ol>
+        <div class="tool__body">
+          <div class="tool__art">
+            <div class="course" id="drift-course"></div>
+            <p class="note course__cap" id="drift-caption"></p>
+          </div>
+          <div class="tool__panel">
+            <h3 class="panel-h" data-s="drift.formHeading"></h3>
+            <form id="drift-form" class="field">
+              <label for="drift-target" data-s="drift.label"></label>
+              <input id="drift-target" name="target" type="url" required autocomplete="url" spellcheck="false" data-placeholder="drift.placeholder">
+              <div class="btnrow"><button id="drift-run" class="btn" type="submit" data-s="drift.button"></button></div>
+            </form>
+            <p id="drift-status" class="msg" role="status" aria-live="polite"></p>
+            <p class="note" data-s="drift.lead"></p>
+            <h3 class="panel-h" data-s="drift.resultHeading"></h3>
+            <div id="drift-result" class="result"></div>
+          </div>
         </div>
-        <p id="sign-status" class="status" role="status" aria-live="polite"></p>
-        <div id="sign-result" class="result"></div>
       </section>
 
-      <section id="partners" class="panel" aria-labelledby="partners-heading">
-        <h2 id="partners-heading" data-s="partners.heading"></h2>
-        <p data-s="partners.lead"></p>
-        <ul>
-          <li><a data-href="partners.atlasLink" data-s="partners.atlasName"></a>: <span data-s="partners.atlasText"></span></li>
-          <li><a data-href="partners.customsLink" data-s="partners.customsName"></a>: <span data-s="partners.customsText"></span></li>
-        </ul>
-        <button id="partners-check" type="button" class="secondary" data-s="partners.button"></button>
-        <p id="partners-status" class="status" role="status" aria-live="polite"></p>
-        <div id="partners-result" class="result"></div>
+      <!-- Port 3: verify a signature. The papers (the signature and your register of trusted seals) on the left, the
+           verdict on the right. -->
+      <section class="tool" id="verify" data-tool="verify" hidden aria-labelledby="verify-heading">
+        <header class="tool__head">
+          <p class="tool__kicker" data-port-kicker="3"></p>
+          <h2 class="tool__title" id="verify-heading" tabindex="-1" data-s="verify.heading"></h2>
+          <p class="tool__sub" data-s="fix.ports.verify.sub"></p>
+        </header>
+        <ol class="strip" data-strip="verify"></ol>
+        <div class="tool__body">
+          <div class="tool__art tool__art--scroll">
+            <div class="papers">
+              <div class="sheet sheet--doc" id="verify-sheet"></div>
+              <div class="sheet sheet--reg">
+                <h3 class="sheet__h" id="trust-heading" data-s="verify.trustListHeading"></h3>
+                <p class="note" data-s="verify.trustListNote"></p>
+                <div id="trust-list" class="result"></div>
+              </div>
+            </div>
+          </div>
+          <div class="tool__panel">
+            <h3 class="panel-h" data-s="verify.formHeading"></h3>
+            <form id="verify-form" class="field">
+              <label for="verify-target" data-s="verify.label"></label>
+              <input id="verify-target" name="target" type="url" required autocomplete="url" spellcheck="false" data-placeholder="verify.placeholder">
+              <div class="btnrow"><button id="verify-run" class="btn" type="submit" data-s="verify.button"></button></div>
+            </form>
+            <p id="verify-status" class="msg" role="status" aria-live="polite"></p>
+            <p class="note" data-s="verify.lead"></p>
+            <h3 class="panel-h" data-s="verify.resultHeading"></h3>
+            <div id="verify-result" class="result"></div>
+            <h3 class="panel-h" id="verdicts-heading" data-s="verdicts.heading"></h3>
+            <p class="note" data-s="verdicts.lead"></p>
+            <dl class="legend">
+              <dt><span class="chip chip-verified"><span class="chip-icon" aria-hidden="true">✓</span><span class="chip-words" data-s="verdicts.verifiedTitle"></span></span></dt>
+              <dd data-s="verdicts.verifiedMeaning"></dd>
+              <dt><span class="chip chip-invalid"><span class="chip-icon" aria-hidden="true">✕</span><span class="chip-words" data-s="verdicts.invalidTitle"></span></span></dt>
+              <dd data-s="verdicts.invalidMeaning"></dd>
+              <dt><span class="chip chip-unverifiable"><span class="chip-icon" aria-hidden="true">?</span><span class="chip-words" data-s="verdicts.unverifiableTitle"></span></span></dt>
+              <dd data-s="verdicts.unverifiableMeaning"></dd>
+            </dl>
+          </div>
+        </div>
       </section>
-    </div>
 
-    <section id="assistant" class="assistant" aria-labelledby="assistant-heading">
-      <h2 id="assistant-heading" data-s="assistant.heading"></h2>
-      <p data-s="assistant.lead"></p>
-      <p class="assistant-note" data-s="assistant.note"></p>
-      <p id="assistant-status" role="status" data-s="assistant.connecting"></p>
+      <!-- Port 4: make a publisher key. The die and its seal on the left, the key and its custody on the right. -->
+      <section class="tool" id="key" data-tool="key" hidden aria-labelledby="key-heading">
+        <header class="tool__head">
+          <p class="tool__kicker" data-port-kicker="4"></p>
+          <h2 class="tool__title" id="key-heading" tabindex="-1" data-s="key.heading"></h2>
+          <p class="tool__sub" data-s="fix.ports.key.sub"></p>
+        </header>
+        <ol class="strip" data-strip="key"></ol>
+        <div class="tool__body">
+          <div class="tool__art">
+            <div class="signet">
+              <div class="die" id="key-die"></div>
+              <div class="impress" id="key-seal"></div>
+              <p class="impress__kid" id="key-seal-kid"></p>
+            </div>
+          </div>
+          <div class="tool__panel">
+            <p class="lead" data-s="key.lead"></p>
+            <div class="btnrow">
+              <button id="key-generate" class="btn" type="button" data-s="key.button"></button>
+              <button id="key-discard" type="button" class="btn btn--ghost" hidden data-s="key.discard"></button>
+            </div>
+            <p id="key-status" class="msg" role="status" aria-live="polite"></p>
+            <div id="key-result" class="result"></div>
+            <h3 class="panel-h" id="custody-heading" data-s="key.custodyHeading"></h3>
+            <ol id="custody-list" class="custody"></ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- Port 5: sign a site's files. The manifest (every file and its SHA-256) on the left, the choices on the right. -->
+      <section class="tool" id="sign" data-tool="sign" hidden aria-labelledby="sign-heading">
+        <header class="tool__head">
+          <p class="tool__kicker" data-port-kicker="5"></p>
+          <h2 class="tool__title" id="sign-heading" tabindex="-1" data-s="sign.heading"></h2>
+          <p class="tool__sub" data-s="fix.ports.sign.sub"></p>
+        </header>
+        <ol class="strip" data-strip="sign"></ol>
+        <div class="tool__body">
+          <div class="tool__art">
+            <div class="ledger">
+              <h3 class="ledger__h" data-s="sign.ledgerHeading"></h3>
+              <p class="ledger__sub" data-s="sign.ledgerSub"></p>
+              <div id="sign-ledger" class="cargo"></div>
+            </div>
+          </div>
+          <div class="tool__panel">
+            <p class="lead" data-s="sign.lead"></p>
+            <h3 class="panel-h" data-s="sign.filesHeading"></h3>
+            <div class="field">
+              <label for="sign-files" data-s="sign.filesLabel"></label>
+              <input id="sign-files" type="file" multiple accept=".json,application/json">
+            </div>
+            <h3 class="panel-h" data-s="sign.keyHeading"></h3>
+            <div class="field">
+              <label for="sign-key" data-s="sign.keyLabel"></label>
+              <input id="sign-key" type="file" accept=".json,application/json">
+            </div>
+            <h3 class="panel-h" data-s="sign.originHeading"></h3>
+            <div class="field">
+              <label for="sign-origin" data-s="sign.originLabel"></label>
+              <input id="sign-origin" type="url" autocomplete="off" spellcheck="false" data-placeholder="sign.originPlaceholder">
+            </div>
+            <div class="field">
+              <label for="sign-days" data-s="sign.daysLabel"></label>
+              <input id="sign-days" type="number" min="1" max="3650" step="1" value="90">
+            </div>
+            <div class="btnrow">
+              <button id="sign-button" class="btn" type="button" data-s="sign.button"></button>
+              <button id="sign-clear" type="button" class="btn btn--ghost" data-s="sign.clear"></button>
+            </div>
+            <p id="sign-status" class="msg" role="status" aria-live="polite"></p>
+            <div id="sign-result" class="result"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Not a port: what Plumbline is, and how to publish with the CLI. Reading only. -->
+      <section class="tool" id="about" data-tool="about" hidden aria-labelledby="about-heading">
+        <header class="tool__head">
+          <p class="tool__kicker" data-s="fix.aboutKicker"></p>
+          <h2 class="tool__title" id="about-heading" tabindex="-1" data-s="about.heading"></h2>
+          <p class="tool__sub" data-s="fix.aboutSub"></p>
+        </header>
+        <ol class="strip" data-strip="about"></ol>
+        <div class="tool__body">
+          <div class="tool__art tool__art--scroll">
+            <div class="sheet sheet--read">
+              <p class="lead" data-s="about.lead"></p>
+              <ul class="about-list">
+                <li data-s="about.sign"></li>
+                <li data-s="about.gate"></li>
+                <li data-s="about.watch"></li>
+              </ul>
+              <p class="lead" data-s="about.desk"></p>
+            </div>
+          </div>
+          <div class="tool__panel">
+            <h3 class="panel-h" id="publish-heading" data-s="publish.heading"></h3>
+            <p class="note" data-s="publish.lead"></p>
+            <code class="cli" data-s="publish.keygen"></code>
+            <code class="cli" data-s="publish.sign"></code>
+            <code class="cli" data-s="publish.lock"></code>
+            <p class="note" data-s="publish.publishFiles"></p>
+            <p class="note" data-s="publish.lockEncouraged"></p>
+            <p class="note" data-s="publish.tellKid"></p>
+            <p class="note" data-s="publish.tools"></p>
+            <p class="note" data-s="publish.repoPending"></p>
+            <p class="note rule" data-s="footer.license"></p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <nav class="trail" id="trail" data-label="fix.trailLabel"></nav>
+
+    <button class="home-compass" id="home-compass" type="button" hidden data-label="fix.homeCompass"></button>
+    <button class="dock-tab" id="dock-tab" type="button" aria-expanded="false" aria-controls="assistant" data-role="assistant-button"><svg viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M4 6h24v16H15l-6 5v-5H4z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M16 9l3 4.5h-6z" fill="currentColor"/><path d="M16 18v-4" stroke="currentColor" stroke-width="2.2"/></svg><span data-s="fix.assistantButton"></span></button>
+
+    <!-- The vendored runtime's chat, mounted in the panel the Assistant button opens. Themed only through --ns-*. -->
+    <section id="assistant" class="dock" hidden aria-labelledby="assistant-heading">
+      <div class="dock__top">
+        <h2 class="dock__label" id="assistant-heading" data-s="assistant.heading"></h2>
+        <button id="dock-close" class="btn btn--ghost btn--small" type="button" data-s="fix.assistantClose"></button>
+      </div>
+      <p class="dock__sentence" data-s="assistant.lead"></p>
+      <p class="note" data-s="assistant.note"></p>
+      <p id="assistant-status" class="note dock__status" role="status" data-s="assistant.connecting"></p>
       <div id="agent-app">
         <div data-ns-slot="header"></div>
         <div class="assistant-panels">
@@ -183,10 +333,8 @@
         <div data-ns-slot="settings"></div>
       </div>
     </section>
-  </main>
+  </div>
 
-  <footer class="site-footer">
-    <p data-s="footer.license"></p>
-  </footer>
+  <div class="live" id="live" role="status" aria-live="polite"></div>
 </body>
 </html>

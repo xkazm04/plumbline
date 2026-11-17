@@ -748,7 +748,23 @@ export class DeskPage {
     if (typeof document === "undefined") return;
     const view = VIEWS[part];
     if (view) view(this);
+    for (const hook of RENDER_HOOKS) {
+      // A drawing that fails must never break a tool: the hook's error is logged, the result stays on the page.
+      try {
+        hook(part, this);
+      } catch (error) {
+        console.error(error);
+      }
+    }
   }
+}
+
+/** Browser-only listeners (shell.js draws the art of each view from the page state). Tests register none. */
+const RENDER_HOOKS = [];
+
+/** Call fn(part, page) after each part of the page is rendered. */
+export function onRender(fn) {
+  RENDER_HOOKS.push(fn);
 }
 
 // ---- DOM helpers: only #id lookups and createElement, so the Node DOM stand-in can run them ----
@@ -976,6 +992,7 @@ function renderKey(page) {
 function renderSign(page) {
   const out = byId("sign-result");
   const s = page.signing;
+  renderLedger(page);
   const nodes = [];
   if (s.busy) nodes.push(el("p", t("sign.preparing"), "status"));
   const check = page.checkSign();
@@ -988,20 +1005,28 @@ function renderSign(page) {
     k.append(el("span", `${t("dialog.kid")}: `), el("code", s.keyFile.kid, "kid"));
     nodes.push(k, el("p", t("sign.keyMemory"), "note"));
   }
-  if (s.subjects.length) {
-    const list = el("ul", null, "subjects");
-    for (const x of s.subjects) {
-      const li = el("li");
-      li.append(el("code", x.path), el("span", ` sha256 ${x.sha256}`, "hashes"));
-      list.append(li);
-    }
-    nodes.push(list);
-  }
   if (page.signature) {
     nodes.push(el("p", t("sign.signed"), "notice"));
     nodes.push(downloadLink(page.signature.offer, t("sign.download")));
   }
   if (page.notices.sign) nodes.push(el("p", page.notices.sign, "notice"));
+  out.replaceChildren(...nodes);
+}
+
+/** The manifest beside the signing form: every file the signature will cover, with its SHA-256. */
+function renderLedger(page) {
+  const out = byId("sign-ledger");
+  const s = page.signing;
+  const nodes = [];
+  if (!s.subjects.length) nodes.push(el("p", t("sign.ledgerEmpty"), "ledger__empty"));
+  for (const x of s.subjects) {
+    const row = el("div", null, "cargo__row");
+    const dot = el("span", null, "cargo__dot");
+    dot.setAttribute("aria-hidden", "true");
+    row.append(dot, el("code", x.path, "cargo__p"), el("span", `sha256 ${x.sha256}`, "cargo__d"));
+    nodes.push(row);
+  }
+  if (s.subjects.length && s.ignored.length) nodes.push(el("p", t("sign.ledgerIgnored", { names: s.ignored.join(", ") }), "note"));
   out.replaceChildren(...nodes);
 }
 
@@ -1045,6 +1070,7 @@ function fillStrings() {
   for (const node of document.querySelectorAll("[data-s]")) node.textContent = t(node.dataset.s);
   for (const node of document.querySelectorAll("[data-href]")) node.setAttribute("href", t(node.dataset.href));
   for (const node of document.querySelectorAll("[data-placeholder]")) node.setAttribute("placeholder", t(node.dataset.placeholder));
+  for (const node of document.querySelectorAll("[data-label]")) node.setAttribute("aria-label", t(node.dataset.label));
   const custody = byId("custody-list");
   custody.replaceChildren(...STRINGS.key.custody.map((line) => el("li", line)));
   document.title = t("meta.title");

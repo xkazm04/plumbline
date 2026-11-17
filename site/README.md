@@ -7,7 +7,20 @@ itself an agentic website in the sense of the Worldwide Agentic Web MVP spec (Pr
 first), two partner sites it can ask after the visitor agrees, and a bridge so other agentic sites can call it.
 
 It was built with the `agentify-website` skill of [cognizant-ai-labs/agentic-web](https://github.com/cognizant-ai-labs/agentic-web)
-(Apache-2.0), following its workflow and templates rather than a design of our own.
+(Apache-2.0), following its workflow and templates. Its look and structure are "The Fix", the design the owner chose in
+the Plumbline Desk contest (B/3, 2026-11-17): a chart with a compass card, five ports of call and one focused view per
+port. [`PORT.md`](PORT.md) lists each view, what it shows and what it deliberately leaves out.
+
+## The views
+
+The overview (`#/`) shows the compass card with the fix of one gate run, the five ports, the sites checked and the peer
+ports; it runs no tool. Each port opens its own view by the address hash: `#/check` (the gate), `#/drift`, `#/verify`
+(with your trust list), `#/key` and `#/sign`. `#/about` holds what Plumbline is and how to publish with the CLI. The
+Assistant button (top right) opens the assistant panel over the current view. The keys 1 to 5 open the ports and Escape
+returns to the overview. Below 1180 px wide, or in portrait, the page becomes one column.
+
+The overview's first three "sites checked" are gate reports captured 2026-11-17 by the CLI (`examples.js`), labelled
+"example" wherever they show; each gate you run on the page takes an example's place.
 
 ## Run it
 
@@ -23,8 +36,8 @@ node <agentic-web>/skills/agentify-website/scripts/serve_site.mjs site --port 80
 `Access-Control-Allow-Origin: *` on the public agent files. Any static server works for the page itself; ES modules
 need HTTP, not `file://`.
 
-The page works without the assistant: every action has a page button. To use the assistant, open **AI model settings**,
-pick a provider and paste your own key. The assistant sends your messages, and the results it reads, to the provider you
+The page works without the assistant: every action has a page button. To use the assistant, press **Assistant** (top
+right), open **AI model settings** in the panel, pick a provider and paste your own key. The assistant sends your messages, and the results it reads, to the provider you
 pick. On `localhost` the runtime also keeps saved setups, keys included, in a cookie any local site can read, so use a
 key with a low spending limit, and afterwards delete the saved setup (Advanced settings) and close the tab.
 
@@ -41,6 +54,10 @@ query has no tool to misuse, an unreachable checker is never `pass`, and sign th
 `verified` once trusted, then `invalid tampered` after an edit, and `csp.test.mjs` keeps the Content-Security-Policy
 (below) strict and in step with the runtime. They use a scripted model and a scripted fetcher; they
 call no LLM and no network. They check the plumbing, not how a real model follows the instructions.
+
+`tests/port/` holds the style contract of the chosen design: the winner's computed styles for each named part, and the
+command that checks the served page against them (`PORT.md`, "The style contract"). It needs a browser, so it is not part
+of `npm run test:site`.
 
 ## What it does
 
@@ -100,10 +117,12 @@ The comment beside the tag gives the evidence (file and line) for each source. I
 
 - **Scripts.** Every script is a same-origin module, including the runtime's dynamic imports. There is no inline script,
   no inline handler and no `eval` or `new Function`, so the policy has neither `'unsafe-inline'` nor `'unsafe-eval'`.
-- **Styles.** The vendored runtime, which we do not edit, adds one `<style>` block (`runtime/ui.js`, its `BASE_CSS`) and
-  six fixed `style=""` attributes (`runtime/ui.js`). The policy allows those seven texts by hash, with `'unsafe-hashes'`
-  for the attributes, and no other inline style: a style attribute in model-written HTML is refused (and the runtime's
-  HTML sanitizer drops it anyway). `site/tests/csp.test.mjs` recomputes the hashes from the runtime, so a runtime update
+- **Styles.** The page's own styles are two same-origin sheets, `fix.css` and `assistant.css`. The vendored runtime,
+  which we do not edit, adds one `<style>` block (`runtime/ui.js`, its `BASE_CSS`) and six fixed `style=""` attributes
+  (`runtime/ui.js`). The policy allows those seven texts by hash, with `'unsafe-hashes'` for the attributes, and no
+  other inline style: a style attribute in model-written HTML is refused (and the runtime's HTML sanitizer drops it
+  anyway). The page's own markup has no `style=""`; `shell.js` positions the compass ports, the checker badges and the
+  chart through custom properties set with the CSSOM (`element.style.setProperty`), which the policy does not govern. `site/tests/csp.test.mjs` recomputes the hashes from the runtime, so a runtime update
   that changes its inline styles fails the tests until the hashes are updated here.
 - **Why `connect-src` is broad.** It cannot be a short allow-list. The gate, drift and verify read any https site the
   visitor names, and the model router is the visitor's own choice: hosted Otari, Groq, OpenAI, Google, Anthropic, any
@@ -132,6 +151,12 @@ and a model-written HTML report (scripted model responses), and a partner call t
 and bridge frame. No CSP violation, except the one the policy is for: a `style` attribute in the scripted model's HTML
 report was refused (`runtime/cruse-render.js`), which changes nothing, because the sanitizer drops it.
 
+**Checked again after the move to "The Fix"** (headless Chromium, 2026-11-17, served from `http://127.0.0.1`, at
+1920x1080, 1280x800 and 390x844): the overview, the five port views and About, a real gate run on
+`https://agent-atlas-phi.vercel.app/`, the partner check, key generation, signing a fixture through the confirmation
+dialog, verify (unverifiable, trust, verified, then invalid tampered after an edit), and the assistant panel opened. No
+CSP violation and no page error; no visible text under 12 px.
+
 ## Network URL and callers
 
 The network URL is the folder that holds `agent-manifest.json`, then `plumbline_desk`, for example
@@ -157,11 +182,16 @@ own card.
 
 | Path | What |
 | --- | --- |
-| `index.html` | the page: structure only, and the Content-Security-Policy; every visible string is in `strings.js` |
+| `index.html` | the page: structure only (the overview, one section per view, the assistant panel), and the Content-Security-Policy; every visible string is in `strings.js` |
 | `_headers` | response headers for hosts that read it: `frame-ancestors` and the sandbox worker's policy |
 | `strings.js` | every visible string |
-| `assistant.css` | the page's baseline styles and the skill's assistant CSS (`--ns-*` colours) |
+| `fix.css` | the page's look: "The Fix" (contest B/3), ported from the winner's stylesheet |
+| `assistant.css` | the assistant panel, the skill's assistant CSS (`--ns-*` colours) and the confirmation dialog |
 | `desk.js` | the page object (`App.page`) and its rendering; the page's buttons call it |
+| `shell.js` | the views: which one shows (by the address hash), the overview, and each view's drawing from the page state; runs no tool |
+| `art.js` | the drawings (the chart, the compass card, the fix, the seal, the course, the die) as SVG with no style attribute |
+| `examples.js` | the three captured gate reports the overview shows, labelled, before a gate is run here |
+| `PORT.md` | the views, what each shows and leaves out, and the style contract |
 | `fetcher.js` | the browser fetcher in safeFetch's shape (https or localhost, body ceiling, timeout) |
 | `drift.js` | the browser drift reader |
 | `review-dialog.js` | the skill's confirmation dialog, shared by the page and the assistant |
@@ -173,6 +203,7 @@ own card.
 | `runtime/` | the skill's browser runtime, byte for byte; see `runtime/NOTICE`. Never edit |
 | `lib/plumbline/` | generated by `npm run build:site`, git-ignored |
 | `tests/` | the Node tests and the skill's DOM stand-ins and scripted model |
+| `tests/port/` | the style contract: the winner's roles and their measured styles (`style-contract.py` from the contest skill) |
 
 ## Limits
 

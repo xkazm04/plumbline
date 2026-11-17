@@ -1,0 +1,28 @@
+{
+  "about": "The Fix (contest B/3) promoted into the Desk. Overview roles, measured at load. The owner chose B/3 for being balanced and practical, with content split into focused views; the roles below are the overview's look (chart surface, serif titles, compass card, the ports, the calm verdict card, the sites checked, the Assistant button). The tool-view roles are in roles-view.json, measured after one click, because one check run sees one view. Capture: python style-contract.py capture <winner index.html> roles.json contract.json. Check: python style-contract.py check <served Desk> roles.json contract.json.",
+  "roles": {
+    "page":              { "winner": ".paper",                      "port": "[data-role=page]" },
+    "brand":             { "winner": ".title__brand",               "port": "[data-role=brand]" },
+    "title":             { "winner": ".title__q",                   "port": "[data-role=title]" },
+    "subtitle":          { "winner": ".title__tag",                 "port": "[data-role=subtitle]" },
+    "lead":              { "winner": ".title__plain",               "port": "[data-role=lead]" },
+    "compass":           { "winner": ".dial",                       "port": "[data-role=compass]" },
+    "compass-port":      { "winner": ".port",                       "port": "[data-role=compass-port]" },
+    "checker-badge":     { "winner": ".badge",                      "port": "[data-role=checker-badge]" },
+    "port-list-heading": { "winner": ".portlist__h",                "port": "[data-role=port-list-heading]" },
+    "port-item":         { "winner": ".pl",                         "port": "[data-role=port-item]" },
+    "port-name":         { "winner": ".pl__name",                   "port": "[data-role=port-name]" },
+    "port-sub":          { "winner": ".pl__sub",                    "port": "[data-role=port-sub]" },
+    "verdict-card":      { "winner": "#cartouche",                  "port": "[data-role=verdict-card]" },
+    "verdict-kicker":    { "winner": "#cartouche .cartouche__kicker", "port": "[data-role=verdict-kicker]" },
+    "verdict-word":      { "winner": "#cartouche .cartouche__word", "port": "[data-role=verdict-word]" },
+    "verdict-sub":       { "winner": "#cartouche .cartouche__sub",  "port": "[data-role=verdict-sub]" },
+    "sites-heading":     { "winner": ".pager__h",                   "port": "[data-role=sites-heading]" },
+    "site-row":          { "winner": ".pennant",                    "port": "[data-role=site-row]" },
+    "site-name":         { "winner": ".pennant__name",              "port": "[data-role=site-name]" },
+    "site-word":         { "winner": ".pennant__word",              "port": "[data-role=site-word]" },
+    "peers-heading":     { "winner": ".peers__h",                   "port": "[data-role=peers-heading]" },
+    "peer-name":         { "winner": ".peer__name",                 "port": "[data-role=peer-name]" },
+    "assistant-button":  { "winner": "#dockTab",                    "port": "[data-role=assistant-button]" }
+  }
+}
