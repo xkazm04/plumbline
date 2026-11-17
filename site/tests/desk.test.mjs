@@ -16,7 +16,8 @@ import { StubElement } from "./stub_element.mjs";
 import { StubOption } from "./stub_option.mjs";
 import { ScriptedModel } from "./scripted_model.mjs";
 import { SafeFetchError } from "../lib/plumbline/net/fetch-types.js";
-import { keyId, verifySignature } from "../lib/plumbline/core/index.js";
+import { canonicalJson, generateKey, keyId, revokeKey, signSubjects, signedPathsOf, verifySignature } from "../lib/plumbline/core/index.js";
+import { signText } from "../lib/plumbline/core/keys.js";
 
 const NETWORK_NAME = "plumbline_desk";
 const READ_ACTION = "get_desk_state";
@@ -29,7 +30,8 @@ globalThis.document = StubDocument.fromHtml(await readFile(new URL("../index.htm
 globalThis.Option = StubOption;
 const { registerActions } = await import("../site-actions.js");
 const { AssistantMount } = await import("../site.js");
-const { App, PARTNERS } = await import("../desk.js");
+const { App, PARTNERS, TrustBook } = await import("../desk.js");
+const { STRINGS } = await import("../strings.js");
 
 // ---- a scripted fetcher: routes by exact URL, anything else is a network failure (as a CORS refusal would be) ----
 
@@ -86,6 +88,37 @@ class MemoryStorage {
 }
 
 const web = await atlasWeb();
+
+/** The Desk's own agent files, as `plumbline sign` would sign them: [{path, text}] in signed-path order. */
+async function deskSiteFiles() {
+  const manifest = JSON.parse(await siteFile("agent-manifest.json"));
+  const out = [];
+  for (const path of signedPathsOf(manifest, true)) out.push({ path, text: await siteFile(path.replace(/^\.\//, "")) });
+  return out;
+}
+
+/**
+ * A scripted site at `origin` serving the Desk's agent files, a signature made by `signer` for `signedFor` (default:
+ * the same origin) and the signer's public key record. Nothing for plumbline-revocation.json unless the test sets it.
+ */
+async function signedSite(origin, signer, signedFor = origin) {
+  const site = new Web();
+  const files = await deskSiteFiles();
+  for (const f of files) site.set(new URL(f.path, `${origin}/`).href, f.text);
+  const signature = await signSubjects({
+    privateKey: signer.privateKey,
+    key: signer.key,
+    origin: signedFor,
+    files: files.map((f) => ({ path: f.path, content: JSON.parse(f.text) })),
+    now: NOW,
+    lifetimeDays: 30,
+  });
+  site.set(`${origin}/plumbline.signature.json`, JSON.stringify(signature));
+  site.set(`${origin}/.well-known/plumbline-key.json`, JSON.stringify(signer.key));
+  return { site, signature, files };
+}
+
+const REVOCATION_PATH = "plumbline-revocation.json";
 App.page.configure({ fetch: web.fetch, now: () => NOW, storage: new MemoryStorage() });
 
 /**
@@ -775,6 +808,194 @@ class DeskTest {
     assert.ok(!DeskTest.leaksKey(page, signer) && !DeskTest.leaksKey(page, made), "The page shows key material.");
   }
 
+  // ---- revocation, origin binding and the shared signed-file rule ----
+
+  /** A verified revocation makes the signer's signature invalid/revoked and marks every trust entry for the key. */
+  static async testRevokedPublisher() {
+    const SITE = "https://revoked.example";
+    const signer = await generateKey(NOW);
+    const { site } = await signedSite(SITE, signer);
+    const storage = new MemoryStorage();
+    App.page.configure({ fetch: site.fetch, storage });
+    try {
+      App.page.trust.add({ kid: signer.key.kid, origin: SITE, publicKey: signer.key.publicKey });
+      App.page.trust.add({ kid: signer.key.kid, origin: "https://other.example", publicKey: signer.key.publicKey });
+      site.set(`${SITE}/${REVOCATION_PATH}`, "not found", 404);
+      assert.equal((await App.page.verifySite({ target: `${SITE}/` })).verdict, "verified");
+      const revocation = await revokeKey({ privateKey: signer.privateKey, key: signer.key, now: NOW, reason: "the laptop was stolen" });
+      site.set(`${SITE}/${REVOCATION_PATH}`, JSON.stringify(revocation));
+      const result = await App.page.verifySite({ target: `${SITE}/` });
+      assert.equal(result.verdict, "invalid");
+      assert.equal(result.reason, "revoked");
+      assert.equal(result.reasonInWords, STRINGS.verify.reasons.revoked);
+      assert.equal(result.revocation.state, "applied");
+      assert.deepEqual(result.revocation.results.map((r) => r.verdict), ["verified", "verified"]);
+      // Every trust entry for the key is marked, whatever its origin, in the page state and in storage.
+      assert.deepEqual(
+        App.page.getState().trustedPublishers.map((e) => [e.origin, e.revokedAt]),
+        [
+          [SITE, revocation.revokedAt],
+          ["https://other.example", revocation.revokedAt],
+        ],
+      );
+      assert.equal(new TrustBook(storage).find(signer.key.kid, SITE).revokedAt, revocation.revokedAt);
+      // The trust list shows the publisher as revoked, in words; the verify result says what happened.
+      const list = JSON.stringify(StubDocument.describe(document.getElementById("trust-list")));
+      assert.ok(list.includes(`Revoked ${revocation.revokedAt.slice(0, 10)}`), list);
+      const shown = JSON.stringify(StubDocument.describe(document.getElementById("verify-result")));
+      assert.ok(shown.includes(STRINGS.verify.reasons.revoked));
+      assert.ok(shown.includes(STRINGS.verify.revocation.applied));
+      // The mark is kept: with the revocation file gone the key stays dead, and no first contact is offered.
+      site.set(`${SITE}/${REVOCATION_PATH}`, "not found", 404);
+      const later = await App.page.verifySite({ target: `${SITE}/` });
+      assert.equal(later.reason, "revoked");
+      assert.equal(later.publishedKey, undefined);
+      // Adding the key again, for any origin, does not lift the mark.
+      App.page.trust.add({ kid: signer.key.kid, origin: "https://third.example", publicKey: signer.key.publicKey });
+      assert.equal(App.page.trust.find(signer.key.kid, "https://third.example").revokedAt, revocation.revokedAt);
+    } finally {
+      App.page.configure({ fetch: web.fetch, storage: new MemoryStorage() });
+    }
+  }
+
+  /** A revocation not made by the trusted key is refused and reported; nothing in the trust store changes. */
+  static async testForeignRevocationIgnored() {
+    const SITE = "https://forged.example";
+    const signer = await generateKey(NOW);
+    const thief = await generateKey(NOW);
+    const { site } = await signedSite(SITE, signer);
+    App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+    try {
+      App.page.trust.add({ kid: signer.key.kid, origin: SITE, publicKey: signer.key.publicKey });
+      const unsigned = { type: "plumbline-revocation", version: 1, alg: "Ed25519", kid: signer.key.kid, revokedAt: NOW.toISOString() };
+      const forged = { ...unsigned, sig: await signText(thief.privateKey, canonicalJson(unsigned)) };
+      site.set(`${SITE}/${REVOCATION_PATH}`, JSON.stringify(forged));
+      const before = App.page.getState().trustedPublishers;
+      const result = await App.page.verifySite({ target: `${SITE}/` });
+      assert.equal(result.verdict, "verified", result.detail);
+      assert.equal(result.revocation.state, "not-applied");
+      assert.deepEqual(result.revocation.results.map((r) => [r.verdict, r.reason]), [["invalid", "bad-signature"]]);
+      assert.deepEqual(App.page.getState().trustedPublishers, before);
+      assert.equal(App.page.trust.find(signer.key.kid, SITE).revokedAt, undefined);
+      const shown = JSON.stringify(StubDocument.describe(document.getElementById("verify-result")));
+      assert.ok(shown.includes(STRINGS.verify.revocation.notApplied));
+      // A revocation of a key this browser never trusted changes nothing either, and the site's own key gets no
+      // first-contact offer: a revocation only takes trust away.
+      App.page.trust.remove(signer.key.kid, SITE);
+      const own = await revokeKey({ privateKey: signer.privateKey, key: signer.key, now: NOW });
+      site.set(`${SITE}/${REVOCATION_PATH}`, JSON.stringify(own));
+      const stranger = await App.page.verifySite({ target: `${SITE}/` });
+      assert.equal(stranger.verdict, "unverifiable");
+      assert.equal(stranger.revocation.state, "not-applied");
+      assert.equal(stranger.revocation.results[0].verdict, "unverifiable");
+      assert.equal(stranger.keyRevokedBySite, true);
+      assert.equal(stranger.publishedKey, undefined);
+      assert.deepEqual(App.page.getState().trustedPublishers, []);
+    } finally {
+      App.page.configure({ fetch: web.fetch, storage: new MemoryStorage() });
+    }
+  }
+
+  /** No revocation file is normal and changes nothing; one that cannot be read is reported, never taken as absent. */
+  static async testMissingRevocationChangesNothing() {
+    const SITE = "https://plain.example";
+    const signer = await generateKey(NOW);
+    const { site } = await signedSite(SITE, signer);
+    App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+    try {
+      App.page.trust.add({ kid: signer.key.kid, origin: SITE, publicKey: signer.key.publicKey });
+      const before = App.page.getState().trustedPublishers;
+      site.set(`${SITE}/${REVOCATION_PATH}`, "not found", 404);
+      const result = await App.page.verifySite({ target: `${SITE}/` });
+      assert.equal(result.verdict, "verified", result.detail);
+      assert.deepEqual(result.revocation, { file: `${SITE}/${REVOCATION_PATH}`, state: "absent" });
+      assert.deepEqual(App.page.getState().trustedPublishers, before);
+      // The browser cannot read it (a CORS refusal looks like this): reported as unavailable, not as absent.
+      site.routes.delete(`${SITE}/${REVOCATION_PATH}`);
+      const unread = await App.page.verifySite({ target: `${SITE}/` });
+      assert.equal(unread.revocation.state, "unavailable");
+      assert.equal(unread.revocation.detail, STRINGS.verify.revocation.unreadable);
+      const shown = JSON.stringify(StubDocument.describe(document.getElementById("verify-result")));
+      assert.ok(shown.includes(STRINGS.verify.revocation.unreadable));
+      site.set(`${SITE}/${REVOCATION_PATH}`, "oops", 500);
+      assert.equal((await App.page.verifySite({ target: `${SITE}/` })).revocation.state, "unavailable");
+      assert.deepEqual(App.page.getState().trustedPublishers, before);
+    } finally {
+      App.page.configure({ fetch: web.fetch, storage: new MemoryStorage() });
+    }
+  }
+
+  /** Files served from another origin than the one signed for are unverifiable, as core's expectedOrigin says. */
+  static async testOtherOriginIsUnverifiable() {
+    const SIGNED = "https://home.example";
+    const MIRROR = "https://mirror.example";
+    const signer = await generateKey(NOW);
+    const { site, signature, files } = await signedSite(MIRROR, signer, SIGNED);
+    site.set(`${MIRROR}/${REVOCATION_PATH}`, "not found", 404);
+    App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+    try {
+      // The visitor trusts the key for the signed origin AND for the mirror: the files are still not attested there.
+      App.page.trust.add({ kid: signer.key.kid, origin: SIGNED, publicKey: signer.key.publicKey });
+      App.page.trust.add({ kid: signer.key.kid, origin: MIRROR, publicKey: signer.key.publicKey });
+      const result = await App.page.verifySite({ target: `${MIRROR}/` });
+      assert.equal(result.verdict, "unverifiable");
+      assert.equal(result.fetchedFrom, MIRROR);
+      assert.equal(result.origin, SIGNED);
+      assert.equal(result.originMismatch, true);
+      assert.equal(result.publishedKey, undefined);
+      // The Desk and core (as `plumbline verify --origin` calls it) give the same answer.
+      const subjects = files.map((f) => ({ path: f.path, content: JSON.parse(f.text) }));
+      const core = await verifySignature(signature, subjects, App.page.trust, { now: NOW, expectedOrigin: MIRROR });
+      assert.deepEqual([result.verdict, result.detail], [core.verdict, core.detail]);
+      // A tampered file stays invalid wherever it is served.
+      site.set(`${MIRROR}/links.json`, "{}");
+      assert.equal((await App.page.verifySite({ target: `${MIRROR}/` })).reason, "tampered");
+    } finally {
+      App.page.configure({ fetch: web.fetch, storage: new MemoryStorage() });
+    }
+  }
+
+  /** The Desk signs exactly what core's signedPathsOf names, for the Desk's own files and for an awkward manifest. */
+  static async testSubjectsAreSignedPathsOf() {
+    const sorted = (paths) => [...paths].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    await DeskTest.arrangeIrreversibleState();
+    const manifest = JSON.parse(await siteFile("agent-manifest.json"));
+    assert.deepEqual(App.page.getState().signing.files.map((f) => f.path), sorted(signedPathsOf(manifest, true)));
+    // A repeated network, an entry without hocon and a path that is not .hocon; no links.json.
+    const awkward = { networks: [{ hocon: "./a.hocon" }, { hocon: "./a.hocon" }, { name: "no hocon" }, { hocon: "sub/b.network.json" }] };
+    await App.page.chooseSiteFiles([
+      new File([JSON.stringify(awkward)], "agent-manifest.json"),
+      new File(["{}"], "a.network.json"),
+      new File(["{}"], "b.network.json"),
+      new File(["{}"], "notes.json"),
+    ]);
+    assert.equal(App.page.signing.problem, null);
+    assert.deepEqual(App.page.getState().signing.files.map((f) => f.path), sorted(signedPathsOf(awkward, false)));
+    assert.deepEqual(App.page.signing.ignored, ["notes.json"]);
+  }
+
+  /**
+   * The trust store keeps revokedAt across a reload, drops an entry whose mark it cannot read (never keeps it without
+   * the mark), and a mark on one entry covers every entry for that key.
+   */
+  static async testTrustBookKeepsRevokedAt() {
+    const storage = new MemoryStorage();
+    const entry = { kid: "0123456789abcdef", origin: "https://a.example", publicKey: "AAAA" };
+    const entries = [
+      { ...entry, revokedAt: "2026-11-01T00:00:00.000Z" },
+      { ...entry, origin: "https://b.example", revokedAt: "yesterday" },
+      { ...entry, origin: "https://c.example" },
+    ];
+    storage.setItem("plumbline-desk.trust.v1", JSON.stringify({ version: 1, entries }));
+    const book = new TrustBook(storage);
+    assert.deepEqual(book.list(), [
+      { kid: entry.kid, origin: "https://a.example", revokedAt: "2026-11-01T00:00:00.000Z" },
+      { kid: entry.kid, origin: "https://c.example", revokedAt: "2026-11-01T00:00:00.000Z" },
+    ]);
+    book.save();
+    assert.equal(new TrustBook(storage).find(entry.kid, "https://a.example").revokedAt, "2026-11-01T00:00:00.000Z");
+  }
+
   /** Each sample query has a tool that answers it from real results; the decline query has no tool to misuse. */
   static async testSampleQueries() {
     const loaded = await DeskTest.load();
@@ -834,4 +1055,10 @@ test("reads run without a dialog and change nothing but the last result", DeskTe
 test("the gate in the page: an unreachable checker is unavailable, never pass, and said in words", DeskTest.testGateUnreachableIsNeverPass);
 test("sign, then verify: unverifiable, verified once trusted, invalid tampered after an edit", DeskTest.testSignThenVerifyThreeStates);
 test("the model never receives private key bytes", DeskTest.testModelNeverReceivesPrivateKeyBytes);
+test("a revoked publisher's signature is invalid/revoked and the trust list shows the publisher revoked", DeskTest.testRevokedPublisher);
+test("a revocation signed by another key is ignored and reported", DeskTest.testForeignRevocationIgnored);
+test("a missing revocation file changes nothing; an unreadable one is reported, not taken as absent", DeskTest.testMissingRevocationChangesNothing);
+test("files served from another origin than signed are unverifiable, as core says", DeskTest.testOtherOriginIsUnverifiable);
+test("the Desk's subjects are core's signedPathsOf", DeskTest.testSubjectsAreSignedPathsOf);
+test("the trust store keeps revokedAt and never drops only the mark", DeskTest.testTrustBookKeepsRevokedAt);
 test("the sample queries can be answered and the decline query has no tool to misuse", DeskTest.testSampleQueries);

@@ -18,22 +18,25 @@ import {
   FORMAT_VERSION,
   KEY_FILE,
   KEY_TYPE,
+  REVOCATION_FILE,
   SIGNATURE_FILE,
+  applyRevocation,
   derivePublicKey,
   generateKey,
   isAcceptableOrigin,
   keyId,
   keyIdOfPrivate,
   signSubjects,
+  signedPathsOf,
   subjectDigest,
   verifySignature,
 } from "./lib/plumbline/core/index.js";
+import { LINKS_FILE, MANIFEST_FILE } from "./lib/plumbline/core/signed-paths.js";
+import { isIsoUtc } from "./lib/plumbline/core/verify.js";
 
 /** The CLI's private key file format (docs/signature-format.md, "plumbline.private.json (CLI format)"). */
 export const PRIVATE_KEY_FILE = "plumbline.private.json";
 export const PRIVATE_KEY_TYPE = "plumbline-private-key";
-const MANIFEST_FILE = "agent-manifest.json";
-const LINKS_FILE = "links.json";
 const TRUST_STORAGE_KEY = "plumbline-desk.trust.v1";
 const MAX_DAYS = 3650;
 const DAY_MS = 86_400_000;
@@ -43,11 +46,7 @@ export const PARTNERS = [
   { name: STRINGS.partners.customsName, page: STRINGS.partners.customsLink, network: "https://montbaga.github.io/agent-customs/agent_customs" },
 ];
 
-/** `x.hocon` names `x.network.json`; any other path is used as written (the CLI's networkFileFor). */
-export function networkFileFor(hocon) {
-  return hocon.endsWith(".hocon") ? `${hocon.slice(0, -".hocon".length)}.network.json` : hocon;
-}
-
+/** The name a file picker gives a site-relative path: its last segment (`./x.network.json` -> `x.network.json`). */
 function lastSegment(path) {
   const parts = path.split("/").filter(Boolean);
   return parts[parts.length - 1] || "";
@@ -83,7 +82,16 @@ export class TrustBook {
         this.persistent = true;
         const parsed = raw ? JSON.parse(raw) : null;
         if (parsed && parsed.version === 1 && Array.isArray(parsed.entries)) {
-          this.entries = parsed.entries.filter((e) => e && typeof e.kid === "string" && typeof e.origin === "string" && typeof e.publicKey === "string");
+          // An entry whose revokedAt is unreadable is dropped, never kept without it: losing a mark must not restore trust.
+          this.entries = parsed.entries
+            .filter((e) => e && typeof e.kid === "string" && typeof e.origin === "string" && typeof e.publicKey === "string")
+            .filter((e) => e.revokedAt === undefined || isIsoUtc(e.revokedAt))
+            .map(TrustBook.#entry);
+          // A revoked key is dead for every origin: one mark covers all of the key's entries.
+          this.entries = this.entries.map((e) => {
+            const marked = this.forKid(e.kid).find((o) => o.revokedAt !== undefined);
+            return e.revokedAt === undefined && marked ? { ...e, revokedAt: marked.revokedAt } : e;
+          });
         }
       }
     } catch {
@@ -91,12 +99,22 @@ export class TrustBook {
     }
   }
 
+  /** The stored shape: kid, origin, publicKey and, once a revocation of the key was accepted, revokedAt. */
+  static #entry(e) {
+    return { kid: e.kid, origin: e.origin, publicKey: e.publicKey, ...(typeof e.revokedAt === "string" ? { revokedAt: e.revokedAt } : {}) };
+  }
+
   find(kid, origin) {
     return this.entries.find((e) => e.kid === kid && e.origin === origin);
   }
 
+  /** Every entry for a key id, whatever the origin: a revocation names no origin. */
+  forKid(kid) {
+    return this.entries.filter((e) => e.kid === kid);
+  }
+
   list() {
-    return this.entries.map((e) => ({ kid: e.kid, origin: e.origin }));
+    return this.entries.map((e) => ({ kid: e.kid, origin: e.origin, ...(e.revokedAt !== undefined ? { revokedAt: e.revokedAt } : {}) }));
   }
 
   save() {
@@ -109,10 +127,20 @@ export class TrustBook {
     }
   }
 
+  /** Adds or replaces the entry for (kid, origin). A key already marked revoked under any origin stays revoked. */
   add(entry) {
+    const revokedAt = entry.revokedAt ?? this.forKid(entry.kid).find((e) => e.revokedAt !== undefined)?.revokedAt;
     this.entries = this.entries.filter((e) => !(e.kid === entry.kid && e.origin === entry.origin));
-    this.entries.push({ kid: entry.kid, origin: entry.origin, publicKey: entry.publicKey });
+    this.entries.push(TrustBook.#entry({ ...entry, ...(revokedAt !== undefined ? { revokedAt } : {}) }));
     return this.save();
+  }
+
+  /** Replaces an entry with the one a VERIFIED revocation returned (applyRevocation's entry, revokedAt set). */
+  markRevoked(revoked) {
+    const index = this.entries.findIndex((e) => e.kid === revoked.kid && e.origin === revoked.origin);
+    if (index === -1 || typeof revoked.revokedAt !== "string") return false;
+    this.entries[index] = TrustBook.#entry({ ...this.entries[index], revokedAt: revoked.revokedAt });
+    return true;
   }
 
   remove(kid, origin) {
@@ -241,6 +269,10 @@ export class DeskPage {
     if (target === null) return refuse(t("errors.badTarget"), "target");
     const base = await siteBase(target, this.fetch);
     const fetchedFrom = new URL(base).origin;
+    // The revocation is read first, so a key the site has revoked is dead for this verdict (and in the trust store),
+    // whether or not the site still publishes a signature.
+    const revocation = await this.#checkRevocation(base);
+    if (revocation.state === "applied") this.render("trust");
     const done = (result, extra = {}) => {
       const meaning = t(`verdicts.${result.verdict}Meaning`);
       const full = {
@@ -253,6 +285,7 @@ export class DeskPage {
         ...(result.origin ? { origin: result.origin } : {}),
         ...(result.detail ? { detail: result.detail } : {}),
         meaning,
+        revocation: revocation.report,
         ...extra,
       };
       this.verification = { result: full, publishedKey: extra.publishedKey || null };
@@ -316,20 +349,88 @@ export class DeskPage {
       files.push({ path: rel, content });
     }
 
-    // Trust covers files published FROM an origin. Files fetched from somewhere else are not covered by any entry.
-    const trustView = { find: (kid, origin) => (origin === fetchedFrom ? this.trust.find(kid, origin) : undefined) };
-    const result = await verifySignature(signature, files, trustView, { now: this.now(), ...(publishedKey ? { publishedKey } : {}) });
-    const originMismatch = typeof signature.origin === "string" && signature.origin !== fetchedFrom;
+    // Trust covers files published FROM an origin: core's expectedOrigin turns a signature made for another origin into
+    // unverifiable (an invalid one stays invalid), exactly as `plumbline verify --origin` does.
+    const result = await verifySignature(signature, files, this.trust, {
+      now: this.now(),
+      expectedOrigin: fetchedFrom,
+      ...(publishedKey ? { publishedKey } : {}),
+    });
+    const signedKid = signature && typeof signature.kid === "string" ? signature.kid : null;
+    const originMismatch = Boolean(signature) && typeof signature.origin === "string" && signature.origin !== fetchedFrom;
+    // A site that publishes a revocation of the very key it signs with gets no first-contact offer: a revocation only
+    // ever takes trust away, so it is honoured here even when this browser never trusted the key.
+    const keyRevokedBySite = signedKid !== null && revocation.kid === signedKid;
     const firstContact =
-      result.verdict === "unverifiable" && !originMismatch && publishedKey && typeof publishedKey.kid === "string" && publishedKey.kid === signature.kid && typeof publishedKey.publicKey === "string"
+      result.verdict === "unverifiable" && !originMismatch && !keyRevokedBySite && publishedKey && typeof publishedKey.kid === "string" && publishedKey.kid === signedKid && typeof publishedKey.publicKey === "string"
         ? { kid: publishedKey.kid, publicKey: publishedKey.publicKey }
         : null;
     return done(result, {
       signed: true,
       originMismatch,
+      ...(keyRevokedBySite ? { keyRevokedBySite } : {}),
       signedFiles: subjects.map((s) => (s && typeof s.path === "string" ? s.path : "?")),
       ...(firstContact ? { publishedKey: firstContact } : {}),
     });
+  }
+
+  /**
+   * Reads plumbline-revocation.json from the site base and applies it with core's applyRevocation to every trust entry
+   * for its kid (a revocation names no origin). Only a VERIFIED revocation changes the trust store, and only by setting
+   * revokedAt: it can take trust away, never grant it. Absent (404/410) is normal and changes nothing; a file that
+   * cannot be read is reported as unavailable, never as "no revocation".
+   *
+   * :return: {report, kid?, state}: report is the part the verdict carries (no key material).
+   */
+  async #checkRevocation(base) {
+    const file = `${base}${REVOCATION_FILE}`;
+    const unavailable = (detail) => ({ state: "unavailable", report: { file, state: "unavailable", detail } });
+    let response;
+    try {
+      response = await this.fetch(file);
+    } catch {
+      return unavailable(t("verify.revocation.unreadable"));
+    }
+    if (response.status === 404 || response.status === 410) return { state: "absent", report: { file, state: "absent" } };
+    if (!response.ok) return unavailable(t("verify.revocation.httpStatus", { status: response.status }));
+    let statement;
+    try {
+      statement = JSON.parse(response.text());
+    } catch {
+      statement = undefined;
+    }
+    const kid = statement && typeof statement.kid === "string" ? statement.kid : undefined;
+    const results = [];
+    let applied = false;
+    if (statement === undefined) {
+      results.push({ verdict: "invalid", reason: "malformed", detail: "The revocation file is not valid JSON." });
+    } else {
+      const entries = kid === undefined ? [] : this.trust.forKid(kid);
+      if (entries.length === 0) {
+        const { entry: _none, ...result } = await applyRevocation(statement, undefined);
+        void _none;
+        results.push(result);
+      }
+      for (const entry of entries) {
+        const { entry: revoked, ...result } = await applyRevocation(statement, entry);
+        results.push(result);
+        if (result.verdict === "verified" && revoked && this.trust.markRevoked(revoked)) applied = true;
+      }
+    }
+    const persisted = applied ? this.trust.save() : false;
+    const state = applied ? "applied" : "not-applied";
+    return {
+      state,
+      ...(kid !== undefined ? { kid } : {}),
+      report: {
+        file,
+        state,
+        ...(kid !== undefined ? { kid } : {}),
+        results,
+        detail: applied ? t("verify.revocation.applied") : t("verify.revocation.notApplied"),
+        ...(applied && !persisted ? { note: t("verify.storageUnavailable") } : {}),
+      },
+    };
   }
 
   /**
@@ -505,15 +606,16 @@ export class DeskPage {
       s.problem = t("sign.refusals.badManifest");
       return;
     }
-    const subjects = [{ path: MANIFEST_FILE, content: manifest }];
-    const used = new Set([MANIFEST_FILE]);
-    const named = new Set([MANIFEST_FILE]);
-    const networks = manifest && Array.isArray(manifest.networks) ? manifest.networks : [];
-    for (const entry of networks) {
-      const hocon = entry && typeof entry.hocon === "string" ? entry.hocon : null;
-      if (hocon === null) continue;
-      const path = networkFileFor(hocon);
-      if (named.has(path)) continue;
+    // One signed-file rule, shared with `plumbline sign`: core's signedPathsOf. A file picker gives names, not paths, so
+    // each signed path is matched to the chosen file by its last segment.
+    const subjects = [];
+    const used = new Set();
+    for (const path of signedPathsOf(manifest, byName.has(LINKS_FILE))) {
+      if (path === MANIFEST_FILE) {
+        subjects.push({ path, content: manifest });
+        used.add(MANIFEST_FILE);
+        continue;
+      }
       const file = byName.get(lastSegment(path));
       if (!file) {
         s.problem = t("sign.refusals.missingNetwork", { path });
@@ -525,18 +627,7 @@ export class DeskPage {
         s.problem = t("sign.refusals.badJson", { path });
         return;
       }
-      named.add(path);
       used.add(file.name);
-    }
-    const links = byName.get(LINKS_FILE);
-    if (links) {
-      try {
-        subjects.push({ path: LINKS_FILE, content: JSON.parse(links.text) });
-      } catch {
-        s.problem = t("sign.refusals.badJson", { path: LINKS_FILE });
-        return;
-      }
-      used.add(LINKS_FILE);
     }
     for (const subject of subjects) subject.sha256 = await subjectDigest(subject.content);
     subjects.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -781,6 +872,15 @@ function renderVerify(page) {
   if (r.signedFiles && r.signedFiles.length) fact(t("verify.covered"), r.signedFiles.join(", "));
   nodes.push(facts);
   if (r.originMismatch) nodes.push(el("p", t("verify.originMismatch"), "notice"));
+  const rev = r.revocation;
+  if (rev && rev.state !== "absent") {
+    const box = el("div", null, `revocation revocation-${rev.state}`);
+    box.append(el("p", rev.detail, "notice"));
+    for (const one of rev.results || []) box.append(el("p", one.detail, "summary"));
+    if (rev.note) box.append(el("p", rev.note, "note"));
+    nodes.push(box);
+  }
+  if (r.keyRevokedBySite) nodes.push(el("p", t("verify.keyRevokedBySite"), "notice"));
   if (v.publishedKey && !page.trust.find(v.publishedKey.kid, r.fetchedFrom)) {
     const box = el("section", null, "first-contact");
     box.setAttribute("aria-labelledby", "first-contact-heading");
@@ -830,7 +930,12 @@ function renderTrust(page) {
       forget.type = "button";
       forget.setAttribute("aria-label", `${t("verify.forget")} ${e.kid} ${e.origin}`);
       forget.addEventListener("click", () => page.forgetPublisher(e.kid, e.origin));
-      item.append(el("code", e.kid), el("span", ` ${e.origin} `), forget);
+      item.append(el("code", e.kid), el("span", ` ${e.origin} `));
+      if (e.revokedAt !== undefined) {
+        item.className = "revoked";
+        item.append(chip("invalid", t("verify.trustRevoked", { date: e.revokedAt.slice(0, 10) })), el("span", " "));
+      }
+      item.append(forget);
       list.append(item);
     }
     nodes.push(list);

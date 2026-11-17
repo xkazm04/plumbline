@@ -56,7 +56,7 @@ class SiteActions {
   static verifySiteAction() {
     return {
       name: "verify_site",
-      description: "Verify a site's plumbline.signature.json and the files it covers against the visitor's own trust store. Returns verdict verified, invalid (with reason) or unverifiable, its meaning in plain words, the signer key id and origin. It cannot add trust. Changes nothing.",
+      description: "Verify a site's plumbline.signature.json and the files it covers against the visitor's own trust store, checked as the origin the files were fetched from. Returns verdict verified, invalid (with reason, revoked included) or unverifiable, its meaning in plain words, the signer key id and origin, and what the site's plumbline-revocation.json did (absent, applied, not-applied, or unavailable when it could not be read). It cannot add trust. The one change it can make: a revocation that verifies under a key the visitor trusts marks that key revoked, which only takes trust away.",
       effect: "read",
       inputSchema: { type: "object", additionalProperties: false, required: ["target"], properties: { target: TARGET } },
       execute: (args) => App.page.verifySite(args),
