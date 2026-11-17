@@ -1,0 +1,33 @@
+# Runs the published Action from this repository against a public agentic site, so the adopter's path
+# (npx github:xkazm04/plumbline#<pinned sha> on a runner with no SSH key) is proven where adopters run it.
+name: Action smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 6 * * 1" # Mondays 06:41 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: gate
+        uses: ./action
+        with:
+          target: https://montbaga.github.io/agent-customs/agent_customs
+          fail-on: fail
+      - name: Report
+        shell: bash
+        env:
+          STATE: ${{ steps.gate.outputs.state }}
+        run: echo "gate state: $STATE"
