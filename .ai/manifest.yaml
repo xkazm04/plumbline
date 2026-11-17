@@ -1,0 +1,15 @@
+# plumbline - declarations read by ai-registry/scripts/link-registry.mjs.
+registry:
+  local: ../ai-registry
+knowledge:
+  domains: [software-engineering]
+capabilities:
+  typecheck: npm run typecheck
+  build: npm run build
+  test: npm test
+skills:
+  - spark
+  - scan-sweep
+  - adopt-bp
+  - lens-scan
+  - dowser

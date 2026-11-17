@@ -1,0 +1,140 @@
+// The wire contract of Plumbline. Every identifier here is exact: the CLI, the gate, the watch and
+// the Desk all read these names, and docs/signature-format.md is written from them (WP1 owns that doc).
+// Absent-value convention: an absent optional field is OMITTED, never `null`. Canonical JSON drops
+// `undefined` keys but would keep `null`, and that would change a fingerprint.
+
+export const FORMAT_VERSION = 1 as const;
+export const ALG = "Ed25519" as const;
+export const SIGNATURE_TYPE = "plumbline-signature" as const;
+export const KEY_TYPE = "plumbline-key" as const;
+export const ROTATION_TYPE = "plumbline-rotation" as const;
+
+/** Default signature lifetime in days. Illustrative: the publisher sets the real one. */
+export const DEFAULT_LIFETIME_DAYS = 90;
+
+// File names, relative to the site base.
+export const SIGNATURE_FILE = "plumbline.signature.json" as const;
+export const KEY_FILE = ".well-known/plumbline-key.json" as const;
+export const ROTATION_FILE = "plumbline-rotation.json" as const;
+export const LOCK_FILE = "plumbline.lock.json" as const;
+
+/** Three states, never two: first contact with a signer nobody has met is `unverifiable`. */
+export const VERDICTS = ["verified", "invalid", "unverifiable"] as const;
+export type Verdict = (typeof VERDICTS)[number];
+
+export const INVALID_REASONS = ["bad-signature", "tampered", "expired", "kid-mismatch", "malformed"] as const;
+export type InvalidReason = (typeof INVALID_REASONS)[number];
+
+/** `unavailable` (an adapter could not be reached) is never `pass`. */
+export const GATE_STATES = ["pass", "fail", "unavailable"] as const;
+export type GateState = (typeof GATE_STATES)[number];
+
+export const DRIFT_KINDS = ["grounding", "runtime", "peer"] as const;
+export type DriftKind = (typeof DRIFT_KINDS)[number];
+
+export const SEVERITIES = ["info", "warn", "block"] as const;
+export type Severity = (typeof SEVERITIES)[number];
+
+/** One signed file: its path relative to the site base and the SHA-256 (hex) of its canonical bytes. */
+export interface SubjectDigest {
+  path: string;
+  sha256: string;
+}
+
+/** `plumbline.signature.json`. `sig` is base64url Ed25519 over canonicalJson(the object without `sig`). */
+export interface PlumblineSignature {
+  type: typeof SIGNATURE_TYPE;
+  version: typeof FORMAT_VERSION;
+  alg: typeof ALG;
+  /** First 16 hex chars of SHA-256 of the raw 32-byte public key. Derived from the key, never claimed. */
+  kid: string;
+  /** The https origin the files are published from. */
+  origin: string;
+  signedAt: string;
+  expiresAt: string;
+  subjects: SubjectDigest[];
+  sig: string;
+}
+
+/** `.well-known/plumbline-key.json`. A verifier NEVER trusts this about itself: it resolves `kid` in its trust store. */
+export interface PlumblineKey {
+  type: typeof KEY_TYPE;
+  version: typeof FORMAT_VERSION;
+  alg: typeof ALG;
+  kid: string;
+  /** base64url of the raw 32-byte public key. */
+  publicKey: string;
+  createdAt: string;
+}
+
+/** `plumbline-rotation.json`: the old key names its successor. Key loss is identity loss, so rotation is designed in. */
+export interface PlumblineRotation {
+  type: typeof ROTATION_TYPE;
+  version: typeof FORMAT_VERSION;
+  from: string;
+  to: string;
+  toPublicKey: string;
+  signedAt: string;
+  /** base64url Ed25519 by the OLD key over canonicalJson(the object without `sig`). */
+  sig: string;
+}
+
+/** `plumbline.lock.json`, written by `watch`, read by the three drift detectors. */
+export interface PlumblineLock {
+  version: typeof FORMAT_VERSION;
+  runtime: { source: "nsdeploy"; commit: string; files: Record<string, string> };
+  grounding: { sources: { ref: string; sha256: string }[]; builtAt: string };
+  peers: Record<string, { sha256: string; kid?: string; checkedAt: string }>;
+}
+
+/** A file handed to sign or verify: its path relative to the site base and its parsed JSON or raw text. */
+export interface SubjectFile {
+  path: string;
+  /** Parsed JSON is canonicalised; a string is hashed as UTF-8 bytes. */
+  content: unknown;
+}
+
+/** What the verifier already holds about who to trust. Local, mutable, explicit. */
+export interface TrustEntry {
+  kid: string;
+  origin: string;
+  /** base64url raw 32-byte public key the entry was adopted with. */
+  publicKey: string;
+}
+export interface TrustStore {
+  find(kid: string, origin: string): TrustEntry | undefined;
+}
+
+export interface VerifyResult {
+  verdict: Verdict;
+  /** Present only when verdict is `invalid`. */
+  reason?: InvalidReason;
+  kid?: string;
+  origin?: string;
+  /** A sentence for a person; never copied from the inspected files. */
+  detail?: string;
+}
+
+export interface GateFinding {
+  adapter: string;
+  state: GateState;
+  summary: string;
+}
+export interface GateReport {
+  target: string;
+  /** The worst adapter state: fail, then unavailable, then pass. */
+  state: GateState;
+  findings: GateFinding[];
+}
+
+export interface DriftFinding {
+  kind: DriftKind;
+  severity: Severity;
+  ref: string;
+  expected?: string;
+  actual?: string;
+  summary: string;
+}
+export interface DriftReport {
+  findings: DriftFinding[];
+}
