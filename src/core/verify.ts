@@ -283,7 +283,7 @@ function coverageProblem(
     if (path === LOCK_FILE) {
       return { reason: "tampered", detail: "A plumbline.lock.json is present but not signed, so the drift baseline it carries is not attested." };
     }
-    return { reason: "tampered", detail: "A network file the signed manifest names is not covered by the signature, so the runtime would load unsigned code." };
+    return { reason: "tampered", detail: "A file the signed manifest makes the runtime load (a network, an action module, a bridge, a catalogue, an action page or a coded-tools bundle) is not covered by the signature, so the runtime would load it unsigned." };
   }
   return undefined;
 }

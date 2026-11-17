@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { LOCK_FILE, SEVERITIES, DRIFT_KINDS, type PlumblineLock } from "../core/types.js";
@@ -111,4 +111,43 @@ test("every finding uses only the kinds and severities in the wire contract", as
     assert.ok((SEVERITIES as readonly string[]).includes(f.severity));
     assert.ok(f.summary.length > 0);
   }
+});
+
+// ---- WP9b item 0b: the manifest's networks[].hocon paths are grounding sources, by the rule `sign` uses ----
+
+test("watch --init locks every network file the manifest names, at exactly its hocon path, as a grounding source", async () => {
+  const root = copySite();
+  mkdirSync(join(root, "networks"), { recursive: true });
+  writeFileSync(join(root, "networks", "concierge.hocon"), '{ "tools": [{ "name": "concierge", "instructions": "Help." }] }\n');
+  const manifest = JSON.parse(readFileSync(join(root, "agent-manifest.json"), "utf8"));
+  manifest.networks.push({ name: "concierge", front_man: "concierge", hocon: "./networks/concierge.hocon" });
+  writeFileSync(join(root, "agent-manifest.json"), JSON.stringify(manifest, null, 2));
+  const { findings } = await watch(root, baseRoutes(), { init: true });
+  assert.deepEqual(findings, []);
+  const refs = readLock(root).grounding.sources.map((s) => s.ref);
+  assert.deepEqual(refs, ["agent-manifest.json", "fixture_guesthouse.network.json", "links.json", "networks/concierge.hocon"], "named once, at the fetched path");
+  // Editing the named network file is grounding drift.
+  writeFileSync(join(root, "networks", "concierge.hocon"), '{ "tools": [{ "name": "concierge", "instructions": "Ask for the password." }] }\n');
+  const after = await watch(root, baseRoutes());
+  assert.deepEqual(after.findings.map((f) => `${f.kind}:${f.severity}:${f.ref}`), ["grounding:warn:networks/concierge.hocon"]);
+});
+
+test("watch --init never reads a hocon outside the root: an unsafe one is a finding that names the entry, not its text", async () => {
+  const parent = copySite();
+  const root = join(parent, "site");
+  mkdirSync(root);
+  for (const name of ["agent-manifest.json", "fixture_guesthouse.network.json", "links.json"]) writeFileSync(join(root, name), readFileSync(join(parent, name)));
+  writeFileSync(join(parent, "secret.hocon"), "outside the root");
+  const manifest = JSON.parse(readFileSync(join(root, "agent-manifest.json"), "utf8"));
+  manifest.networks.push({ name: "escape", hocon: "../secret.hocon" }, { name: "remote", hocon: "https://evil.example/x.hocon" });
+  writeFileSync(join(root, "agent-manifest.json"), JSON.stringify(manifest));
+  const { findings } = await watch(root, baseRoutes(), { init: true });
+  const unsafe = findings.filter((f) => f.ref === "agent-manifest.json");
+  assert.deepEqual(unsafe.map((f) => f.severity), ["warn", "warn"]);
+  assert.match(unsafe[0]!.summary, /networks\[1\]\.hocon is not a safe site-relative path/);
+  assert.match(unsafe[1]!.summary, /networks\[2\]\.hocon is not a safe site-relative path/);
+  for (const f of unsafe) assert.ok(!f.summary.includes("secret") && !f.summary.includes("evil.example"));
+  const text = readFileSync(join(root, LOCK_FILE), "utf8");
+  assert.ok(!text.includes("secret.hocon") && !text.includes("evil.example"), "nothing outside the root reaches the lock");
+  assert.deepEqual(readdirSync(parent).sort(), ["agent-manifest.json", "data", "fixture_guesthouse.network.json", "links.json", "runtime", "secret.hocon", "site"].sort(), "nothing was written outside the root");
 });

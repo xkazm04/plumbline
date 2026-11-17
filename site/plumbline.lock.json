@@ -44,27 +44,29 @@
     "sources": [
       {
         "ref": "agent-manifest.json",
-        "sha256": "df5958bb37ce518b1a06a03945f145d5df75cfecaac349c2d841d4df19e13e9b"
+        "sha256": "a8f5614318b4e324db3809e0f37266581c78942e3ab799ac46c92ade6e78ef22"
       },
       {
         "ref": "links.json",
-        "sha256": "946e1ce1ee1056ae8ccf0dfd4b13607ae6494607ba3d32e0e4395be9e2f7967b"
+        "sha256": "65d1f30574ffa75e5dcc69324798f0d623995b2be302e21fee53a4ccf075e120"
       },
       {
         "ref": "plumbline_desk.network.json",
-        "sha256": "3632129821d3e84b9350d97f30406d6abafa34ccde0d461d901cdc2857d782f6"
+        "sha256": "872a92ccc1b249d804eb51365dc33f66250e16517b1180db5748689fe77ec25a"
       }
     ],
-    "builtAt": "2026-11-17T16:50:43.770Z"
+    "builtAt": "2026-11-17T19:18:23.334Z"
   },
   "peers": {
     "https://agent-atlas-phi.vercel.app/agent_atlas": {
-      "sha256": "4104d0b2f2ebf836f8f48419690131a7098efaa496a252887e792223b45be314",
-      "checkedAt": "2026-11-17T16:50:43.770Z"
+      "sha256": "5edbbc5eb5fc00b45cfcc0e516cb80cf5dad5decea05c0b652ee99fcc34e002a",
+      "links": "f70a05ff786b9d4f94ddc62ebf707e063e01bf6ae1504b4887e6a218682ffa27",
+      "checkedAt": "2026-11-17T19:18:23.334Z"
     },
     "https://montbaga.github.io/agent-customs/agent_customs": {
-      "sha256": "ec05bb4ceb96e4da710cd0e4d468d18d404253433f6ae703249c8cb7a6b75a3a",
-      "checkedAt": "2026-11-17T16:50:43.770Z"
+      "sha256": "b7d4dee97506615168c44ba0b9dc8304394bdac50b66464e9000942d7bebaacf",
+      "links": "b1cc75b90ad31cbe7c49d0787bb681cf8b0265779bb8e6f564e969dee0c3e6a2",
+      "checkedAt": "2026-11-17T19:18:23.334Z"
     }
   }
 }

@@ -2,7 +2,8 @@
 // They are NOT live: each one is a gate report captured 2026-11-17 by Plumbline's own CLI (`plumbline gate`) against the
 // live site, copied from the contest data (.contest/arena/plumbline-desk/data/desk-data.json, gateReports). The page
 // labels every one of them "example" wherever it shows them, and a gate run on this page always takes their place.
-// Browser only: the shell (shell.js) reads them; no tool and no test result depends on them.
+// The shell (shell.js) draws them. desk.js reads only their target addresses: the assistant may send the read tools to
+// an example's host without the visitor typing it (D1). No tool result depends on the captured reports.
 
 export const EXAMPLE_CAPTURED = "2026-11-17";
 

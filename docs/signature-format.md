@@ -173,10 +173,32 @@ links. `plumbline sign --root <site> --key <plumbline.private.json> --origin <or
    `hocon` of `x.hocon` signs the file `x.hocon`. A `hocon` that is an absolute URL or path, contains `..`, `.` or an
    empty segment, a backslash, or any character outside `[A-Za-z0-9._/-]` is refused (exit 2): the runtime would fetch
    it from somewhere a signature cannot pin. A named file that is missing is an error (exit 2);
-3. `links.json`, if it exists;
-4. `plumbline.lock.json`, if it exists. The Desk reads the published lock, so an unsigned one would be an unattested
+3. every code file the manifest makes the runtime load, by the same rule as a `hocon` (one leading `./` removed; an
+   absolute URL or path, `..`, `.` or an empty segment, a backslash or a character outside `[A-Za-z0-9._/-]` is
+   refused, exit 2, and the error names the field, never its value):
+   - `actions.module` and each string in `actions.modules`, the website-tools modules the runtime imports
+     (`runtime/action-transport.js`, `loadActionModule`: `import(sameOriginAsset(base, path))`);
+   - `actions.bridge`, the HTML page the runtime frames for partner sites (`action-transport.js`, the bridge frame);
+   - `coded_tools.bundle`, the executable bundle of coded tools (`runtime/engine.js`, `_compile`).
+
+   A value that is not a string is skipped (the runtime cannot load it either);
+4. `links.json`, if it exists;
+5. `plumbline.lock.json`, if it exists. The Desk reads the published lock, so an unsigned one would be an unattested
    baseline. **Publisher order: `plumbline watch --init` first (it writes the lock), then `plumbline sign`.** After
    reviewing drift and writing a fresh lock, sign again.
+
+**What the signature does NOT cover**, so a verifier knows where `verified` stops:
+
+- **Modules those files import in turn.** A signed action module that does `import "./helpers.js"` pins the import
+  statement, not `helpers.js`. Keep action code in the files the manifest names, or name every module in
+  `actions.modules`.
+- **The page's own scripts and the runtime folder** (`index.html`, its scripts and styles, `runtime/`). They are loaded
+  by the page, not named by the manifest. They rest on the HTTPS origin, and the watch's runtime lock
+  (`docs/gate-and-watch.md`) records every file under `runtime/` and blocks on any change.
+- **What the pages named in `actions.pages` load in turn.** The pages themselves are signed (their forms become
+  actions, `runtime/form-actions.js`), as is `actions.catalog` (a JSON catalogue of HTTP actions,
+  `runtime/discovered-actions.js`); their own scripts and the endpoints a catalogue calls are not.
+- Anything fetched from another origin: partner networks (the watch's peer check covers those) and the model router.
 
 It writes `plumbline.signature.json` into the site root. `signSubjects` (core) refuses a file set that does not
 include everything `signedPathsOf` requires for its own manifest, so it never makes a signature that cannot verify.
@@ -188,9 +210,9 @@ Three states, never two. Folding the third into either of the others is a bug.
 | Verdict | Reason | Meaning |
 | --- | --- | --- |
 | `verified` | | the signer is in the verifier's trust store for this origin, every signed file matches, the signature covers every file the runtime loads, the signature is current and the math checks under the **trust store's** key |
-| `invalid` | `malformed` | not a well-formed signature (wrong type, version or algorithm, missing or mistyped fields, a `kid` or subject path outside its pattern, duplicate paths, `expiresAt` not after `signedAt`, a value canonical JSON refuses), `signedAt` more than 5 minutes in the future, or a signed manifest whose `networks[].hocon` is not a safe site-relative path |
+| `invalid` | `malformed` | not a well-formed signature (wrong type, version or algorithm, missing or mistyped fields, a `kid` or subject path outside its pattern, duplicate paths, `expiresAt` not after `signedAt`, a value canonical JSON refuses), `signedAt` more than 5 minutes in the future, or a signed manifest whose `networks[].hocon` or code file path (above) is not a safe site-relative path |
 | `invalid` | `kid-mismatch` | a trust store entry's `kid` is not derived from its own key (or its key is not a 32-byte base64url): the trust store is defective |
-| `invalid` | `tampered` | a signed file differs from what was signed, a signed path is missing from the files checked, or the signature does not cover a file the runtime loads: `agent-manifest.json`, a network the **signed** manifest names, or a `links.json` or `plumbline.lock.json` that is present |
+| `invalid` | `tampered` | a signed file differs from what was signed, a signed path is missing from the files checked, or the signature does not cover a file the runtime loads: `agent-manifest.json`, a network or code file (action module, bridge, coded-tools bundle) the **signed** manifest names, or a `links.json` or `plumbline.lock.json` that is present |
 | `invalid` | `expired` | `now >= expiresAt` |
 | `invalid` | `bad-signature` | the signer is trusted but the signature does not verify under the trusted key (the signature was edited, or was made by a different key than the `kid` it claims) |
 | `invalid` | `revoked` | the signer's trust entry carries `revokedAt`: the key revoked itself, so nothing it signs is accepted, **whatever the dates** (whoever holds a leaked key can backdate `signedAt`) |
@@ -209,7 +231,7 @@ path in that set must be a signed subject. So a `links.json` added after signing
 network's links) and a lock added after signing are `invalid tampered`, with a detail that names the kind of file and
 never its content. Other files that are not listed in `subjects` are ignored: they are simply unsigned, and nothing
 the runtime loads. A verifier must therefore hand over `links.json` and `plumbline.lock.json` whenever the site serves
-them, signed or not (the CLI does; a 404 means absent).
+them, signed or not (the CLI does; a 404 means absent), and every code file the manifest names.
 
 `detail` is always a sentence written by the verifier. Text from inspected files is never copied into it, with one
 exception: the `--origin` mismatch sentence names the signature's `origin`, which the shape check has already held to a

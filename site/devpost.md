@@ -63,14 +63,16 @@ The Desk is itself an agentic website under the Worldwide Agentic Web MVP spec (
 
 ## What we checked, and how
 
-- The core's known-answer vectors pass in headless Chromium through the same compiled modules the Desk loads (19 of 19).
-- In headless Chromium: key made on the page, a site's files signed through the dialog, then verified: `unverifiable`
-  before trusting the key, `verified` after, `invalid tampered` after editing a signed file.
+- The core's known-answer vectors pass in headless Chromium through the same compiled modules the Desk loads (34 of 34
+  checks on 2026-11-17: each subject hashed as its exact bytes, every input canonical JSON must refuse refused).
+- In headless Chromium: key made on the page, a site's files signed through the dialog (the manifest, its network, its
+  action module and bridge, `links.json` and the lock), then verified: `unverifiable` before trusting the key,
+  `verified` after, `invalid tampered` after editing the action module.
 - The gate on Agent Atlas' own site from the browser: validator port `pass`, Agent Atlas `pass`, Agent Customs
   `unavailable` (no receipt for that site).
 - The page works with the assistant blocked from loading.
 
 ## Known limits
 
-[Keep in sync with site/README.md: the Customs adapter in the browser, CORS headers publishers must add, static hosting,
+[Keep in sync with site/README.md: CORS headers publishers must add, a lock no verified signature covers, static hosting,
 write actions without a dialog, partner calls on the visitor's key.]

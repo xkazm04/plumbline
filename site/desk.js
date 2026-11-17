@@ -22,17 +22,24 @@ import {
   SIGNATURE_FILE,
   applyRevocation,
   derivePublicKey,
+  LOCK_FILE,
   generateKey,
   isAcceptableOrigin,
+  isKid,
+  isPublicKey,
+  isSafeSubjectPath,
   keyId,
   keyIdOfPrivate,
+  parseManifest,
   signSubjects,
   signedPathsOf,
+  spreadRevocations,
   subjectDigest,
   verifySignature,
 } from "./lib/plumbline/core/index.js";
 import { LINKS_FILE, MANIFEST_FILE } from "./lib/plumbline/core/signed-paths.js";
-import { isIsoUtc } from "./lib/plumbline/core/verify.js";
+import { isIsoUtc, revokedResult } from "./lib/plumbline/core/verify.js";
+import { EXAMPLE_RUNS } from "./examples.js";
 
 /** The CLI's private key file format (docs/signature-format.md, "plumbline.private.json (CLI format)"). */
 export const PRIVATE_KEY_FILE = "plumbline.private.json";
@@ -45,6 +52,63 @@ export const PARTNERS = [
   { name: STRINGS.partners.atlasName, page: STRINGS.partners.atlasLink, network: "https://agent-atlas-phi.vercel.app/agent_atlas" },
   { name: STRINGS.partners.customsName, page: STRINGS.partners.customsLink, network: "https://montbaga.github.io/agent-customs/agent_customs" },
 ];
+
+// D1: the hosts the assistant may send the read tools to without the visitor typing them into the page: the manifest's
+// partners (agent-manifest.json allowed_peers; a test holds PARTNERS to it), the example targets the overview shows and
+// the Desk's own origin. Anything else needs the visitor to have typed or picked it on the page this session.
+const PARTNER_ORIGINS = PARTNERS.map((p) => new URL(p.network).origin);
+const EXAMPLE_ORIGINS = EXAMPLE_RUNS.map((r) => new URL(r.target).origin);
+
+// ---- D2: every string a tool result carries that came from an inspected site passes its pattern, or is withheld ----
+
+const HOSTNAME = /^[a-z0-9.-]+$/;
+const DIGEST_LIKE = /^(?:[0-9a-f]{7,64}|absent)$/;
+const withheld = () => t("safety.withheld");
+
+/** A site-relative path from an inspected file: core's subject-path pattern, or withheld. */
+export function safePath(value) {
+  return isSafeSubjectPath(value) ? value : withheld();
+}
+
+/**
+ * An address from an inspected file: http(s) as the Desk fetches (https, or http on localhost), no credentials, query
+ * or fragment, a plain host name, and a path whose segments pass the subject-path pattern; else withheld.
+ */
+export function safeUrl(value) {
+  if (typeof value !== "string" || value.length > 2000) return withheld();
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return withheld();
+  }
+  const local = url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  if ((url.protocol !== "https:" && !local) || url.username || url.password || url.search || url.hash || !HOSTNAME.test(url.hostname)) return withheld();
+  if (url.href !== value && url.href !== `${value}/`) return withheld();
+  const path = url.pathname.replace(/^\//, "").replace(/\/$/, "");
+  return path === "" || isSafeSubjectPath(path) ? value : withheld();
+}
+
+/** A lock reference: a site-relative path or an address, by the rules above. */
+export function safeRef(value) {
+  return isSafeSubjectPath(value) ? value : safeUrl(value);
+}
+
+function safeDigest(value) {
+  return typeof value === "string" && DIGEST_LIKE.test(value) ? value : withheld();
+}
+
+/** A drift finding as the model may see it: the summary is the Desk's own sentence; ref, expected and actual are checked. */
+function safeFinding(f) {
+  return {
+    kind: f.kind,
+    severity: f.severity,
+    ref: safeRef(f.ref),
+    ...(f.expected !== undefined ? { expected: safeDigest(f.expected) } : {}),
+    ...(f.actual !== undefined ? { actual: safeDigest(f.actual) } : {}),
+    summary: f.summary,
+  };
+}
 
 /** The name a file picker gives a site-relative path: its last segment (`./x.network.json` -> `x.network.json`). */
 function lastSegment(path) {
@@ -70,11 +134,34 @@ export function checkTarget(target) {
   return null;
 }
 
-/** The visitor's trust store: who they trust, per origin. Kept in localStorage for this origin, if the browser allows. */
+const isRecord = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** A stored trust entry is used only when every field holds its pattern; anything else is dropped, never repaired. */
+function storedEntryOk(e) {
+  return (
+    isRecord(e) &&
+    isKid(e.kid) &&
+    isAcceptableOrigin(e.origin) &&
+    isPublicKey(e.publicKey) &&
+    (e.revokedAt === undefined || isIsoUtc(e.revokedAt)) &&
+    (e.adoptedVia === undefined || isKid(e.adoptedVia))
+  );
+}
+
+/**
+ * The visitor's trust store: who they trust, per origin. Kept in localStorage for this origin, if the browser allows.
+ *
+ * Stored shape: {version: 1, entries: [{kid, origin, publicKey, revokedAt?, adoptedVia?}], revoked: [{kid, revokedAt}]}.
+ * `revoked` holds tombstones: a revoked key the visitor forgot. A tombstone carries no trust (no origin, no key), only
+ * the mark, so a forgotten revoked key cannot be trusted again from the page. On every load and change the store runs
+ * core's spreadRevocations: a mark on any entry or tombstone revokes the key at every origin, and every entry adopted
+ * through it (adoptedVia).
+ */
 export class TrustBook {
   constructor(storage) {
     this.storage = storage;
     this.entries = [];
+    this.tombstones = [];
     this.persistent = false;
     try {
       if (storage) {
@@ -82,16 +169,12 @@ export class TrustBook {
         this.persistent = true;
         const parsed = raw ? JSON.parse(raw) : null;
         if (parsed && parsed.version === 1 && Array.isArray(parsed.entries)) {
-          // An entry whose revokedAt is unreadable is dropped, never kept without it: losing a mark must not restore trust.
-          this.entries = parsed.entries
-            .filter((e) => e && typeof e.kid === "string" && typeof e.origin === "string" && typeof e.publicKey === "string")
-            .filter((e) => e.revokedAt === undefined || isIsoUtc(e.revokedAt))
-            .map(TrustBook.#entry);
-          // A revoked key is dead for every origin: one mark covers all of the key's entries.
-          this.entries = this.entries.map((e) => {
-            const marked = this.forKid(e.kid).find((o) => o.revokedAt !== undefined);
-            return e.revokedAt === undefined && marked ? { ...e, revokedAt: marked.revokedAt } : e;
-          });
+          // An entry whose revokedAt or adoptedVia is unreadable is dropped, never kept without it: losing a mark must
+          // not restore trust.
+          this.entries = parsed.entries.filter(storedEntryOk).map(TrustBook.#entry);
+          const stones = Array.isArray(parsed.revoked) ? parsed.revoked : [];
+          for (const t of stones) if (isRecord(t) && isKid(t.kid) && isIsoUtc(t.revokedAt)) this.#bury(t.kid, t.revokedAt);
+          this.#spread();
         }
       }
     } catch {
@@ -99,9 +182,28 @@ export class TrustBook {
     }
   }
 
-  /** The stored shape: kid, origin, publicKey and, once a revocation of the key was accepted, revokedAt. */
+  /** The stored shape of an entry: kid, origin, publicKey and, when set, revokedAt and adoptedVia. */
   static #entry(e) {
-    return { kid: e.kid, origin: e.origin, publicKey: e.publicKey, ...(typeof e.revokedAt === "string" ? { revokedAt: e.revokedAt } : {}) };
+    return {
+      kid: e.kid,
+      origin: e.origin,
+      publicKey: e.publicKey,
+      ...(typeof e.revokedAt === "string" ? { revokedAt: e.revokedAt } : {}),
+      ...(typeof e.adoptedVia === "string" ? { adoptedVia: e.adoptedVia } : {}),
+    };
+  }
+
+  /** Records a tombstone for a revoked kid, keeping the earliest mark. */
+  #bury(kid, revokedAt) {
+    const known = this.tombstones.find((t) => t.kid === kid);
+    if (!known) this.tombstones.push({ kid, revokedAt });
+    else if (Date.parse(revokedAt) < Date.parse(known.revokedAt)) known.revokedAt = revokedAt;
+  }
+
+  /** core's spreadRevocations over the entries, with each tombstone standing in as a revoked entry for its kid. */
+  #spread() {
+    const stand = this.tombstones.map((t) => ({ kid: t.kid, origin: "", publicKey: "", revokedAt: t.revokedAt }));
+    this.entries = spreadRevocations([...stand, ...this.entries]).slice(stand.length).map(TrustBook.#entry);
   }
 
   find(kid, origin) {
@@ -113,37 +215,50 @@ export class TrustBook {
     return this.entries.filter((e) => e.kid === kid);
   }
 
+  /** The tombstone for a kid the visitor forgot after it was revoked, if any. */
+  tombstone(kid) {
+    return this.tombstones.find((t) => t.kid === kid);
+  }
+
+  /** What the page and the assistant may see: no keys. A tombstone is listed only while no entry holds its kid. */
   list() {
-    return this.entries.map((e) => ({ kid: e.kid, origin: e.origin, ...(e.revokedAt !== undefined ? { revokedAt: e.revokedAt } : {}) }));
+    const live = this.entries.map((e) => ({ kid: e.kid, origin: e.origin, ...(e.revokedAt !== undefined ? { revokedAt: e.revokedAt } : {}) }));
+    const stones = this.tombstones.filter((t) => !this.entries.some((e) => e.kid === t.kid)).map((t) => ({ kid: t.kid, revokedAt: t.revokedAt, forgotten: true }));
+    return [...live, ...stones];
   }
 
   save() {
     if (!this.storage) return false;
     try {
-      this.storage.setItem(TRUST_STORAGE_KEY, JSON.stringify({ version: 1, entries: this.entries }));
+      this.storage.setItem(TRUST_STORAGE_KEY, JSON.stringify({ version: 1, entries: this.entries, revoked: this.tombstones }));
       return true;
     } catch {
       return false;
     }
   }
 
-  /** Adds or replaces the entry for (kid, origin). A key already marked revoked under any origin stays revoked. */
+  /**
+   * Adds or replaces the entry for (kid, origin). A key already marked revoked under any origin, or forgotten after it
+   * was revoked, stays revoked.
+   */
   add(entry) {
-    const revokedAt = entry.revokedAt ?? this.forKid(entry.kid).find((e) => e.revokedAt !== undefined)?.revokedAt;
+    const revokedAt = entry.revokedAt ?? this.forKid(entry.kid).find((e) => e.revokedAt !== undefined)?.revokedAt ?? this.tombstone(entry.kid)?.revokedAt;
     this.entries = this.entries.filter((e) => !(e.kid === entry.kid && e.origin === entry.origin));
     this.entries.push(TrustBook.#entry({ ...entry, ...(revokedAt !== undefined ? { revokedAt } : {}) }));
+    this.#spread();
     return this.save();
   }
 
-  /** Replaces an entry with the one a VERIFIED revocation returned (applyRevocation's entry, revokedAt set). */
-  markRevoked(revoked) {
-    const index = this.entries.findIndex((e) => e.kid === revoked.kid && e.origin === revoked.origin);
-    if (index === -1 || typeof revoked.revokedAt !== "string") return false;
-    this.entries[index] = TrustBook.#entry({ ...this.entries[index], revokedAt: revoked.revokedAt });
-    return true;
+  /** Replaces the whole store with the entries a VERIFIED revocation returned (applyRevocation's result.entries). */
+  replaceEntries(entries) {
+    this.entries = entries.filter(storedEntryOk).map(TrustBook.#entry);
+    this.#spread();
   }
 
+  /** Forgets an entry. A revoked one leaves a tombstone, so the key cannot be trusted again from the page. */
   remove(kid, origin) {
+    const gone = this.find(kid, origin);
+    if (gone && gone.revokedAt !== undefined) this.#bury(gone.kid, gone.revokedAt);
     this.entries = this.entries.filter((e) => !(e.kid === kid && e.origin === origin));
     return this.save();
   }
@@ -178,9 +293,28 @@ function revoke(item) {
   }
 }
 
+/** A private key file is the CLI's JSON format, read as text. Site files are read as bytes (readFileBytes). */
 async function readFileText(file) {
   if (typeof file.text === "function") return file.text();
   throw new Error("not a file");
+}
+
+/** A site file's exact bytes: a subject is its bytes, never a parse of them. */
+async function readFileBytes(file) {
+  if (typeof file.arrayBuffer === "function") return new Uint8Array(await file.arrayBuffer());
+  throw new Error("not a file");
+}
+
+/** One optional site file (links.json, the lock): present (2xx), absent (404/410), or unknown (anything else). */
+async function fetchOptional(fetcher, url) {
+  try {
+    const response = await fetcher(url);
+    if (response.ok) return { state: "present", response };
+    if (response.status === 404 || response.status === 410) return { state: "absent", response };
+    return { state: "unknown", response };
+  } catch (error) {
+    return { state: "unknown", error };
+  }
 }
 
 /**
@@ -192,6 +326,9 @@ export class DeskPage {
   constructor(deps = {}) {
     this.fetch = deps.fetch || makeBrowserFetcher();
     this.now = deps.now || (() => new Date());
+    this.ownOrigin = deps.ownOrigin || (typeof location !== "undefined" && location.origin ? location.origin : null);
+    // Origins the visitor typed or picked in the page's own address fields this session (D1).
+    this.visitorOrigins = new Set();
     this.trust = new TrustBook(deps.storage === undefined ? defaultStorage() : deps.storage);
     this.gate = null;
     this.drift = null;
@@ -206,6 +343,7 @@ export class DeskPage {
   /** Test and embedding hook: replace the fetcher, the clock or the storage. */
   configure(deps = {}) {
     if (deps.fetch) this.fetch = deps.fetch;
+    if (deps.ownOrigin) this.ownOrigin = deps.ownOrigin;
     if (deps.now) this.now = deps.now;
     if (deps.storage !== undefined) this.trust = new TrustBook(deps.storage);
   }
@@ -224,7 +362,7 @@ export class DeskPage {
         ? { target: this.drift.target, lockFound: this.drift.lockFound, findings: this.drift.findings.length, blocking: this.drift.findings.filter((f) => f.severity === "block").length }
         : null,
       lastVerification: this.verification ? this.verification.result : null,
-      generatedKey: this.key ? { kid: this.key.kid, offeredOnPage: this.key.offers.map((o) => o.path) } : null,
+      generatedKey: this.key ? { kid: this.key.kid, offeredOnPage: this.key.offers.map((o) => o.path), downloaded: this.key.downloaded } : null,
       signing: {
         version: s.version,
         origin: s.origin,
@@ -240,11 +378,33 @@ export class DeskPage {
     };
   }
 
+  // ---- D1: which hosts the assistant may send the read tools to ----
+
+  /** The visitor typed or picked an address in one of the page's own fields. */
+  noteVisitorTarget(value) {
+    const target = checkTarget(value);
+    if (target !== null) this.visitorOrigins.add(new URL(target).origin);
+  }
+
+  /** True when the assistant may fetch this target: typed or picked on the page, a partner, an example, or this Desk. */
+  assistantMayFetch(target) {
+    const origin = new URL(target).origin;
+    return this.visitorOrigins.has(origin) || PARTNER_ORIGINS.includes(origin) || EXAMPLE_ORIGINS.includes(origin) || origin === this.ownOrigin;
+  }
+
+  /** The refusal for an assistant call to a host the visitor did not choose, else null. Page calls pass no caller. */
+  #refuseUnchosen(target, how) {
+    if (how && how.caller === "assistant" && !this.assistantMayFetch(target)) return refuse(t("assistant.untypedHost"));
+    return null;
+  }
+
   // ---- read: the gate ----
 
-  async runGate(args) {
+  async runGate(args, how = {}) {
     const target = checkTarget(args && args.target);
     if (target === null) return refuse(t("errors.badTarget"), "target");
+    const denied = this.#refuseUnchosen(target, how);
+    if (denied) return denied;
     const report = await runGateWith({ target, adapters: [...ALL_ADAPTERS] }, { fetch: this.fetch, defaultTimeoutMs: DEFAULT_TIMEOUT_MS, now: this.now });
     this.gate = report;
     this.render("gate");
@@ -253,63 +413,108 @@ export class DeskPage {
 
   // ---- read: drift ----
 
-  async readDrift(args) {
+  async readDrift(args, how = {}) {
     const target = checkTarget(args && args.target);
     if (target === null) return refuse(t("errors.badTarget"), "target");
-    const result = await readDrift(target, this.fetch, { timeoutMs: DEFAULT_TIMEOUT_MS });
+    const denied = this.#refuseUnchosen(target, how);
+    if (denied) return denied;
+    const base = await siteBase(target, this.fetch);
+    // D3: the signature is verified first, against the trust store as it is (nothing is written), and the lock bytes it
+    // read are the ones drift compares, so a host cannot serve the signed lock to the check and another to the reading.
+    // A lock not covered by a VERIFIED signature is labelled, on every result: the host can rewrite it.
+    const check = await this.#verifyAt(base, { persist: false });
+    const lockSigned = check.result !== undefined && check.result.verdict === "verified" && check.subjects.includes(LOCK_FILE);
+    const result = await readDrift(target, this.fetch, { timeoutMs: DEFAULT_TIMEOUT_MS, base, lockFetch: check.lockFetch });
+    result.lockSigned = lockSigned;
+    result.lockLabel = lockSigned ? t("drift.signedLock") : t("drift.unsignedLock");
     this.drift = result;
     this.render("drift");
-    return { target: result.target, lockUrl: result.lockUrl, lockFound: result.lockFound, findings: result.findings, unreachablePeers: result.unreachablePeers };
+    return {
+      target: result.target,
+      lockUrl: safeUrl(result.lockUrl),
+      lockFound: result.lockFound,
+      lockState: result.lockState,
+      lockSigned,
+      lock: result.lockLabel,
+      findings: result.findings.map(safeFinding),
+      unreachablePeers: result.unreachablePeers.map(safeRef),
+    };
   }
 
   // ---- read: verify ----
 
-  async verifySite(args) {
+  async verifySite(args, how = {}) {
     const target = checkTarget(args && args.target);
     if (target === null) return refuse(t("errors.badTarget"), "target");
+    const denied = this.#refuseUnchosen(target, how);
+    if (denied) return denied;
     const base = await siteBase(target, this.fetch);
-    const fetchedFrom = new URL(base).origin;
     // The revocation is read first, so a key the site has revoked is dead for this verdict (and in the trust store),
     // whether or not the site still publishes a signature.
-    const revocation = await this.#checkRevocation(base);
-    if (revocation.state === "applied") this.render("trust");
-    const done = (result, extra = {}) => {
-      const meaning = t(`verdicts.${result.verdict}Meaning`);
-      const full = {
-        target,
-        base,
-        fetchedFrom,
-        verdict: result.verdict,
-        ...(result.reason ? { reason: result.reason, reasonInWords: t(`verify.reasons.${result.reason}`) } : {}),
-        ...(result.kid ? { kid: result.kid } : {}),
-        ...(result.origin ? { origin: result.origin } : {}),
-        ...(result.detail ? { detail: result.detail } : {}),
-        meaning,
-        revocation: revocation.report,
-        ...extra,
-      };
-      this.verification = { result: full, publishedKey: extra.publishedKey || null };
-      this.render("verify");
-      return full;
+    const check = await this.#verifyAt(base, { persist: true });
+    if (check.revocation.state === "applied") this.render("trust");
+    if (check.refusal) return refuse(check.refusal, "target");
+    const r = check.result;
+    const full = {
+      target,
+      base: safeUrl(base),
+      fetchedFrom: safeUrl(check.fetchedFrom),
+      verdict: r.verdict,
+      ...(r.reason ? { reason: r.reason, reasonInWords: t(`verify.reasons.${r.reason}`) } : {}),
+      // kid and origin in a result are core's, already held to their patterns; detail is always the verifier's sentence
+      ...(r.kid ? { kid: r.kid } : {}),
+      ...(r.origin ? { origin: r.origin } : {}),
+      ...(r.detail ? { detail: r.detail } : {}),
+      meaning: t(`verdicts.${r.verdict}Meaning`),
+      revocation: { ...check.revocation.report, file: safeUrl(check.revocation.report.file) },
+      signed: check.signed,
+      ...(check.signed
+        ? {
+            originMismatch: check.originMismatch,
+            ...(check.keyRevokedBySite ? { keyRevokedBySite: true } : {}),
+            signedFiles: check.signedFiles.map(safePath),
+            ...(check.firstContact ? { publishedKey: check.firstContact } : {}),
+          }
+        : {}),
     };
+    this.verification = { result: full, publishedKey: check.firstContact || null };
+    this.render("verify");
+    return full;
+  }
+
+  /**
+   * Verifies the signature at a site base, the way `plumbline verify` does over the network (WP9a's contract): the set
+   * of files is core's signedPathsOf over the manifest's bytes, every file is its exact bytes, links.json and the lock
+   * are passed whenever the site answers 2xx for them (signed or not) and left out on 404 or 410, and the manifest's
+   * code files (action module, bridge, coded-tools bundle) are fetched and passed too.
+   *
+   * :param persist: true for verify_site (an accepted revocation is written to the trust store); false for drift (the
+   *   trust store as it is: a revocation is applied in memory only).
+   * :return: {fetchedFrom, revocation, lockFetch, subjects, result?, refusal?, signed?, ...}. lockFetch is the lock as
+   *   fetched here ({response} or {error}), for drift to read the same bytes.
+   */
+  async #verifyAt(base, { persist }) {
+    const fetchedFrom = new URL(base).origin;
+    const revocation = await this.#checkRevocation(base, { persist });
+    const trust = revocation.store || this.trust;
+    const links = await fetchOptional(this.fetch, `${base}${LINKS_FILE}`);
+    const lock = await fetchOptional(this.fetch, `${base}${LOCK_FILE}`);
+    const out = { fetchedFrom, revocation, lockFetch: lock.response ? { response: lock.response } : { error: lock.error }, subjects: [] };
+    const unsigned = (detail) => ({ ...out, signed: false, result: { verdict: "unverifiable", detail } });
 
     let sigResponse;
     try {
       sigResponse = await this.fetch(`${base}${SIGNATURE_FILE}`);
     } catch {
-      return done({ verdict: "unverifiable", detail: "The signature file could not be fetched (the browser could not read it), so nothing was verified." }, { signed: false });
+      return unsigned(t("verify.sigUnreadable"));
     }
-    if (sigResponse.status === 404 || sigResponse.status === 410) {
-      return done({ verdict: "unverifiable", detail: t("verify.unsigned") }, { signed: false });
-    }
-    if (!sigResponse.ok) {
-      return done({ verdict: "unverifiable", detail: `The signature request answered HTTP ${sigResponse.status}, so nothing was verified.` }, { signed: false });
-    }
+    if (sigResponse.status === 404 || sigResponse.status === 410) return unsigned(t("verify.unsigned"));
+    if (!sigResponse.ok) return unsigned(t("verify.sigHttpStatus", { status: sigResponse.status }));
     let signature;
     try {
       signature = JSON.parse(sigResponse.text());
     } catch {
-      return done({ verdict: "invalid", reason: "malformed", detail: "The signature file is not valid JSON." }, { signed: true });
+      return { ...out, signed: true, originMismatch: false, signedFiles: [], result: { verdict: "invalid", reason: "malformed", detail: t("verify.sigNotJson") } };
     }
 
     let publishedKey;
@@ -317,72 +522,92 @@ export class DeskPage {
       const keyResponse = await this.fetch(`${base}${KEY_FILE}`);
       if (keyResponse.ok) {
         const parsed = JSON.parse(keyResponse.text());
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) publishedKey = parsed;
+        if (isRecord(parsed)) publishedKey = parsed;
       }
     } catch {
       publishedKey = undefined;
     }
 
-    const files = [];
-    const subjects = signature && Array.isArray(signature.subjects) ? signature.subjects : [];
-    for (const subject of subjects) {
-      const rel = subject && typeof subject.path === "string" ? subject.path : null;
-      if (rel === null) continue;
+    // The signed set, from the manifest's exact bytes. An unsafe path is refused, never fetched.
+    let manifestBytes = null;
+    try {
+      const response = await this.fetch(`${base}${MANIFEST_FILE}`);
+      if (response.ok) manifestBytes = response.bytes;
+    } catch {
+      manifestBytes = null;
+    }
+    let required;
+    try {
+      required = signedPathsOf(parseManifest(manifestBytes || new Uint8Array(0)), { links: links.state === "present", lock: lock.state === "present" });
+    } catch (error) {
+      return { ...out, refusal: t("verify.refusedUnsafe", { why: error.message }) };
+    }
+    const have = new Map();
+    if (manifestBytes) have.set(MANIFEST_FILE, manifestBytes);
+    if (links.state === "present") have.set(LINKS_FILE, links.response.bytes);
+    if (lock.state === "present") have.set(LOCK_FILE, lock.response.bytes);
+    const listed = isRecord(signature) && Array.isArray(signature.subjects) ? signature.subjects : [];
+    const wanted = new Set(required);
+    for (const subject of listed) if (subject && isSafeSubjectPath(subject.path)) wanted.add(subject.path);
+    for (const rel of wanted) {
+      if (have.has(rel)) continue;
       const url = publishedUrl(rel, base);
       if (url === null) continue; // a path that leaves the site is simply not a present file: tampered
-      let response;
       try {
-        response = await this.fetch(url);
+        const response = await this.fetch(url);
+        if (response.ok) have.set(rel, response.bytes);
       } catch {
-        continue;
+        // not present: core reports a signed file that is missing as tampered
       }
-      if (!response.ok) continue;
-      const text = response.text();
-      let content = text;
-      if (rel.endsWith(".json")) {
-        try {
-          content = JSON.parse(text);
-        } catch {
-          content = text;
-        }
-      }
-      files.push({ path: rel, content });
     }
+    const files = [...have].map(([path, content]) => ({ path, content }));
 
     // Trust covers files published FROM an origin: core's expectedOrigin turns a signature made for another origin into
     // unverifiable (an invalid one stays invalid), exactly as `plumbline verify --origin` does.
-    const result = await verifySignature(signature, files, this.trust, {
-      now: this.now(),
-      expectedOrigin: fetchedFrom,
-      ...(publishedKey ? { publishedKey } : {}),
-    });
-    const signedKid = signature && typeof signature.kid === "string" ? signature.kid : null;
-    const originMismatch = Boolean(signature) && typeof signature.origin === "string" && signature.origin !== fetchedFrom;
+    let result = await verifySignature(signature, files, trust, { now: this.now(), expectedOrigin: fetchedFrom, ...(publishedKey ? { publishedKey } : {}) });
+    // links.json or the lock could not be read (refused, or an HTTP error): the Desk cannot tell whether the signature
+    // covers everything the runtime loads, so a verified result is not claimed.
+    const unknown = [[links, LINKS_FILE], [lock, LOCK_FILE]].filter(([x]) => x.state === "unknown").map(([, name]) => name);
+    if (result.verdict === "verified" && unknown.length) {
+      result = { verdict: "unverifiable", kid: result.kid, origin: result.origin, detail: t("verify.coverageUnknown", { files: unknown.join(" and ") }) };
+    }
+    const signedKid = isRecord(signature) && isKid(signature.kid) ? signature.kid : null;
+    // D5: a key this browser holds as revoked (an entry for another origin, or a tombstone the visitor kept by
+    // forgetting it) is dead here too: a revocation recorded anywhere counts everywhere, so never a stranger to trust.
+    const knownRevoked = signedKid !== null && (this.trust.tombstone(signedKid) !== undefined || this.trust.forKid(signedKid).some((e) => e.revokedAt !== undefined));
+    if (knownRevoked && result.verdict !== "invalid") result = revokedResult("signature", signedKid, signature.origin);
+    const originMismatch = isRecord(signature) && typeof signature.origin === "string" && signature.origin !== fetchedFrom;
     // A site that publishes a revocation of the very key it signs with gets no first-contact offer: a revocation only
     // ever takes trust away, so it is honoured here even when this browser never trusted the key.
     const keyRevokedBySite = signedKid !== null && revocation.kid === signedKid;
     const firstContact =
-      result.verdict === "unverifiable" && !originMismatch && !keyRevokedBySite && publishedKey && typeof publishedKey.kid === "string" && publishedKey.kid === signedKid && typeof publishedKey.publicKey === "string"
+      result.verdict === "unverifiable" && !originMismatch && !keyRevokedBySite && !knownRevoked && publishedKey && isKid(publishedKey.kid) && publishedKey.kid === signedKid && isPublicKey(publishedKey.publicKey)
         ? { kid: publishedKey.kid, publicKey: publishedKey.publicKey }
         : null;
-    return done(result, {
+    return {
+      ...out,
+      result,
       signed: true,
       originMismatch,
-      ...(keyRevokedBySite ? { keyRevokedBySite } : {}),
-      signedFiles: subjects.map((s) => (s && typeof s.path === "string" ? s.path : "?")),
-      ...(firstContact ? { publishedKey: firstContact } : {}),
-    });
+      keyRevokedBySite,
+      firstContact,
+      signedFiles: listed.map((x) => (x && typeof x.path === "string" ? x.path : "?")),
+      subjects: listed.filter((x) => x && isSafeSubjectPath(x.path)).map((x) => x.path),
+    };
   }
 
   /**
-   * Reads plumbline-revocation.json from the site base and applies it with core's applyRevocation to every trust entry
-   * for its kid (a revocation names no origin). Only a VERIFIED revocation changes the trust store, and only by setting
-   * revokedAt: it can take trust away, never grant it. Absent (404/410) is normal and changes nothing; a file that
-   * cannot be read is reported as unavailable, never as "no revocation".
+   * Reads plumbline-revocation.json from the site base and applies it with core's applyRevocation(statement, entry,
+   * allEntries) to every trust entry for its kid (a revocation names no origin). Only a VERIFIED revocation changes
+   * anything, and only by taking trust away: the store becomes result.entries, the revocation spread to every origin
+   * and down every adoptedVia chain. Absent (404/410) is normal and changes nothing; a file that cannot be read is
+   * reported as unavailable, never as "no revocation".
    *
-   * :return: {report, kid?, state}: report is the part the verdict carries (no key material).
+   * :param persist: write an accepted revocation to the trust store (verify_site), or keep it in memory (drift).
+   * :return: {report, kid?, state, store?}: report is the part the verdict carries (no key material); store is the
+   *   in-memory trust store when persist is false and a revocation applied.
    */
-  async #checkRevocation(base) {
+  async #checkRevocation(base, { persist }) {
     const file = `${base}${REVOCATION_FILE}`;
     const unavailable = (detail) => ({ state: "unavailable", report: { file, state: "unavailable", detail } });
     let response;
@@ -399,36 +624,49 @@ export class DeskPage {
     } catch {
       statement = undefined;
     }
-    const kid = statement && typeof statement.kid === "string" ? statement.kid : undefined;
+    // A kid outside its pattern is never quoted: core reports such a statement as malformed.
+    const kid = isRecord(statement) && isKid(statement.kid) ? statement.kid : undefined;
     const results = [];
+    let working = this.trust.entries;
     let applied = false;
     if (statement === undefined) {
       results.push({ verdict: "invalid", reason: "malformed", detail: "The revocation file is not valid JSON." });
     } else {
       const entries = kid === undefined ? [] : this.trust.forKid(kid);
       if (entries.length === 0) {
-        const { entry: _none, ...result } = await applyRevocation(statement, undefined);
+        const { entry: _none, entries: _all, ...result } = await applyRevocation(statement, undefined);
         void _none;
+        void _all;
         results.push(result);
       }
       for (const entry of entries) {
-        const { entry: revoked, ...result } = await applyRevocation(statement, entry);
+        const current = working.find((e) => e.kid === entry.kid && e.origin === entry.origin) || entry;
+        const { entry: _one, entries: next, ...result } = await applyRevocation(statement, current, working);
+        void _one;
         results.push(result);
-        if (result.verdict === "verified" && revoked && this.trust.markRevoked(revoked)) applied = true;
+        if (result.verdict === "verified" && Array.isArray(next)) {
+          working = next;
+          applied = true;
+        }
       }
     }
-    const persisted = applied ? this.trust.save() : false;
+    let persisted = false;
+    if (applied && persist) {
+      this.trust.replaceEntries(working);
+      persisted = this.trust.save();
+    }
     const state = applied ? "applied" : "not-applied";
     return {
       state,
       ...(kid !== undefined ? { kid } : {}),
+      ...(applied && !persist ? { store: { find: (k, o) => working.find((e) => e.kid === k && e.origin === o) } } : {}),
       report: {
         file,
         state,
         ...(kid !== undefined ? { kid } : {}),
         results,
         detail: applied ? t("verify.revocation.applied") : t("verify.revocation.notApplied"),
-        ...(applied && !persisted ? { note: t("verify.storageUnavailable") } : {}),
+        ...(applied && persist && !persisted ? { note: t("verify.storageUnavailable") } : {}),
       },
     };
   }
@@ -464,7 +702,9 @@ export class DeskPage {
 
   // ---- write (undoable): generate a key ----
 
-  async generateKey() {
+  async generateKey(how = {}) {
+    // D4: the assistant never throws away a key the visitor has not downloaded; only the visitor can (Discard).
+    if (how.caller === "assistant" && this.key && !this.key.downloaded) return refuse(t("key.keepUndownloaded"));
     const { key, privateKey } = await generateKey(this.now());
     const privateFile = { type: PRIVATE_KEY_TYPE, version: FORMAT_VERSION, alg: ALG, kid: key.kid, privateKey };
     this.discardKey(true);
@@ -474,7 +714,7 @@ export class DeskPage {
     const publicOffer = offer("plumbline-key.json", `${JSON.stringify(key, null, 2)}\n`);
     publicOffer.path = KEY_FILE;
     publicOffer.label = t("key.downloadPublic");
-    this.key = { kid: key.kid, createdAt: key.createdAt, offers: [privateOffer, publicOffer] };
+    this.key = { kid: key.kid, createdAt: key.createdAt, offers: [privateOffer, publicOffer], downloaded: false };
     this.notices.key = null;
     this.render("key");
     return {
@@ -483,6 +723,12 @@ export class DeskPage {
       offeredOnPage: [PRIVATE_KEY_FILE, KEY_FILE],
       note: "The visitor downloads both files from the page. The private key is not in this result, is not stored and was not sent anywhere.",
     };
+  }
+
+  /** The visitor used the private key file's download link. */
+  markKeyDownloaded() {
+    if (this.key) this.key.downloaded = true;
+    return { ok: true };
   }
 
   /** Undo generateKey: drop the key and its downloads from the page. */
@@ -564,7 +810,7 @@ export class DeskPage {
     this.render("sign");
     try {
       const files = [];
-      for (const file of Array.from(fileList || [])) files.push({ name: file.name, text: await readFileText(file) });
+      for (const file of Array.from(fileList || [])) files.push({ name: file.name, bytes: await readFileBytes(file) });
       this.signing.siteFiles = files;
       await this.#prepareSubjects();
     } finally {
@@ -599,34 +845,40 @@ export class DeskPage {
       s.problem = s.siteFiles.length ? t("sign.refusals.noManifest") : null;
       return;
     }
-    let manifest;
-    try {
-      manifest = JSON.parse(manifestFile.text);
-    } catch {
+    const manifest = parseManifest(manifestFile.bytes);
+    if (manifest === undefined) {
       s.problem = t("sign.refusals.badManifest");
       return;
     }
-    // One signed-file rule, shared with `plumbline sign`: core's signedPathsOf. A file picker gives names, not paths, so
-    // each signed path is matched to the chosen file by its last segment.
+    // One signed-file rule, shared with `plumbline sign`: core's signedPathsOf, with links.json and the lock when they
+    // were chosen. A file picker gives names, not paths, so each signed path is matched to the chosen file by its last
+    // segment; two signed paths with one file name cannot be told apart here, so that is refused.
+    let paths;
+    try {
+      paths = signedPathsOf(manifest, { links: byName.has(LINKS_FILE), lock: byName.has(LOCK_FILE) });
+    } catch (error) {
+      s.problem = t("sign.refusals.unsafePath", { why: error.message });
+      return;
+    }
+    const seen = new Set();
+    for (const path of paths) {
+      const name = lastSegment(path);
+      if (seen.has(name)) {
+        s.problem = t("sign.refusals.sameName", { name });
+        return;
+      }
+      seen.add(name);
+    }
     const subjects = [];
     const used = new Set();
-    for (const path of signedPathsOf(manifest, byName.has(LINKS_FILE))) {
-      if (path === MANIFEST_FILE) {
-        subjects.push({ path, content: manifest });
-        used.add(MANIFEST_FILE);
-        continue;
-      }
+    for (const path of paths) {
       const file = byName.get(lastSegment(path));
       if (!file) {
         s.problem = t("sign.refusals.missingNetwork", { path });
         return;
       }
-      try {
-        subjects.push({ path, content: JSON.parse(file.text) });
-      } catch {
-        s.problem = t("sign.refusals.badJson", { path });
-        return;
-      }
+      // The exact bytes the visitor chose: no parse, no re-serialisation.
+      subjects.push({ path, content: file.bytes });
       used.add(file.name);
     }
     for (const subject of subjects) subject.sha256 = await subjectDigest(subject.content);
@@ -830,10 +1082,14 @@ function renderDrift(page) {
   const nodes = [];
   const where = el("p", `${t("drift.lockAt")} ${d.lockUrl}`, "target");
   nodes.push(where);
-  if (!d.lockFound) {
-    nodes.push(el("p", t("drift.noLock"), "notice"));
-  }
-  if (d.lockFound && d.findings.length === 0) nodes.push(el("p", t("drift.clean"), "notice"));
+  // Only a 404 or 410 is "no lock" (D6); a refused read says so.
+  if (d.lockState === "absent") nodes.push(el("p", t("drift.noLock"), "notice"));
+  else if (d.lockState === "refused") nodes.push(el("p", t("drift.refused"), "notice"));
+  else if (!d.lockFound) nodes.push(el("p", t("drift.notRead"), "notice"));
+  // D3: a lock not covered by a signature verified under a publisher you trust is labelled, and a clean reading of one
+  // never reads as plain "No drift".
+  if (d.lockFound) nodes.push(el("p", d.lockLabel || t("drift.unsignedLock"), d.lockSigned ? "note" : "notice lock-unsigned"));
+  if (d.lockFound && d.findings.length === 0) nodes.push(el("p", d.lockSigned ? t("drift.clean") : t("drift.cleanUnsigned"), "notice"));
   for (const kind of ["grounding", "runtime", "peer"]) {
     const group = d.findings.filter((f) => f.kind === kind);
     if (!group.length) continue;
@@ -942,6 +1198,14 @@ function renderTrust(page) {
     const list = el("ul", null, "trust-entries");
     for (const e of entries) {
       const item = el("li");
+      if (e.forgotten) {
+        // A tombstone (D5): the key was revoked, then forgotten. It carries no trust and has no Forget: it stays, so the
+        // key cannot be trusted again from this page.
+        item.className = "revoked";
+        item.append(el("code", e.kid), el("span", " "), chip("invalid", t("verify.trustForgotten", { date: e.revokedAt.slice(0, 10) })));
+        list.append(item);
+        continue;
+      }
       const forget = el("button", t("verify.forget"));
       forget.type = "button";
       forget.setAttribute("aria-label", `${t("verify.forget")} ${e.kid} ${e.origin}`);
@@ -977,7 +1241,10 @@ function renderKey(page) {
     const list = el("ul", null, "downloads");
     for (const o of page.key.offers) {
       const li = el("li");
-      li.append(downloadLink(o, o.label));
+      const link = downloadLink(o, o.label);
+      // D4: once the visitor has used the private key's download, the assistant may make another key.
+      if (o.path === PRIVATE_KEY_FILE) link.addEventListener("click", () => page.markKeyDownloaded());
+      li.append(link);
       list.append(li);
     }
     nodes.push(made, list);
@@ -1094,9 +1361,12 @@ async function handle(statusId, runningText, work) {
 }
 
 function wireForm(formId, inputId, statusId, runningKey, method) {
+  // D1: an address the visitor types into the page's own field is one the assistant may then use.
+  byId(inputId).addEventListener("change", (event) => App.page.noteVisitorTarget(event.target.value));
   byId(formId).addEventListener("submit", (event) => {
     event.preventDefault();
     const target = byId(inputId).value;
+    App.page.noteVisitorTarget(target);
     void handle(statusId, t(runningKey), () => App.page[method]({ target }));
   });
 }

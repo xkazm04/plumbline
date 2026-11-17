@@ -9,5 +9,5 @@ export { signSubjects, subjectDigest, isAcceptableOrigin, type SignOptions } fro
 export { verifySignature, isKid, isPublicKey, FUTURE_SKEW_MS, type VerifyOptions } from "./verify.js";
 export { rotateKey, verifyRotation, adoptRotation, type RotateOptions } from "./rotate.js";
 export { revokeKey, applyRevocation, spreadRevocations, type RevokeOptions } from "./revoke.js";
-export { signedPathsOf, networkPathOf, isSafeSubjectPath, parseManifest, type SitePresence } from "./signed-paths.js";
+export { signedPathsOf, networkPathOf, codePathOf, isSafeSubjectPath, parseManifest, type SitePresence } from "./signed-paths.js";
 export { countDuplicateKeys } from "./json-keys.js";

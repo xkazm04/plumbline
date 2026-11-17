@@ -2,7 +2,9 @@
 //   runtime.files    every file under the vendored runtime folder (`runtime/`, else `site/runtime/`, or deps.runtimeDir),
 //                    keyed by path relative to the root with `/` separators. Every hash here is SHA-256 of exact bytes.
 //   runtime.commit   the nsdeploy commit the runtime README or NOTICE names ("nsdeploy commit `53a787c`"), else "unknown".
-//   grounding        agent-manifest.json, links.json and every `*.network.json` at the root, plus deps.extraSources.
+//   grounding        agent-manifest.json, links.json and every `*.network.json` at the root, every network file the
+//                    manifest names (`networks[].hocon`, at exactly that path, by core's networkPathOf: the rule
+//                    `sign` uses, so an unsafe one is a finding and is never read), plus deps.extraSources.
 //   peers            every partner network address the root's network definitions and links.json point at: the keys of
 //                    `link_labels`, `http(s)` entries in an agent's `tools` that are not MCP endpoints, and the `http(s)`
 //                    values in links.json. Each is fetched through safeFetch; its hash, the hash of its links.json at
@@ -12,7 +14,8 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join, posix, relative, sep } from "node:path";
-import { FORMAT_VERSION, KID_PATTERN, type DriftFinding, type PlumblineLock } from "../core/types.js";
+import { networkPathOf, parseManifest } from "../core/signed-paths.js";
+import { FORMAT_VERSION, KID_PATTERN, MANIFEST_FILE, type DriftFinding, type PlumblineLock } from "../core/types.js";
 import { hashBytes } from "../net/canonical.js";
 import { locatePeerFile } from "../net/locate.js";
 import { SafeFetchError } from "../net/safe-fetch.js";
@@ -100,7 +103,27 @@ export async function captureLock(
 
   // grounding
   const rootNames = (await readdir(root).catch(() => [])).filter((n) => n === "agent-manifest.json" || n === "links.json" || n.endsWith(".network.json")).sort();
-  const refs = [...new Set([...rootNames, ...(options.extraSources ?? [])])];
+  // The network files the manifest names, at the path the runtime fetches. A `hocon` that is not a safe site-relative
+  // path is never resolved, so nothing outside the root is read; it is a finding that names the entry, not its text.
+  const named: string[] = [];
+  // Read as the runtime reads it (UTF-8, a leading BOM dropped), the way `sign` does.
+  const manifest = parseManifest(new Uint8Array(await readFile(join(root, MANIFEST_FILE)).catch(() => new Uint8Array())));
+  const networks = isObject(manifest) && Array.isArray(manifest.networks) ? manifest.networks : [];
+  networks.forEach((entry: unknown, index: number) => {
+    const hocon = isObject(entry) ? entry.hocon : undefined;
+    if (typeof hocon !== "string") return;
+    try {
+      named.push(networkPathOf(hocon, index));
+    } catch {
+      findings.push({
+        kind: "grounding",
+        severity: "warn",
+        ref: MANIFEST_FILE,
+        summary: `A network file could not be locked: the manifest's networks[${index}].hocon is not a safe site-relative path, so it was not read.`,
+      });
+    }
+  });
+  const refs = [...new Set([...rootNames, ...named, ...(options.extraSources ?? [])])];
   const sources: { ref: string; sha256: string }[] = [];
   for (const ref of refs) {
     try {

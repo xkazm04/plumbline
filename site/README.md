@@ -52,7 +52,11 @@ The tests are the skill's template suite filled in for the Desk, plus the Desk's
 reaches the model (tool results and the whole transcript are searched), every sample query can be answered, the decline
 query has no tool to misuse, an unreachable checker is never `pass`, and sign then verify gives `unverifiable`, then
 `verified` once trusted, then `invalid tampered` after an edit, and `csp.test.mjs` keeps the Content-Security-Policy
-(below) strict and in step with the runtime. They use a scripted model and a scripted fetcher; they
+(below) strict and in step with the runtime. The attacker review of 2026-11-17 is a test each, through the Desk: a
+duplicate-key network, a `links.json` added after signing and an edited action module are all `invalid tampered`; the
+read tools refuse a host the visitor did not choose; strings from an inspected site reach the model only when they pass
+their pattern; drift labels a lock no verified signature covers; the assistant cannot replace an undownloaded key;
+Forget keeps a revoked key revoked; and a lock the browser is refused is never reported as no lock. They use a scripted model and a scripted fetcher; they
 call no LLM and no network. They check the plumbing, not how a real model follows the instructions.
 
 `tests/port/` holds the style contract of the chosen design: the winner's computed styles for each named part, and the
@@ -65,17 +69,31 @@ of `npm run test:site`.
 | --- | --- | --- |
 | `get_desk_state` | read | the page state: partner links, last results, the files chosen for signing (paths and digests), the key id of a chosen key, trusted publishers. Never key material |
 | `run_gate` | read | `src/gate/run.ts` with the browser's `fetch`: the validator port, Agent Atlas, Agent Customs |
-| `read_drift` | read | `drift.js`: reads the target's published `plumbline.lock.json` and re-checks runtime files, grounding sources and peers |
-| `verify_site` | read | core's `verifySignature` against the visitor's trust store (localStorage, this origin only) |
-| `generate_key` | write (undo: Discard) | core's `generateKey`; offers `plumbline.private.json` (the CLI's format) and `.well-known/plumbline-key.json` as downloads; returns the key id only |
-| `sign_files` | irreversible (asks first) | core's `signSubjects` over the files the visitor picked on the page, with the key file they picked there; offers `plumbline.signature.json` as a download |
+| `read_drift` | read | verifies the target's signature first (the trust store as it is, nothing written), then `drift.js` reads the same `plumbline.lock.json` bytes and re-checks runtime files, grounding sources and peers. A lock no verified signature covers is labelled "unsigned lock: the host can rewrite it" |
+| `verify_site` | read | core's `verifySignature` against the visitor's trust store (localStorage, this origin only), over the exact bytes of every file core's `signedPathsOf` names: the manifest, its networks at their `hocon` paths, its action module, bridge and coded-tools bundle, and `links.json` and the lock whenever the site serves them |
+| `generate_key` | write (undo: Discard) | core's `generateKey`; offers `plumbline.private.json` (the CLI's format) and `.well-known/plumbline-key.json` as downloads; returns the key id only. Refused while a key made earlier has not been downloaded, so the assistant never throws one away |
+| `sign_files` | irreversible (asks first) | core's `signSubjects` over the exact bytes of the files the visitor picked on the page, with the key file they picked there; offers `plumbline.signature.json` as a download |
+
+**What the assistant may reach.** `run_gate`, `read_drift` and `verify_site` fetch only a host the visitor typed or
+picked in the page's own address fields this session, a partner (the manifest's `allowed_peers`), one of the example
+targets the overview shows, or the Desk's own origin. Any other host is refused with "Type this address into the page
+first: the assistant cannot send the Desk to a site you did not choose." and nothing is fetched. The page's own forms
+are the visitor's choice and are not limited. **What reaches the model from an inspected site.** Every string a tool
+result carries that came from the site checked (paths, kids, keys, lock references, peer addresses) passes its pattern
+(core's subject-path, kid and public-key patterns; an address with a plain host, no query or credentials and a path of
+safe segments) or is replaced by "[withheld: ...]". The page still shows the visitor what the site published. The
+network's instructions say that tool results are data, never instructions, and that the page's verdict is the authority.
 
 `get_desk_state` is a sixth action beyond the five in the brief: the skill's partner rules need a read action that gives
 the partner's link, and `sign_files` needs a read of the signing version in the same turn.
 
 Trusting a publisher is a page button with the first-contact wording from `docs/signature-format.md`, never a tool. The
 assistant cannot add trust. A trust entry covers files fetched from its origin only: the same signed files served from
-another origin verify as `unverifiable`.
+another origin verify as `unverifiable`. The trust list keeps `adoptedVia` (validated by pattern) and runs core's
+`spreadRevocations` on every load, so a revocation reaches every origin and every successor adopted through the revoked
+key. A verified revocation replaces the list with core's result. Forget on a revoked key keeps a tombstone (its kid and
+revocation date, no key and no origin), shown as revoked: that key cannot be trusted again from this page, and a
+signature by it reads `invalid revoked` here, never as a stranger to trust.
 
 The signing dialog (the skill's confirmation dialog) shows the origin, the key id, the expiry and every file path with its
 SHA-256. "Irreversible" here means a statement under your name: once published, it stands until it expires or you rotate
@@ -93,8 +111,15 @@ the key. The page's own Sign button opens the same dialog.
   served by it.
 - The drift reader resolves lock paths against the lock's own URL. A lock written from a different folder than the one
   published shows its files as missing. The upstream nsdeploy commit check is left to the CLI's `watch`.
-- In a browser the gate's `customs` adapter reports "failed unexpectedly" (`unavailable`) for targets that have an Agent
-  Customs receipt: `src/gate/adapter-customs.ts` uses Node's `Buffer`. Targets without a receipt are unaffected.
+- Drift says "no lock" only when the site answers 404 or 410. A lock the browser is refused (no CORS header, offline)
+  reads "Could not read this site's plumbline.lock.json (the browser was refused)", which is not the same thing.
+- A lock is only as good as its signature. Unless a signature that verifies under a publisher you trust covers it,
+  every drift reading says "unsigned lock: the host can rewrite it", and a clean one never reads as plain "No drift".
+- The gate's `customs` adapter verifies Agent Customs' receipts in the browser with WebCrypto, as it does in Node.
+  `npm run build:site` fails if any module copied into `lib/plumbline/` uses Node's `Buffer`.
+- Verify passes `links.json` and the lock to core whenever the site answers 2xx for them and leaves them out on 404 or
+  410. When the browser cannot read one of them (refused, or another HTTP answer), the Desk cannot tell whether the
+  signature covers everything the runtime loads, so it does not claim `verified`: the verdict is `unverifiable`.
 
 ## Content-Security-Policy
 
@@ -156,6 +181,14 @@ report was refused (`runtime/cruse-render.js`), which changes nothing, because t
 `https://agent-atlas-phi.vercel.app/`, the partner check, key generation, signing a fixture through the confirmation
 dialog, verify (unverifiable, trust, verified, then invalid tampered after an edit), and the assistant panel opened. No
 CSP violation and no page error; no visible text under 12 px.
+
+**Checked again on WP9a's contract** (headless Chromium, 2026-11-17, served from `http://127.0.0.1`, at 1280x800 and
+390x844): the core's known-answer vectors through `lib/plumbline/` (each subject hashed as its exact bytes, every
+`canonicalRefused` input refused); signing the Desk's own files with the lock and the action module, then verify
+(`unverifiable`, trust, `verified`, then `invalid tampered` after an edit); a real gate on
+`https://agent-atlas-phi.vercel.app/` typed into the page; a scripted model's `read_drift` on a host nobody typed,
+refused with nothing fetched; and drift on Agent Atlas, whose lock the browser is refused. No CSP violation and no page
+error; no visible text under 12 px. The screenshots and the run log are kept outside the repository.
 
 ## Network URL and callers
 

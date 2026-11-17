@@ -10,7 +10,7 @@ your visitor's tab. Generation is solved elsewhere; Plumbline is the layer after
 
 | Part | What it does |
 |---|---|
-| **sign** | The publisher signs the agent files (`agent-manifest.json`, its networks, `links.json`) with an Ed25519 key they hold: `plumbline.signature.json`, with `.well-known/plumbline-key.json`. Rotation for planned changes, self-signed revocation for leaks. |
+| **sign** | The publisher signs the exact bytes of the agent files (`agent-manifest.json`, its networks, the action module, bridge and coded-tools bundle it names, `links.json`, the lock) with an Ed25519 key they hold: `plumbline.signature.json`, with `.well-known/plumbline-key.json`. Rotation for planned changes, self-signed revocation for leaks. |
 | **verify** | Three honest verdicts against the verifier's own trust store: `verified`, `invalid` (tampered, expired, bad-signature, kid-mismatch, malformed, revoked) or `unverifiable`. A stranger is never `verified`, whatever the math says. |
 | **gate** | One report from three independent checkers: a port of the reference validation rules, Agent Atlas and Agent Customs' signed receipts. Each `pass`, `fail` or `unavailable`; unavailable is never a pass. |
 | **watch** | Grounding, runtime and peer drift against `plumbline.lock.json`, each `info`, `warn` or `block`; a scheduled workflow keeps one drift issue up to date. |

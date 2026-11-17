@@ -2,17 +2,22 @@
 // re-checks what a browser can check live, with the same hashing and the same severities as src/watch/detectors.ts.
 //
 // Why a separate detector: src/watch/detectors.ts and lock.ts import node:fs and node:path (they read a local root)
-// and safe-fetch.js, so they cannot load in a browser. What this module reuses is the pure part: the document
-// fingerprints of net/canonical.js (hashBytes, hashDocument) and the peer locator of net/locate.js. What differs:
+// and safe-fetch.js, so they cannot load in a browser. What this module reuses is the pure part: the byte fingerprint
+// of net/canonical.js (hashBytes) and the peer locator of net/locate.js. What differs:
 //   - "local" lock references (runtime files, grounding paths) are resolved against the lock's own URL, because a
 //     browser can only read what the site publishes. A lock written from a different root than the published folder
 //     shows its files as missing; the summary says so.
 //   - the upstream nsdeploy commit check is not run here (the page says so); the CLI's watch does it.
 // Severities (docs/gate-and-watch.md): grounding changed or unreadable: warn. Runtime changed or missing: block.
-// Peer changed or now signed by another key: block; unreachable: warn; newly signed: info; signature gone: warn.
+// Peer changed, its links.json appeared, changed or went away, or it is now signed by another key: block; unreachable,
+// links.json not readable or not recorded: warn; newly signed: info; signature gone: warn. Every hash is SHA-256 of the
+// exact bytes fetched (hashBytes), as the CLI's watch does. A peer kid outside its pattern is never quoted.
+//
+// "No lock" is said only for a 404 or 410 (lockState "absent"). A lock the browser was refused (CORS, offline) is
+// lockState "refused" and says so; the Desk never reports a refused read as a site that publishes no lock.
 
-import { LOCK_FILE, SIGNATURE_FILE, FORMAT_VERSION } from "./lib/plumbline/core/index.js";
-import { hashBytes, hashDocument } from "./lib/plumbline/net/canonical.js";
+import { KID_PATTERN, LOCK_FILE, PEER_LINKS_ABSENT, SIGNATURE_FILE, FORMAT_VERSION } from "./lib/plumbline/core/index.js";
+import { hashBytes } from "./lib/plumbline/net/canonical.js";
 import { locatePeerFile, locateTarget } from "./lib/plumbline/net/locate.js";
 
 // Marks a finding for an unreachable peer. A symbol key, so it never reaches JSON (the wire shape stays exact).
@@ -38,7 +43,13 @@ export function lockProblem(value) {
   }
   if (!isObject(peers)) return "the lock's peers section is malformed";
   for (const p of Object.values(peers)) {
-    if (!isObject(p) || !isHex(p.sha256) || typeof p.checkedAt !== "string" || (p.kid !== undefined && typeof p.kid !== "string")) {
+    if (
+      !isObject(p) ||
+      !isHex(p.sha256) ||
+      typeof p.checkedAt !== "string" ||
+      (p.kid !== undefined && (typeof p.kid !== "string" || !KID_PATTERN.test(p.kid))) ||
+      (p.links !== undefined && !isHex(p.links) && p.links !== PEER_LINKS_ABSENT)
+    ) {
       return "the lock's peer entries are malformed";
     }
   }
@@ -169,7 +180,7 @@ async function checkPeer(url, record, fetcher, options) {
   if (!response.ok) {
     return [{ kind: "peer", severity: "warn", ref: url, summary: `This peer could not be reached: its network definition answered HTTP ${response.status}.`, [UNREACHABLE]: true }];
   }
-  const actual = await hashDocument(response.text());
+  const actual = await hashBytes(response.bytes);
   if (actual !== record.sha256) {
     out.push({
       kind: "peer",
@@ -180,6 +191,38 @@ async function checkPeer(url, record, fetcher, options) {
       summary: "A peer's network definition changed since the lock was written; it runs in the visitor's browser, so a changed one is changed code.",
     });
   }
+  // The peer's links.json at its site base: the runtime lays it over the peer network's links, so one that appears,
+  // changes or goes away changes what the peer does. 404 or 410 is "absent"; a readable answer is hashed; anything
+  // else is unreadable. A lock written before links were tracked has no record: say so, never pass.
+  if (record.links === undefined) {
+    out.push({ kind: "peer", severity: "warn", ref: url, summary: "The lock does not record this peer's links.json, so a links file it adds or changes is not seen; re-lock to track it." });
+  } else {
+    let links;
+    try {
+      const answer = await fetcher(`${located.base}links.json`, options);
+      if (answer.status === 404 || answer.status === 410) links = PEER_LINKS_ABSENT;
+      else if (answer.ok) links = await hashBytes(answer.bytes);
+      else out.push({ kind: "peer", severity: "warn", ref: url, summary: `A peer's links.json could not be checked: it answered HTTP ${answer.status}.` });
+    } catch (error) {
+      out.push({ kind: "peer", severity: "warn", ref: url, summary: `A peer's links.json could not be checked: it could not be fetched (${why(error)}).` });
+    }
+    if (links !== undefined && links !== record.links) {
+      const appeared = record.links === PEER_LINKS_ABSENT;
+      const gone = links === PEER_LINKS_ABSENT;
+      out.push({
+        kind: "peer",
+        severity: "block",
+        ref: url,
+        expected: record.links,
+        actual: links,
+        summary: appeared
+          ? "A peer now publishes a links.json it did not have when locked; the runtime lays it over the peer's links, so this is changed code."
+          : gone
+            ? "A peer's links.json is gone since the lock was written; the peer's links now resolve differently."
+            : "A peer's links.json changed since the lock was written; the runtime lays it over the peer's links, so this is changed code.",
+      });
+    }
+  }
   let kid;
   let problem;
   try {
@@ -187,8 +230,9 @@ async function checkPeer(url, record, fetcher, options) {
     if (sig.ok) {
       try {
         const parsed = JSON.parse(sig.text());
-        if (typeof parsed.kid === "string") kid = parsed.kid;
-        else problem = `its ${SIGNATURE_FILE} has no kid`;
+        // a kid outside its exact pattern is treated as none: a stranger's string never reaches a finding
+        if (parsed && typeof parsed.kid === "string" && KID_PATTERN.test(parsed.kid)) kid = parsed.kid;
+        else problem = `its ${SIGNATURE_FILE} has no valid kid`;
       } catch {
         problem = `its ${SIGNATURE_FILE} is not valid JSON`;
       }
@@ -212,41 +256,52 @@ async function checkPeer(url, record, fetcher, options) {
   return out;
 }
 
+/** The sentence for a lock the browser was refused (CORS or a network failure): never "publishes no lock" (D6). */
+export const LOCK_REFUSED = "Could not read this site's plumbline.lock.json (the browser was refused)";
+
 /**
  * Read a site's published lock and re-check it.
  *
  * :param target: The site address.
  * :param fetcher: The Desk's fetcher.
- * :param options: Fetch options, such as timeoutMs.
- * :return: {target, base, lockUrl, lockFound, findings}. Findings use the DriftFinding wire shape; peer findings for
- *   an unreachable peer are also listed in unreachablePeers, for the page's wording.
+ * :param options: Fetch options, such as timeoutMs; `base`, the site base when the caller already worked it out; and
+ *   `lockFetch`, the lock as the caller already fetched it ({response} or {error}), so the bytes a signature check read
+ *   are the bytes drift compares.
+ * :return: {target, base, lockUrl, lockFound, lockState, findings}. lockState is "found", "absent" (404 or 410: the
+ *   only "no lock"), "refused" (the browser could not read it), "unreadable" (another HTTP answer or a timeout) or
+ *   "unusable" (not JSON, or not the lock's shape). Findings use the DriftFinding wire shape; peer findings for an
+ *   unreachable peer are also listed in unreachablePeers, for the page's wording.
  */
 export async function readDrift(target, fetcher, options = {}) {
-  const base = await siteBase(target, fetcher, options);
+  const { base: givenBase, lockFetch, ...fetchOptions } = options;
+  const base = givenBase || (await siteBase(target, fetcher, fetchOptions));
   const lockUrl = `${base}${LOCK_FILE}`;
-  const noLock = (summary) => ({ target, base, lockUrl, lockFound: false, unreachablePeers: [], findings: [{ kind: "grounding", severity: "warn", ref: LOCK_FILE, summary }] });
+  const noLock = (lockState, summary) => ({ target, base, lockUrl, lockFound: false, lockState, unreachablePeers: [], findings: [{ kind: "grounding", severity: "warn", ref: LOCK_FILE, summary }] });
   let response;
   try {
-    response = await fetcher(lockUrl, options);
+    if (lockFetch && lockFetch.response) response = lockFetch.response;
+    else if (lockFetch && lockFetch.error) throw lockFetch.error;
+    else response = await fetcher(lockUrl, fetchOptions);
   } catch (error) {
-    return noLock(`The lock could not be fetched (${why(error)}), so no drift was checked.`);
+    if (error && error.name === "SafeFetchError" && error.code === "network") return noLock("refused", `${LOCK_REFUSED}, so no drift was checked.`);
+    return noLock("unreadable", `The lock could not be fetched (${why(error)}), so no drift was checked.`);
   }
-  if (response.status === 404 || response.status === 410) return noLock("no lock: this site publishes no plumbline.lock.json, so there is nothing to compare against.");
-  if (!response.ok) return noLock(`The lock request answered HTTP ${response.status}, so no drift was checked.`);
+  if (response.status === 404 || response.status === 410) return noLock("absent", "no lock: this site publishes no plumbline.lock.json, so there is nothing to compare against.");
+  if (!response.ok) return noLock("unreadable", `The lock request answered HTTP ${response.status}, so no drift was checked.`);
   let lock;
   try {
     lock = JSON.parse(response.text());
   } catch {
-    return noLock("The lock cannot be used: the lock file is not valid JSON, so no drift was checked.");
+    return noLock("unusable", "The lock cannot be used: the lock file is not valid JSON, so no drift was checked.");
   }
   const problem = lockProblem(lock);
-  if (problem !== null) return noLock(`The lock cannot be used: ${problem}, so no drift was checked.`);
+  if (problem !== null) return noLock("unusable", `The lock cannot be used: ${problem}, so no drift was checked.`);
   const lockBase = new URL("./", response.url || lockUrl).href;
   const [grounding, runtime, peers] = await Promise.all([
-    detectGrounding(lock, lockBase, fetcher, options),
-    detectRuntime(lock, lockBase, fetcher, options),
-    Promise.all(Object.entries(lock.peers).map(([url, record]) => checkPeer(url, record, fetcher, options))).then((r) => r.flat()),
+    detectGrounding(lock, lockBase, fetcher, fetchOptions),
+    detectRuntime(lock, lockBase, fetcher, fetchOptions),
+    Promise.all(Object.entries(lock.peers).map(([url, record]) => checkPeer(url, record, fetcher, fetchOptions))).then((r) => r.flat()),
   ]);
   const unreachablePeers = peers.filter((f) => f[UNREACHABLE] === true).map((f) => f.ref);
-  return { target, base, lockUrl, lockFound: true, unreachablePeers, findings: [...grounding, ...runtime, ...peers] };
+  return { target, base, lockUrl, lockFound: true, lockState: "found", unreachablePeers, findings: [...grounding, ...runtime, ...peers] };
 }

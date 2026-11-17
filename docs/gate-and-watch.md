@@ -102,8 +102,10 @@ JSON hashes no longer match: write a fresh lock (below). The signer check compar
 needs a trust store and is `src/core`'s job.
 
 `--init` captures: every file under `runtime/` (else `site/runtime/`) and the nsdeploy commit its README or NOTICE names
-(`nsdeploy commit \`53a787c\``, else `unknown`); `agent-manifest.json`, `links.json` and every `*.network.json` at the root plus any
-`--source` as grounding; and as peers the keys of `link_labels`, the `http(s)` non-MCP entries of an agent's `tools`, and the
+(`nsdeploy commit \`53a787c\``, else `unknown`); `agent-manifest.json`, `links.json` and every `*.network.json` at the root,
+every network file the manifest names in `networks[].hocon` (at exactly that path, by the rule `sign` uses, so a `hocon`
+that is an absolute URL, leaves the root or has an unsafe character is a `warn` finding naming the entry and is never
+read), plus any `--source`, as grounding; and as peers the keys of `link_labels`, the `http(s)` non-MCP entries of an agent's `tools`, and the
 `http(s)` values in `links.json`, each with the hash of its network definition and the state of its `links.json`.
 Something that cannot be captured (an unreachable peer, a peer whose `links.json` answers neither 2xx nor 404/410, a
 missing source) is left OUT of the lock and returned as a finding, so a lock with a gap is never mistaken for a complete

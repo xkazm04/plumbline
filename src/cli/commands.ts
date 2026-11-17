@@ -142,7 +142,7 @@ export async function sign(argv: string[], out: Out): Promise<number> {
     else if (rel === LOCK_FILE && lock) files.push(lock);
     else {
       const loaded = await loadSubject(root, rel);
-      if (!loaded) throw new CliError(`network file named by the manifest is missing: ${rel}`);
+      if (!loaded) throw new CliError(`a file the manifest makes the runtime load is missing: ${rel}`);
       files.push(loaded);
     }
   }
