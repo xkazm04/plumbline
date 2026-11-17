@@ -70,8 +70,8 @@ jobs:
             "",
             noLock
               ? "There is no lock yet. Run `npx plumbline@" + process.env.PLUMBLINE_VERSION + " watch --init`, review the lock and commit it."
-              : "`block` means a vendored runtime file or a peer's definition changed: look before the next release. " +
-                "After reviewing a change you accept, update the lock and close this issue.",
+              : "`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. " +
+                "After reviewing a change you accept, update the lock, sign the site again if it is signed, and close this issue.",
             "",
             "A clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.",
           ].join("\n");

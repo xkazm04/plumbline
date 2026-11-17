@@ -26,10 +26,11 @@ its `PLUMBLINE_VERSION` environment variable. A test (`src/test/action-pin.test.
 from `package.json`'s version, so a release that bumps the package bumps both.
 
 **Watch** (`action/templates/plumbline-watch.yml`). Copy it to `.github/workflows/plumbline-watch.yml`, run
-`npx plumbline@0.1.0 watch --init` once and commit `plumbline.lock.json`. It runs daily and on demand with
+`npx plumbline@0.1.0 watch --init` once (before `plumbline sign`, which signs the lock) and commit `plumbline.lock.json`. It runs daily and on demand with
 `contents: read` and `issues: write` only. On a `warn` or `block` finding it creates, or edits, ONE open issue titled
 `Plumbline drift`; it never pushes or opens a pull request. `info` findings (upstream runtime is ahead, upstream could not be
-asked) stay in the job log. Close the issue yourself once you have reviewed the drift and re-locked.
+asked) stay in the job log. Close the issue yourself once you have reviewed the drift, re-locked and, when the site
+publishes a Plumbline signature, signed it again: the lock is a signed file, so a new lock needs a new signature.
 
 Both run `npx plumbline@<version>`, so they need that version to be published (or installed in the repository). Third-party actions
 in the template are pinned by commit SHA (`actions/checkout` v7.0.1, `actions/setup-node` v7.1.0, resolved from GitHub's

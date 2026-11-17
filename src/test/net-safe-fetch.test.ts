@@ -35,6 +35,33 @@ test("address classification: private, loopback, link-local, multicast, unique-l
   for (const a of allowed) assert.equal(isBlockedAddress(a), false, `${a} should be allowed`);
 });
 
+test("REGRESSION (reviewer finding 11): the IPv4-translated form ::ffff:0:a.b.c.d is refused, with every other embedded-v4 form", () => {
+  // Old code: ::ffff:0:0/96 matched neither the mapped check (bytes 10-11 = ffff) nor ::/96, so it fell through as public.
+  const blocked = [
+    "::ffff:0:127.0.0.1", "::ffff:0:10.0.0.1", "::ffff:0:169.254.169.254", "::ffff:0:7f00:1", "::ffff:0:8.8.8.8",
+    "0:0:0:0:ffff:0:a9fe:a9fe", "[::ffff:0:192.168.1.1]",
+    // the rest of ::/8 (IETF reserved), whatever it carries
+    "0:0:0:ffff::10.0.0.1", "::1:0:0:1", "ff::1",
+    // ISATAP interface identifiers carrying a private v4 endpoint, under a public-looking prefix
+    "2001:4860:1:2:0:5efe:10.0.0.1", "2001:4860:1:2:200:5efe:127.0.0.1", "2001:4860:1:2:0:5efe:a9fe:a9fe",
+    // the deprecated 6to4 relay anycast prefix
+    "192.88.99.1",
+  ];
+  for (const a of blocked) assert.equal(isBlockedAddress(a), true, `${a} should be blocked`);
+  // loopback through the translated form is still refused under allowLocal: only ::1, 127/8 and ::ffff:127/104 are loopback
+  assert.equal(isBlockedAddress("::ffff:0:127.0.0.1", true), true);
+  // a public v4 endpoint in an ISATAP identifier is judged by the address inside, like 6to4
+  assert.equal(isBlockedAddress("2001:4860:1:2:0:5efe:8.8.8.8"), false);
+});
+
+test("REGRESSION (reviewer finding 11): a literal ::ffff:0: address is refused before any connection", async () => {
+  for (const url of ["https://[::ffff:0:127.0.0.1]/", "https://[::ffff:0:a9fe:a9fe]/latest/meta-data/"]) {
+    assert.equal(await codeOf(safeFetch(url, { resolver: never, timeoutMs: 2000 })), "blocked-address", url);
+  }
+  const resolvesTo = async () => [{ address: "::ffff:0:10.0.0.1", family: 6 }];
+  assert.equal(await codeOf(safeFetch("https://translated.example/", { resolver: resolvesTo, timeoutMs: 2000 })), "blocked-address");
+});
+
 test("loopback is allowed by the test flag alone, and private ranges stay blocked", () => {
   assert.equal(isBlockedAddress("127.0.0.1", true), false);
   assert.equal(isBlockedAddress("::1", true), false);

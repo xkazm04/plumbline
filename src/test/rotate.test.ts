@@ -57,7 +57,7 @@ test("a statement from a trusted old key is verified and moves trust to the new 
   const oldK = await generateKey(T0);
   const newK = await generateKey(T0);
   const trust = trustOf([oldK, ORIGIN]);
-  const files = [{ path: "agent-manifest.json", content: { name: "Site" } }];
+  const files = [{ path: "agent-manifest.json", content: JSON.stringify({ name: "Site" }) }];
   const afterRotation = await signSubjects({ privateKey: newK.privateKey, key: newK.key, origin: ORIGIN, files, now: T0 });
 
   // before adopting: the new key's signature is from a stranger

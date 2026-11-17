@@ -6,7 +6,8 @@
 //      Even then every private range stays refused (rule 2), and http to a public address is still refused.
 //   2. The hostname is resolved here, with node:dns, and EVERY resolved address must be public. Private,
 //      loopback, link-local, multicast, unique-local, documentation and reserved ranges are refused, in v4 and v6,
-//      including v4-mapped, v4-compatible, NAT64 and 6to4 v6 forms that carry a v4 address inside.
+//      including the v6 forms that carry a v4 address inside: v4-mapped, v4-compatible, v4-translated (refused with the
+//      rest of ::/8), NAT64, 6to4 and ISATAP.
 //   3. The connection is made to the address that was checked, through a `lookup` that returns it: there is no
 //      second resolution, so a DNS answer that changes between check and connect cannot bypass rule 2.
 //   4. At most 3 redirects, each hop re-validated from rule 1 (scheme, resolution, ranges). Custom headers are
@@ -85,6 +86,7 @@ function isBlockedIPv4(b: number[], allowLoopback: boolean): boolean {
   if (a === 172 && c >= 16 && c <= 31) return true; // 172.16.0.0/12
   if (a === 192 && c === 0 && d === 0) return true; // 192.0.0.0/24 IETF protocol assignments
   if (a === 192 && c === 0 && d === 2) return true; // 192.0.2.0/24 documentation
+  if (a === 192 && c === 88 && d === 99) return true; // 192.88.99.0/24 deprecated 6to4 relay anycast (RFC 7526)
   if (a === 192 && c === 168) return true; // 192.168.0.0/16
   if (a === 198 && (c === 18 || c === 19)) return true; // 198.18.0.0/15 benchmarking
   if (a === 198 && c === 51 && d === 100) return true; // 198.51.100.0/24 documentation
@@ -99,14 +101,22 @@ function isBlockedIPv6(b: number[], allowLoopback: boolean): boolean {
     for (let i = from; i < to; i += 1) if (at(i) !== 0) return false;
     return true;
   };
+  const v4At = (i: number): number[] => [at(i), at(i + 1), at(i + 2), at(i + 3)];
   if (zeroFrom(0, 15) && at(15) === 1) return !allowLoopback; // ::1
   if (zeroFrom(0, 12)) return true; // :: and ::/96 (v4-compatible, reserved)
-  if (zeroFrom(0, 10) && at(10) === 0xff && at(11) === 0xff) return isBlockedIPv4([at(12), at(13), at(14), at(15)], allowLoopback); // ::ffff:a.b.c.d
+  if (zeroFrom(0, 10) && at(10) === 0xff && at(11) === 0xff) return isBlockedIPv4(v4At(12), allowLoopback); // ::ffff:a.b.c.d
   if (at(0) === 0 && at(1) === 0x64 && at(2) === 0xff && at(3) === 0x9b) {
     // 64:ff9b::/96 NAT64 carries a v4 address; 64:ff9b:1::/48 is local-use and refused outright.
-    return zeroFrom(4, 12) ? isBlockedIPv4([at(12), at(13), at(14), at(15)], allowLoopback) : true;
+    return zeroFrom(4, 12) ? isBlockedIPv4(v4At(12), allowLoopback) : true;
   }
-  if (at(0) === 0x20 && at(1) === 0x02) return isBlockedIPv4([at(2), at(3), at(4), at(5)], allowLoopback); // 2002::/16 6to4
+  // Everything else in ::/8 is IETF-reserved and never a public host: refused outright. That includes the
+  // IPv4-translated form ::ffff:0:a.b.c.d (::ffff:0:0/96, RFC 2765 / 6052 SIIT), which the mapped check above does not
+  // match and which earlier builds let through, and odd spellings such as 0:0:0:ffff::a.b.c.d.
+  if (at(0) === 0) return true;
+  if (at(0) === 0x20 && at(1) === 0x02) return isBlockedIPv4(v4At(2), allowLoopback); // 2002::/16 6to4
+  // ISATAP (RFC 5214): an interface identifier ::0:5efe:a.b.c.d or ::200:5efe:a.b.c.d carries a v4 tunnel endpoint
+  // under any /64 prefix; judged by the address inside, like 6to4.
+  if ((at(8) & 0xfd) === 0 && at(9) === 0 && at(10) === 0x5e && at(11) === 0xfe && isBlockedIPv4(v4At(12), allowLoopback)) return true;
   if (at(0) === 0x20 && at(1) === 0x01 && at(2) === 0 && at(3) === 0) return true; // 2001::/32 Teredo
   if (at(0) === 0x20 && at(1) === 0x01 && at(2) === 0x0d && at(3) === 0xb8) return true; // 2001:db8::/32 documentation
   if (at(0) === 0x01 && at(1) === 0 && zeroFrom(2, 8)) return true; // 100::/64 discard-only

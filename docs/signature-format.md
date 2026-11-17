@@ -26,6 +26,9 @@ Treat it as provenance and integrity, never as endorsement.
 | `plumbline.private.json` | the publisher's private custody, **never** the site | `plumbline keygen` | the private key (git-ignored by `*.private.json`) |
 | `plumbline.trust.json` | the verifier's own machine | the verifier, by hand | who this verifier trusts, per origin |
 
+`plumbline.lock.json` (the watch's baseline, `docs/gate-and-watch.md`) is not a signature file, but when a site
+publishes one it is one of the signed files (below).
+
 ### `plumbline.signature.json`
 
 ```json
@@ -47,11 +50,11 @@ Treat it as provenance and integrity, never as endorsement.
 | `type` | always `plumbline-signature` |
 | `version` | always `1` |
 | `alg` | always `Ed25519` |
-| `kid` | key id: the first 16 hex characters of the SHA-256 of the raw 32-byte public key. Derived from the key, never claimed |
+| `kid` | key id: the first 16 hex characters of the SHA-256 of the raw 32-byte public key. Derived from the key, never claimed. Exactly `^[0-9a-f]{16}$` |
 | `origin` | the origin the files are published from: `https://host[:port]`, no path, no trailing slash. `http` is accepted only for `localhost` and `127.0.0.1`, for tests |
 | `signedAt` | when it was signed, UTC, `Date.toISOString()` form |
 | `expiresAt` | when it stops being valid, same form. The default lifetime is 90 days; the publisher chooses |
-| `subjects` | the signed files, sorted by `path`. `path` is relative to the site base with `/` separators; `sha256` is the lowercase hex digest of the file's canonical bytes (below) |
+| `subjects` | the signed files, sorted by `path`. `path` is relative to the site base with `/` separators, uses only `[A-Za-z0-9._/-]`, and has no empty, `.` or `..` segment (anything else is `invalid malformed`); `sha256` is the lowercase hex SHA-256 of the file's **exact bytes** (below) |
 | `sig` | base64url (no padding) Ed25519 signature over the UTF-8 bytes of `canonicalJson(the object without sig)` |
 
 Absent optional fields are omitted, never `null`.
@@ -62,6 +65,14 @@ Absent optional fields are omitted, never `null`.
 
 A verifier **never** trusts this file about itself. It is read only so a verifier that has never met the signer can say
 "the signature is internally consistent but the signer is unknown", and so a person has a key to compare out of band.
+A record whose `kid` or `publicKey` fails its pattern is ignored.
+
+**Patterns.** Every inbound document (signature, key record, rotation, revocation, trust entry) is held to these
+before anything else is done with it, and a string that fails its pattern is never copied into a `detail`:
+
+- a kid: exactly 16 lowercase hex characters, `^[0-9a-f]{16}$`;
+- a public key: base64url, no padding, of exactly 32 bytes, so 43 characters whose last one carries two zero bits:
+  `^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$`.
 
 ### `plumbline-rotation.json`
 
@@ -97,42 +108,78 @@ Written with mode `0600` where the operating system supports it, and never over 
 
 `{ "version": 1, "entries": [ { "kid": "...", "origin": "https://example.com", "publicKey": "<base64url raw>" } ] }`
 
-An entry may also carry `"revokedAt": "<ISO UTC>"`, which a verifier sets once it has accepted a revocation of that key
-(the CLI reads it from the file; `verify` itself only applies a revocation in memory and never writes the trust file).
+An entry may also carry:
+
+- `"revokedAt": "<ISO UTC>"`, which a verifier sets once it has accepted a revocation of that key (the CLI reads it from
+  the file; `verify` itself only applies a revocation in memory and never writes the trust file);
+- `"adoptedVia": "<kid>"`, the key whose verified rotation statement this entry was adopted through (see "Rotation").
+  Absent for an entry made by first contact.
 
 An entry means: "for files published from `origin`, I accept signatures by this key", unless it carries `revokedAt`. The entry's `kid` must equal the
 key id derived from its own `publicKey`; an entry where it does not is a defect in the trust store, reported as
-`invalid kid-mismatch`, not treated as a stranger.
+`invalid kid-mismatch`, not treated as a stranger. An entry whose `kid`, `publicKey` or `adoptedVia` fails its pattern
+makes the whole file unreadable to the CLI (exit 2).
 
-## Canonical bytes
+**A revocation recorded anywhere counts everywhere.** When the CLI reads the trust file, a kid that carries `revokedAt`
+in ANY entry is revoked in every entry, at every origin, and so is every entry whose `adoptedVia` chain leads to a
+revoked kid (`spreadRevocations` in core; the Desk applies the same rule).
 
-Everything signed or hashed goes through one rule, `canonicalJson`:
+## Bytes: what is hashed and what is signed
+
+**A subject is hashed as the file's exact bytes**, as the web server serves them: no JSON parse, no re-serialisation,
+no newline or byte-order-mark change. A verifier hashes the bytes it fetched (or read from disk) and nothing else.
+
+Why exact bytes and not a canonical form of the JSON: the reference runtime does not read a network file with
+`JSON.parse`. It reads it with its own HOCON parser, which **merges** duplicate keys (a second `commondefs` object is
+deep-merged into the first), where `JSON.parse` keeps only the last. Two files with one canonical JSON can therefore
+run differently: an attacker could put a `commondefs.replacement_values` entry in a duplicate key that every JSON
+reader drops and the runtime applies, and swap an agent's instructions while the canonical digest stays the same. Only
+the bytes the runtime receives pin what it runs. Repositories pin LF line endings (`.gitattributes`:
+`* text=auto eol=lf`), and web servers serve bytes as stored, so the bytes a publisher signs on any machine are the
+bytes a visitor gets.
+
+Until 2026-11-17 a JSON subject was hashed as the canonical JSON of its parsed value, so its digest matched Agent
+Customs' fingerprint style. That compatibility is gone for subjects, on purpose. It was never reproducible against
+Customs' own fingerprint anyway, which is taken over the runtime-filtered configuration (replacement strings expanded,
+defaults pushed down, links split off), not over the published file.
+
+**Canonical JSON is used for Plumbline's own objects only**: the signature without `sig`, and the rotation and
+revocation statements, each signed over `canonicalJson(the object without sig)`:
 
 - object keys sorted (by UTF-16 code unit, the default JavaScript sort), no whitespace anywhere,
 - members whose value is `undefined` are dropped; `null` is kept,
 - strings and numbers are written exactly as `JSON.stringify` writes them (`-0` becomes `0`, `1e21` becomes `1e+21`),
+- a non-finite number (`Infinity`, `-Infinity`, `NaN`, and so `1e999` once parsed) is **refused**: `canonicalJson`
+  throws, where `JSON.stringify` would write `null` and give `1e999` and `null` one encoding. A signature, rotation or
+  revocation carrying one is `invalid malformed`,
 - the result is encoded as UTF-8.
 
-It is byte-identical to the `canonicalJson` of Agent Customs (Apache-2.0), and a differential test holds it to that.
+On every finite value it is byte-identical to the `canonicalJson` of Agent Customs (Apache-2.0), and a differential
+test holds it to that.
 
-A **subject** is hashed like this: if the file is JSON, parse it and hash the canonical bytes of the parsed value, so
-reformatting a file (whitespace, key order) does not change its digest while changing any value does. If the content is
-text, hash its UTF-8 bytes. The CLI treats a path ending `.json` as JSON and every other path as text.
-
-The signature itself is over `canonicalJson(signature without sig)`, so every field above, including `origin`, the
+The signature is over `canonicalJson(signature without sig)`, so every field above, including `origin`, the
 timestamps and every digest, is covered.
 
 ## What `sign` signs
 
-The rule is one pure function in core, `signedPathsOf(manifest, hasLinks)`, shared by the CLI and the Desk.
-`plumbline sign --root <site> --key <plumbline.private.json> --origin <origin> [--days N]` signs:
+The rule is one pure function in core, `signedPathsOf(manifest, { links, lock })`, shared by the CLI and the Desk. It
+follows what the reference runtime **fetches**: it loads each network from `networks[].hocon` exactly as the manifest
+writes it (`resolveUrl(base, entry.hocon)`), and it fetches the site's `links.json` and lays it over every network's
+links. `plumbline sign --root <site> --key <plumbline.private.json> --origin <origin> [--days N]` signs:
 
-1. `agent-manifest.json` (required);
-2. every network file named by the manifest's `networks[].hocon`. A path ending `.hocon` maps to the same name ending
-   `.network.json`; any other path is used as written. A named file that is missing is an error (exit 2);
-3. `links.json`, if it exists.
+1. `agent-manifest.json` (required, and it must be JSON);
+2. every network file named by the manifest's `networks[].hocon`, **at exactly that path**, with one leading `./`
+   removed (`./x.hocon` and `x.hocon` are the same address to the runtime). There is no mapping between names: a
+   `hocon` of `x.hocon` signs the file `x.hocon`. A `hocon` that is an absolute URL or path, contains `..`, `.` or an
+   empty segment, a backslash, or any character outside `[A-Za-z0-9._/-]` is refused (exit 2): the runtime would fetch
+   it from somewhere a signature cannot pin. A named file that is missing is an error (exit 2);
+3. `links.json`, if it exists;
+4. `plumbline.lock.json`, if it exists. The Desk reads the published lock, so an unsigned one would be an unattested
+   baseline. **Publisher order: `plumbline watch --init` first (it writes the lock), then `plumbline sign`.** After
+   reviewing drift and writing a fresh lock, sign again.
 
-It writes `plumbline.signature.json` into the site root. Paths that are absolute or climb out of the root are refused.
+It writes `plumbline.signature.json` into the site root. `signSubjects` (core) refuses a file set that does not
+include everything `signedPathsOf` requires for its own manifest, so it never makes a signature that cannot verify.
 
 ## Verdicts
 
@@ -140,19 +187,29 @@ Three states, never two. Folding the third into either of the others is a bug.
 
 | Verdict | Reason | Meaning |
 | --- | --- | --- |
-| `verified` | | the signer is in the verifier's trust store for this origin, every signed file matches, the signature is current and the math checks under the **trust store's** key |
-| `invalid` | `malformed` | not a well-formed signature (wrong type, version or algorithm, missing or mistyped fields, duplicate paths, `expiresAt` not after `signedAt`), or `signedAt` more than 5 minutes in the future |
-| `invalid` | `kid-mismatch` | a trust store entry's `kid` is not derived from its own key: the trust store is defective |
-| `invalid` | `tampered` | a signed file differs from what was signed, or a signed path is missing from the files checked |
+| `verified` | | the signer is in the verifier's trust store for this origin, every signed file matches, the signature covers every file the runtime loads, the signature is current and the math checks under the **trust store's** key |
+| `invalid` | `malformed` | not a well-formed signature (wrong type, version or algorithm, missing or mistyped fields, a `kid` or subject path outside its pattern, duplicate paths, `expiresAt` not after `signedAt`, a value canonical JSON refuses), `signedAt` more than 5 minutes in the future, or a signed manifest whose `networks[].hocon` is not a safe site-relative path |
+| `invalid` | `kid-mismatch` | a trust store entry's `kid` is not derived from its own key (or its key is not a 32-byte base64url): the trust store is defective |
+| `invalid` | `tampered` | a signed file differs from what was signed, a signed path is missing from the files checked, or the signature does not cover a file the runtime loads: `agent-manifest.json`, a network the **signed** manifest names, or a `links.json` or `plumbline.lock.json` that is present |
 | `invalid` | `expired` | `now >= expiresAt` |
 | `invalid` | `bad-signature` | the signer is trusted but the signature does not verify under the trusted key (the signature was edited, or was made by a different key than the `kid` it claims) |
 | `invalid` | `revoked` | the signer's trust entry carries `revokedAt`: the key revoked itself, so nothing it signs is accepted, **whatever the dates** (whoever holds a leaked key can backdate `signedAt`) |
 | `unverifiable` | | the signer is not in this verifier's trust store. Whether the math holds under the published key is stated in the `detail`, but the verdict is **never** `verified` |
 
 Checks run in this order and stop at the first failure: shape; trust entry sanity; revocation (a revoked signer is
-`revoked` before anything else is looked at); every signed file present and its digest equal; time (`expired`, then
-future `signedAt`); then the signature math (trusted signer) or the stranger verdict. So editing a signed digest inside the signature file is reported as `tampered`, not `bad-signature`, because
-the file check runs first. Files that are not listed in `subjects` are ignored: they are simply unsigned.
+`revoked` before anything else is looked at); every signed file present and its digest equal; coverage; time
+(`expired`, then future `signedAt`); then the signature math (trusted signer) or the stranger verdict. So editing a
+signed digest inside the signature file is reported as `tampered`, not `bad-signature`, because the file check runs
+first.
+
+**Coverage.** After the digests match, the verifier reads the networks from the **signed** manifest's bytes (as the
+runtime does: UTF-8, a leading BOM dropped, `JSON.parse`) and recomputes `signedPathsOf(manifest, { links, lock })`,
+where `links` and `lock` say whether a `links.json` or `plumbline.lock.json` is among the files handed to it. Every
+path in that set must be a signed subject. So a `links.json` added after signing (the runtime would lay it over the
+network's links) and a lock added after signing are `invalid tampered`, with a detail that names the kind of file and
+never its content. Other files that are not listed in `subjects` are ignored: they are simply unsigned, and nothing
+the runtime loads. A verifier must therefore hand over `links.json` and `plumbline.lock.json` whenever the site serves
+them, signed or not (the CLI does; a 404 means absent).
 
 `detail` is always a sentence written by the verifier. Text from inspected files is never copied into it, with one
 exception: the `--origin` mismatch sentence names the signature's `origin`, which the shape check has already held to a
@@ -166,6 +223,15 @@ are not attested for this origin (a mirror, a copy, or someone serving another s
 `invalid` result stays `invalid`. Without it, nothing changes.
 
 Every result carries `kid` and `origin` whenever they were readable.
+
+### Known limit of version 1: rollback
+
+**An older signature, still unexpired, served together with the older files it covers, still verifies.** Nothing in a
+signature says it is the newest one, so an attacker who can serve the site (or a stale mirror or cache) can roll it
+back to an earlier signed state, for example one before a dangerous instruction was fixed, as long as that signature
+has not expired. The defences in version 1 are short signature lifetimes (choose `--days` as short as your re-signing
+routine allows; the 90-day default is illustrative) and the watch, whose lock records what the site should be serving
+now. Version 1 has no freshness or sequence field; this is a known limit, not an oversight.
 
 ## Identity: the key inside the artifact is never trusted
 
@@ -202,11 +268,21 @@ The old key signs a statement naming the new key:
 A verifier checks the statement with `verifyRotation(rotation, trust, origin)`:
 
 - `verified` only when `from` is in the trust store for that origin, the signature checks under the **trust store's**
-  key and `to` equals the key id derived from `toPublicKey`. On `verified` the verifier may add `to` / `toPublicKey` to
-  its trust store for that origin.
+  key and `to` equals the key id derived from `toPublicKey`. On `verified` the verifier may add the successor to its
+  trust store for that origin.
 - `from` unknown to the verifier: `unverifiable`. A stranger cannot hand a verifier a new key.
 - `from` revoked (its trust entry carries `revokedAt`): `invalid revoked`, whenever the rotation says it was signed.
-- `to` not derived from `toPublicKey`, a bad signature, or a malformed statement: `invalid`.
+- `to` not derived from `toPublicKey`, a `toPublicKey` that is not the base64url of 32 bytes, a bad signature, or a
+  malformed statement: `invalid`.
+
+**Adopting the successor.** A verifier that decides to adopt it builds the entry with
+`adoptRotation(rotation, trustEntries, origin)` (core), only after `verifyRotation` returned `verified` for that origin.
+It returns `{ kid: to, origin, publicKey: toPublicKey, adoptedVia: from }`; the `adoptedVia` field records that this
+entry exists on the old key's word, so revoking the old key later revokes this entry too (next section). It throws
+when the statement is malformed, when `from` is not trusted for that origin, or when `from` is revoked anywhere; it
+does not check the signature, which is `verifyRotation`'s job. **Plumbline's CLI and Desk never adopt a successor
+automatically**: the CLI's `verify` does not read `plumbline-rotation.json` at all, and adopting is the verifier's own
+decision, made by editing its trust store.
 
 A rotation only helps a verifier that still trusts the old key. If the old key is lost and was never trusted anywhere
 else, the publisher starts over with a new identity and the first-contact ceremony below.
@@ -224,11 +300,14 @@ After a leak, the publisher:
 3. Re-establish trust with every verifier through the **first-contact ceremony** below: the new key reaches them out of
    band, like the first one did. Do not publish a rotation from the leaked key; verifiers refuse it.
 
-A verifier checks the statement with `applyRevocation(revocation, entry)` against the trust entry it **already** holds
-for that `kid` (never a key that arrives with the statement):
+A verifier checks the statement with `applyRevocation(revocation, entry, trustEntries?)` against the trust entry it
+**already** holds for that `kid` (never a key that arrives with the statement):
 
-- `verified` when the signature checks under the trusted key. The result carries the entry with `revokedAt` set; the
-  verifier replaces its entry with it, for every origin it trusts that key for.
+- `verified` when the signature checks under the trusted key. The result carries the entry with `revokedAt` set. When
+  the verifier passes its whole store as `trustEntries`, the result also carries `entries`: the store with the
+  revocation spread to every entry for that kid, at every origin, **and to every entry whose `adoptedVia` chain leads
+  to it** (a successor adopted through a rotation from the revoked key, the successor's own successors, and so on).
+  The verifier replaces its store with it.
 - no trust entry for that `kid`: `unverifiable`, and nothing changes. A key this verifier never trusted needs no revoking.
 - a bad signature (someone else's statement), a malformed statement, or a defective trust entry: `invalid`, and
   nothing changes.
@@ -236,16 +315,15 @@ for that `kid` (never a key that arrives with the statement):
 From then on the key is dead for everything, whatever the dates: every signature by it is `invalid revoked`, including
 one that claims to predate the revocation (`signedAt` is chosen by whoever holds the key), and every rotation from it is
 `invalid revoked`. So **a rotation signed by a key that later turns out to be leaked is not honoured once the revocation
-is seen**.
+is seen**, and a successor already adopted through it, with `adoptedVia` recorded, is revoked with it.
 
 What revocation cannot do:
 
 - **A verifier who never sees the revocation cannot know.** Until it fetches `plumbline-revocation.json` (or hears of
   it out of band), it keeps accepting the leaked key. That is the stale-trust window, and it is why the publisher
   should also tell verifiers directly.
-- **It does not undo what a verifier already did.** If a verifier adopted a successor key through a rotation from the
-  leaked key before it saw the revocation, that successor's trust entry is not revoked by it: a trust entry does not
-  record how it was adopted. Such a verifier should remove entries it adopted through a rotation from the revoked key.
+- **It reaches only what the trust store recorded.** A successor that a verifier added by hand, without `adoptedVia`,
+  looks like a first-contact entry and is not revoked by the cascade. Adopt successors with `adoptRotation`.
 - **It does not recover a lost key.** A key that is lost (not leaked) cannot sign its own revocation; let the
   signatures expire and start over with first contact.
 
@@ -272,17 +350,22 @@ Exit codes: `0` clean, `1` findings, `2` usage or I/O error. Every command accep
 | Command | Does |
 | --- | --- |
 | `plumbline keygen --out <dir>` | writes `plumbline.private.json` and `.well-known/plumbline-key.json` under `<dir>`, prints the `kid` and the custody warnings; refuses to overwrite |
-| `plumbline sign --root <site> --key <private file> --origin <origin> [--days N]` | signs the files above, writes `plumbline.signature.json` |
-| `plumbline verify --root <site> --trust <trust file> [--origin <origin>]` | prints the verdict line, `verified`, `invalid <reason>` or `unverifiable`, then the kid, origin and detail; exit 0 only for `verified`, 1 for `invalid` or `unverifiable`, 2 for I/O or usage errors. Reads `.well-known/plumbline-key.json` only to say whether the math holds for an unknown signer. With `--origin`, a signature made for another origin is `unverifiable` (above). When `plumbline-revocation.json` is in the root, it is applied to the trust store **in memory** first (the trust file is never written): the text output says `revocation applied` or `revocation not applied` with one line per trust entry checked, before the verdict line, and `--json` adds `revocation: { file, applied, results }` |
+| `plumbline sign --root <site> --key <private file> --origin <origin> [--days N]` | signs the files above (the lock too, when it exists: run `watch --init` first), writes `plumbline.signature.json` |
+| `plumbline verify --root <site> --trust <trust file> [--origin <origin>]` | prints the verdict line, `verified`, `invalid <reason>` or `unverifiable`, then the kid, origin and detail; exit 0 only for `verified`, 1 for `invalid` or `unverifiable`, 2 for I/O or usage errors (including a trust file with a malformed entry). Reads `.well-known/plumbline-key.json` only to say whether the math holds for an unknown signer. With `--origin`, a signature made for another origin is `unverifiable` (above). When `plumbline-revocation.json` is in the root, it is applied to the trust store **in memory** first (the trust file is never written), spread to every origin and to every entry adopted through the revoked key: the text output says `revocation applied` or `revocation not applied` with one line per trust entry checked, before the verdict line, and `--json` adds `revocation: { file, applied, results }` |
 | `plumbline rotate --root <site> --old-key <file> --new-key <file>` | writes `plumbline-rotation.json` (a planned change only) |
 | `plumbline revoke --root <site> --key <file> [--reason <text>]` | writes `plumbline-revocation.json`, signed by that key |
 
-`verify` reads each signed file from disk. A signed `.json` file that no longer parses is checked as text, so it fails
-as `invalid tampered` rather than as an I/O error.
+`verify` reads each signed file from disk as bytes, plus `links.json` and `plumbline.lock.json` whenever they exist (so
+an unsigned one is caught by the coverage check). A signed file that was edited in any way, including one that no
+longer parses, fails as `invalid tampered` rather than as an I/O error.
 
 ## Known-answer vectors
 
-`src/test/vectors.json` holds canonical strings, SHA-256 digests, a key id, a complete signature with its key pair and
-verification cases (verified, expired at the boundary, tampered, missing file, stranger, poisoned trust entry). It is
-plain JSON, generated once from a fixed seed, and any implementation, including a browser, can run it. The key in it is
-a **published test key**: never add its `kid` to a real trust store.
+`src/test/vectors.json` holds canonical strings, inputs canonical JSON must refuse (`canonicalRefused`), SHA-256
+digests, a key id, a complete signature with its key pair and verification cases (verified, expired at the boundary,
+tampered, a duplicate-key `commondefs`, a re-serialised file, CRLF and BOM changes, a missing file, an unsigned
+`links.json` or lock added after signing, a signature that leaves out a network the manifest names, stranger, poisoned
+trust entry). Each file's `content` is its exact text; a subject digest is SHA-256 of that text's UTF-8 bytes. It is
+plain JSON, generated from a fixed seed (regenerated on 2026-11-17 with the same seed, when subjects became exact
+bytes), and any implementation, including a browser, can run it. The key in it is a **published test key**: never add
+its `kid` to a real trust store.

@@ -26,6 +26,8 @@ export type Located =
       base: string;
       manifestUrl?: string;
       manifest?: unknown;
+      /** The manifest as served, decoded as UTF-8; present whenever `manifest` is. */
+      manifestText?: string;
       networks: NetworkRef[];
       /** Set when the address named one network; `networks` then holds only that one, or nothing when it is absent. */
       requestedName?: string;
@@ -100,6 +102,7 @@ async function loadManifest(
     base,
     manifestUrl,
     manifest,
+    manifestText: response.text(),
     networks,
     ...(requestedName !== undefined ? { requestedName } : {}),
   };

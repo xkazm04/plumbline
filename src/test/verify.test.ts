@@ -17,10 +17,12 @@ import { signText } from "../core/keys.js";
 const ORIGIN = "https://site.example";
 const T0 = new Date("2026-11-17T12:00:00.000Z");
 
+const json = (value: unknown): string => JSON.stringify(value);
+const MANIFEST = json({ name: "Site", networks: [{ hocon: "n/a.hocon" }], note: "SECRET-INSIDE-FILE" });
 const baseFiles = (): SubjectFile[] => [
-  { path: "agent-manifest.json", content: { name: "Site", networks: [{ hocon: "n/a.hocon" }], note: "SECRET-INSIDE-FILE" } },
-  { path: "n/a.network.json", content: { agents: [{ name: "a", tools: ["x", "y"] }] } },
-  { path: "links.json", content: { links: [{ href: "https://site.example/x" }] } },
+  { path: "agent-manifest.json", content: MANIFEST },
+  { path: "n/a.hocon", content: json({ agents: [{ name: "a", tools: ["x", "y"] }] }) },
+  { path: "links.json", content: json({ links: [{ href: "https://site.example/x" }] }) },
   { path: "readme.txt", content: "plain text file\n" },
 ];
 
@@ -46,7 +48,7 @@ test("signSubjects: shape, sorted subjects, lifetime, deterministic fields", asy
   assert.equal(sig.origin, ORIGIN);
   assert.equal(sig.signedAt, "2026-11-17T12:00:00.000Z");
   assert.equal(sig.expiresAt, "2026-12-17T12:00:00.000Z");
-  assert.deepEqual(sig.subjects.map((s) => s.path), ["agent-manifest.json", "links.json", "n/a.network.json", "readme.txt"]);
+  assert.deepEqual(sig.subjects.map((s) => s.path), ["agent-manifest.json", "links.json", "n/a.hocon", "readme.txt"]);
   const defaulted = await signSubjects({ privateKey: g.privateKey, key: g.key, origin: ORIGIN, files: baseFiles(), now: T0 });
   assert.equal(defaulted.expiresAt, "2027-02-15T12:00:00.000Z", "default lifetime is 90 days");
 });
@@ -57,7 +59,15 @@ test("signSubjects refuses what it must refuse", async () => {
   const base = { privateKey: g.privateKey, key: g.key, origin: ORIGIN, files: baseFiles(), now: T0 };
   await assert.rejects(signSubjects({ ...base, key: other.key }), /kid/);
   await assert.rejects(signSubjects({ ...base, files: [] }), /no files/);
-  await assert.rejects(signSubjects({ ...base, files: [{ path: "a.json", content: {} }, { path: "a.json", content: { x: 1 } }] }), /share a path/);
+  await assert.rejects(signSubjects({ ...base, files: [...baseFiles(), { path: "a.json", content: "{}" }, { path: "a.json", content: "{}" }] }), /share a path/);
+  // a parsed value is not a file: refused loudly, never canonicalised
+  await assert.rejects(signSubjects({ ...base, files: [{ path: "agent-manifest.json", content: { name: "Site" } as never }] }), TypeError);
+  // paths outside the rule, and a file set that leaves out what the manifest names
+  for (const path of ["../x.json", "a b.json", "/x.json", "a\\b.json", "./x.json"]) {
+    await assert.rejects(signSubjects({ ...base, files: [...baseFiles(), { path, content: "x" }] }), /safe site-relative path/, path);
+  }
+  await assert.rejects(signSubjects({ ...base, files: baseFiles().filter((f) => f.path !== "n/a.hocon") }), /do not include n\/a\.hocon/);
+  await assert.rejects(signSubjects({ ...base, files: baseFiles().filter((f) => f.path !== "agent-manifest.json") }), /without agent-manifest\.json/);
   for (const bad of ["http://site.example", "https://site.example/", "https://site.example/path", "site.example", "ftp://site.example", "https://site.example?x=1", ""]) {
     await assert.rejects(signSubjects({ ...base, origin: bad }), /origin/, `origin ${JSON.stringify(bad)}`);
   }
@@ -74,29 +84,41 @@ test("trusted signer, untouched files: verified; unsigned files are ignored", as
   const trust = trustOf([g, ORIGIN]);
   const result = await verifySignature(sig, baseFiles(), trust, { now: after(1000) });
   assert.deepEqual([result.verdict, result.kid, result.origin], ["verified", g.key.kid, ORIGIN]);
-  const extra = [...baseFiles(), { path: "unsigned.json", content: { anything: 1 } }];
+  const extra = [...baseFiles(), { path: "unsigned.json", content: json({ anything: 1 }) }];
   assert.equal((await verifySignature(sig, extra, trust, { now: after(1000) })).verdict, "verified");
   const reordered = [...baseFiles()].reverse();
   assert.equal((await verifySignature(sig, reordered, trust, { now: after(1000) })).verdict, "verified");
 });
 
-test("a signed file with different formatting but the same content still verifies (canonical bytes)", async () => {
+test("subjects are exact bytes: bytes and the same text as a string verify alike; any reformat is tampered", async () => {
   const g = await generateKey(T0);
   const sig = await signed(g);
-  const files = baseFiles();
-  files[0] = { path: "agent-manifest.json", content: JSON.parse('{ "note":"SECRET-INSIDE-FILE", "networks":[ {"hocon":"n/a.hocon"} ], "name":"Site" }') };
-  assert.equal((await verifySignature(sig, files, trustOf([g, ORIGIN]), { now: after(1) })).verdict, "verified");
+  const trust = trustOf([g, ORIGIN]);
+  const asBytes = baseFiles().map((f) => ({ path: f.path, content: new TextEncoder().encode(f.content as string) }));
+  assert.equal((await verifySignature(sig, asBytes, trust, { now: after(1) })).verdict, "verified");
+  const reformatted = [
+    '{ "note":"SECRET-INSIDE-FILE", "networks":[ {"hocon":"n/a.hocon"} ], "name":"Site" }',
+    MANIFEST + "\n",
+    MANIFEST.replace(/,/g, ",\r\n"),
+    "\uFEFF" + MANIFEST,
+  ];
+  for (const content of reformatted) {
+    const files = baseFiles();
+    files[0] = { path: "agent-manifest.json", content };
+    const result = await verifySignature(sig, files, trust, { now: after(1) });
+    assert.deepEqual([result.verdict, result.reason], ["invalid", "tampered"], JSON.stringify(content).slice(0, 40));
+  }
 });
 
 test("tamper: changing one member or one character of any signed file is invalid / tampered", async () => {
   const g = await generateKey(T0);
   const sig = await signed(g);
   const trust = trustOf([g, ORIGIN]);
-  const mutations: [string, (f: SubjectFile) => unknown][] = [
-    ["agent-manifest.json", () => ({ name: "Site", networks: [{ hocon: "n/a.hocon" }], note: "SECRET-INSIDE-FILE", extra: 1 })],
-    ["agent-manifest.json", () => ({ name: "Sitf", networks: [{ hocon: "n/a.hocon" }], note: "SECRET-INSIDE-FILE" })],
-    ["n/a.network.json", () => ({ agents: [{ name: "a", tools: ["x"] }] })],
-    ["links.json", () => ({ links: [{ href: "https://evil.example/x" }] })],
+  const mutations: [string, (f: SubjectFile) => string][] = [
+    ["agent-manifest.json", () => json({ name: "Site", networks: [{ hocon: "n/a.hocon" }], note: "SECRET-INSIDE-FILE", extra: 1 })],
+    ["agent-manifest.json", () => json({ name: "Sitf", networks: [{ hocon: "n/a.hocon" }], note: "SECRET-INSIDE-FILE" })],
+    ["n/a.hocon", () => json({ agents: [{ name: "a", tools: ["x"] }] })],
+    ["links.json", () => json({ links: [{ href: "https://evil.example/x" }] })],
     ["readme.txt", () => "plain text file\r\n"],
     ["readme.txt", () => "plain text filf\n"],
   ];
@@ -121,7 +143,7 @@ test("tamper: tampering is invalid even when the signer is unknown (it is a defe
   const g = await generateKey(T0);
   const sig = await signed(g);
   const files = baseFiles();
-  files[2] = { path: "links.json", content: {} };
+  files[2] = { path: "links.json", content: "{}" };
   const result = await verifySignature(sig, files, trustOf(), { now: after(1000), publishedKey: g.key });
   assert.deepEqual([result.verdict, result.reason], ["invalid", "tampered"]);
 });
@@ -198,7 +220,7 @@ test("hostile: a forged signature with a self-consistent enclosed key record is 
   const victim = await generateKey(T0);
   const attacker = await generateKey(T0);
   const trust = trustOf([victim, ORIGIN]);
-  const forgedFiles = [{ path: "agent-manifest.json", content: { name: "Totally the real site", payToolUrl: "https://evil.example" } }];
+  const forgedFiles = [{ path: "agent-manifest.json", content: json({ name: "Totally the real site", payToolUrl: "https://evil.example" }) }];
   const forged = await signSubjects({ privateKey: attacker.privateKey, key: attacker.key, origin: ORIGIN, files: forgedFiles, now: T0 });
 
   // The attacker's key record is perfectly self-consistent (its kid is derived from its key) and the math holds.
@@ -275,6 +297,11 @@ test("malformed shapes are invalid / malformed and never throw", async () => {
     { ...sig, subjects: [{ path: "a", sha256: "abc" }] },
     { ...sig, subjects: [sig.subjects[0], sig.subjects[0]] },
     { ...sig, expiresAt: sig.signedAt },
+    // subject paths are held to [A-Za-z0-9._/-] with no empty, '.' or '..' segment
+    ...["../etc/passwd", "a b", "/abs", "a\\b", "https://x.example/a", "a/./b", "é.json"].map((path) => ({
+      ...sig,
+      subjects: [{ path, sha256: "0".repeat(64) }, ...sig.subjects],
+    })),
   ];
   for (const bad of broken) {
     const result = await verifySignature(bad as PlumblineSignature, baseFiles(), trust, { now: after(1) });
@@ -286,11 +313,22 @@ test("detail is a sentence we wrote, never text copied from the inspected files"
   const g = await generateKey(T0);
   const sig = await signed(g);
   const files = baseFiles();
-  files[0] = { path: "agent-manifest.json", content: { note: "SECRET-INSIDE-FILE changed" } };
+  files[0] = { path: "agent-manifest.json", content: json({ note: "SECRET-INSIDE-FILE changed" }) };
   const results = [
     await verifySignature(sig, files, trustOf([g, ORIGIN]), { now: after(1) }),
     await verifySignature(sig, baseFiles(), trustOf(), { now: after(1) }),
     await verifySignature({ ...sig, kid: "SECRET-INSIDE-FILE" } as PlumblineSignature, baseFiles(), trustOf(), { now: after(1) }),
+    await verifySignature(
+      { ...sig, subjects: [{ path: "SECRET-INSIDE-FILE/../x", sha256: "0".repeat(64) }] } as PlumblineSignature,
+      baseFiles(),
+      trustOf(),
+      { now: after(1) },
+    ),
+    // a published key record whose fields fail their patterns is ignored, and never quoted
+    await verifySignature(sig, baseFiles(), trustOf(), {
+      now: after(1),
+      publishedKey: { ...g.key, publicKey: "SECRET-INSIDE-FILE" },
+    }),
   ];
   for (const r of results) {
     assert.ok(r.detail && r.detail.length > 10);

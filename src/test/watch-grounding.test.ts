@@ -30,22 +30,25 @@ test("grounding drift: an edited source is a warn naming the ref, with both hash
   assert.deepEqual(findings.filter((x) => x !== f), [], "nothing else drifted");
 });
 
-test("grounding neighbour: the same JSON with different key order and spacing is not drift", async () => {
+test("grounding: hashes are exact bytes, so the same JSON re-serialised (key order, spacing) IS drift", async () => {
+  // Since 2026-11-17: the runtime reads files with its own parser (duplicate keys merge), so "the same JSON" is not
+  // "the same file". The repository pins LF, so a checkout does not change bytes; a re-serialisation does.
   const root = await locked();
   writeFileSync(join(root, "data/rooms.json"), '{"rooms":[{"price":120,"id":"garden"},{"price":150,"id":"lantern"}]}\n');
   const { findings } = await watch(root, baseRoutes());
-  assert.deepEqual(findings, []);
+  assert.deepEqual(findings.map((f) => [f.kind, f.severity, f.ref]), [["grounding", "warn", "data/rooms.json"]]);
 });
 
-test("grounding neighbour: a non-JSON source is hashed by its text, so CRLF is not drift but an edit is", async () => {
+test("grounding: untouched bytes are clean; CRLF line endings, a BOM and an edit are each drift", async () => {
   const root = copySite();
   writeFileSync(join(root, "data/policy.txt"), "No pets.\nCheck-in at 3.\n");
   await watch(root, baseRoutes(), { init: true, extraSources: ["data/policy.txt"] });
-  writeFileSync(join(root, "data/policy.txt"), "No pets.\r\nCheck-in at 3.\r\n");
   assert.deepEqual((await watch(root, baseRoutes())).findings, []);
-  writeFileSync(join(root, "data/policy.txt"), "Pets welcome.\nCheck-in at 3.\n");
-  const { findings } = await watch(root, baseRoutes());
-  assert.deepEqual(findings.map((f) => [f.kind, f.severity, f.ref]), [["grounding", "warn", "data/policy.txt"]]);
+  for (const changed of ["No pets.\r\nCheck-in at 3.\r\n", "\uFEFFNo pets.\nCheck-in at 3.\n", "Pets welcome.\nCheck-in at 3.\n"]) {
+    writeFileSync(join(root, "data/policy.txt"), changed);
+    const { findings } = await watch(root, baseRoutes());
+    assert.deepEqual(findings.map((f) => [f.kind, f.severity, f.ref]), [["grounding", "warn", "data/policy.txt"]], JSON.stringify(changed));
+  }
 });
 
 test("grounding: an unreadable source is a warn that says so, not silence", async () => {
@@ -75,7 +78,12 @@ test("grounding: an https source is hashed through safeFetch; changed is a warn,
   const init = await watch(root, routes, { init: true, extraSources: [url] });
   assert.deepEqual(init.findings, []);
 
-  assert.deepEqual((await watch(root, { ...routes, [url]: { body: '{ "open": "9-5" }' } })).findings, [], "same facts, different spacing");
+  assert.deepEqual((await watch(root, routes)).findings, [], "the same bytes are clean");
+  assert.deepEqual(
+    (await watch(root, { ...routes, [url]: { body: '{ "open": "9-5" }' } })).findings.map((f) => [f.severity, f.ref]),
+    [["warn", url]],
+    "same facts, different spacing: different bytes",
+  );
 
   const changed = await watch(root, { ...routes, [url]: { body: { open: "10-4" } } });
   assert.deepEqual(changed.findings.map((f) => [f.severity, f.ref]), [["warn", url]]);

@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { SafeFetchError } from "../net/safe-fetch.js";
 import { copySite } from "./net-helpers.js";
-import { baseRoutes, ofKind, peerNetwork, PEER, PEER_FILE, PEER_SIGNATURE, PEER2, PEER2_FILE, watch } from "./watch-helpers.js";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { LOCK_FILE, type PlumblineLock } from "../core/types.js";
+import { baseRoutes, ofKind, peerNetwork, PEER, PEER_FILE, PEER_LINKS, PEER_SIGNATURE, PEER2, PEER2_FILE, PEER2_LINKS, watch } from "./watch-helpers.js";
+
+const readLockOf = (root: string): PlumblineLock => JSON.parse(readFileSync(join(root, LOCK_FILE), "utf8"));
 
 async function locked(routes = baseRoutes()): Promise<string> {
   const root = copySite();
@@ -25,11 +30,53 @@ test("peer drift: a changed peer definition is a block, with both hashes", async
   assert.equal(findings.length, 1, "the other peer did not drift");
 });
 
-test("peer neighbour: the same definition re-serialised (key order, spacing) is not drift", async () => {
+test("peer: the same definition re-serialised (key order, spacing) is a block: exact bytes, since the runtime merges what JSON.parse hides", async () => {
   const root = await locked();
   const reordered = '{ "tools": [ { "instructions": "Answer as partner.", "name": "partner_front" } ],\n  "metadata": { "description": "partner" } }';
   const { findings } = await watch(root, { ...baseRoutes(), [PEER_FILE]: { body: reordered } });
-  assert.deepEqual(findings, []);
+  assert.deepEqual(findings.map((f) => [f.severity, f.ref]), [["block", PEER]]);
+});
+
+test("REGRESSION (reviewer finding 9): a peer links.json that appears after locking is a block", async () => {
+  const root = await locked();
+  assert.equal(readLockOf(root).peers[PEER]?.links, "absent", "no links.json at lock time is recorded as absent");
+  assert.match(readLockOf(root).peers[PEER2]?.links ?? "", /^[0-9a-f]{64}$/);
+  const evil = { version: 1, networks: { partner: { helper: "https://evil.example/agent" } } };
+  const { findings } = await watch(root, { ...baseRoutes(), [PEER_LINKS]: { body: evil } });
+  assert.deepEqual(findings.map((f) => [f.kind, f.severity, f.ref, f.expected]), [["peer", "block", PEER, "absent"]]);
+  assert.match(findings[0]!.summary, /now publishes a links\.json/);
+  assert.ok(!findings[0]!.summary.includes("evil.example"));
+});
+
+test("peer links.json: changed or gone is a block; unreadable is a warn; the same bytes are clean", async () => {
+  const root = await locked();
+  assert.deepEqual((await watch(root, baseRoutes())).findings, []);
+  const changed = await watch(root, { ...baseRoutes(), [PEER2_LINKS]: { body: { version: 1, networks: {} } } });
+  assert.deepEqual(changed.findings.map((f) => [f.severity, f.ref]), [["block", PEER2]]);
+  assert.match(changed.findings[0]!.summary, /links\.json changed/);
+  const gone = await watch(root, { ...baseRoutes(), [PEER2_LINKS]: { status: 404 } });
+  assert.deepEqual(gone.findings.map((f) => [f.severity, f.ref, f.actual]), [["block", PEER2, "absent"]]);
+  const down = await watch(root, { ...baseRoutes(), [PEER2_LINKS]: { status: 503 } });
+  assert.deepEqual(down.findings.map((f) => [f.severity, f.ref]), [["warn", PEER2]]);
+  assert.match(down.findings[0]!.summary, /links\.json could not be checked/);
+});
+
+test("peer links.json: a lock written before links were tracked says so (warn), never a silent pass", async () => {
+  const root = await locked();
+  const lock = readLockOf(root);
+  for (const record of Object.values(lock.peers)) delete record.links;
+  writeFileSync(join(root, LOCK_FILE), JSON.stringify(lock));
+  const { findings } = await watch(root, baseRoutes());
+  assert.deepEqual(findings.map((f) => [f.severity, f.ref]).sort(), [["warn", PEER], ["warn", PEER2]].sort());
+  assert.match(findings[0]!.summary, /does not record this peer's links\.json/);
+});
+
+test("peer links.json at lock time: unreadable leaves the peer out of the lock, with a warn", async () => {
+  const root = copySite();
+  const { findings } = await watch(root, { ...baseRoutes(), [PEER_LINKS]: { status: 500 } }, { init: true });
+  assert.deepEqual(findings.map((f) => [f.severity, f.ref]), [["warn", PEER]]);
+  assert.match(findings[0]!.summary, /links\.json answered HTTP 500/);
+  assert.deepEqual(Object.keys(readLockOf(root).peers), [PEER2]);
 });
 
 test("peer: a peer definition that no longer parses is a block, not a skipped check", async () => {
@@ -115,4 +162,15 @@ test("peer: a peer on a private or loopback address is a warn through safeFetch'
   assert.equal(refused.length, 1);
   assert.equal(refused[0]?.severity, "warn");
   assert.match(refused[0]!.summary, /private or loopback/);
+});
+
+test("peer signer: a kid outside its exact pattern is never recorded or quoted; it counts as no usable signature", async () => {
+  const hostile = { ...baseRoutes(), [PEER_SIGNATURE]: signed("SECRET <b>not-a-kid</b>") };
+  const root = await locked(hostile);
+  assert.equal("kid" in (readLockOf(root).peers[PEER] ?? {}), false);
+  const signedRoot = await locked({ ...baseRoutes(), [PEER_SIGNATURE]: signed("aaaaaaaaaaaaaaaa") });
+  const { findings } = await watch(signedRoot, hostile);
+  assert.deepEqual(findings.map((f) => [f.severity, f.ref]), [["warn", PEER]]);
+  assert.match(findings[0]!.summary, /no valid kid/);
+  assert.ok(findings.every((f) => !JSON.stringify(f).includes("SECRET")));
 });

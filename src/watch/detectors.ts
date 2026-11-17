@@ -2,11 +2,12 @@
 // silence and not a crash. Severity rules (docs/gate-and-watch.md):
 //   grounding  changed or unreadable source: warn.
 //   runtime    changed or missing vendored file: block (copy-do-not-change); upstream ahead or unreachable: info.
-//   peer       changed definition, or a changed signer kid: block; unreachable: warn.
+//   peer       changed definition, a links.json that appeared, changed or went away, or a changed signer kid: block;
+//              unreachable, or links.json not checkable: warn.
 
 import { readFile } from "node:fs/promises";
-import type { DriftFinding, PlumblineLock } from "../core/types.js";
-import { hashBytes, hashDocument } from "../net/canonical.js";
+import { KID_PATTERN, PEER_LINKS_ABSENT, type DriftFinding, type PlumblineLock } from "../core/types.js";
+import { hashBytes } from "../net/canonical.js";
 import { locatePeerFile, type Fetcher } from "../net/locate.js";
 import { SafeFetchError, type SafeFetchOptions } from "../net/safe-fetch.js";
 import { UPSTREAM_COMMITS_URL, UPSTREAM_REPO, short, underRoot } from "./lock.js";
@@ -43,6 +44,24 @@ export const why = (error: unknown): string => {
 };
 
 const get = (env: DetectorEnv, url: string, extra: SafeFetchOptions = {}) => env.fetch(url, { ...env.fetchOptions, ...extra });
+
+/**
+ * The state of a peer's `links.json` at its site base: the SHA-256 of its exact bytes, or PEER_LINKS_ABSENT when the
+ * peer answers 404 or 410. The runtime fetches it for every peer network it loads and lays it over that network's
+ * links, so it is as much the peer's code as its network definition. Throws a sentence-bearing Error ("it ...") when
+ * it cannot be read.
+ */
+export async function peerLinksState(env: DetectorEnv, base: string): Promise<string> {
+  let response;
+  try {
+    response = await get(env, `${base}links.json`);
+  } catch (error) {
+    throw new Error(`could not be fetched (${why(error)})`);
+  }
+  if (response.status === 404 || response.status === 410) return PEER_LINKS_ABSENT;
+  if (!response.ok) throw new Error(`answered HTTP ${response.status}`);
+  return hashBytes(response.bytes);
+}
 
 /** Hashes a local file under the root, or an https document through safeFetch. Throws a sentence-bearing Error when unreadable. */
 export async function hashRef(env: DetectorEnv, ref: string): Promise<string> {
@@ -204,7 +223,7 @@ async function checkPeer(url: string, record: PlumblineLock["peers"][string], en
   if (!response.ok) {
     return [{ kind: "peer", severity: "warn", ref: url, summary: `A peer's network definition answered HTTP ${response.status}, so it was not checked.` }];
   }
-  const actual = await hashDocument(response.text());
+  const actual = await hashBytes(response.bytes);
   if (actual !== record.sha256) {
     out.push({
       kind: "peer",
@@ -215,6 +234,39 @@ async function checkPeer(url: string, record: PlumblineLock["peers"][string], en
       summary: "A peer's network definition changed since the lock was written; it runs in the visitor's browser, so a changed one is changed code.",
     });
   }
+  // The peer's links.json: the runtime lays it over the peer network's links, so one that appears, changes or goes
+  // away changes what the peer does. A lock written before links were tracked has no record: say so, never pass.
+  if (record.links === undefined) {
+    out.push({
+      kind: "peer",
+      severity: "warn",
+      ref: url,
+      summary: "The lock does not record this peer's links.json, so a links file it adds or changes is not seen; re-lock to track it.",
+    });
+  } else {
+    let links: string | undefined;
+    try {
+      links = await peerLinksState(env, located.base);
+    } catch (error) {
+      out.push({ kind: "peer", severity: "warn", ref: url, summary: `A peer's links.json could not be checked: it ${(error as Error).message}.` });
+    }
+    if (links !== undefined && links !== record.links) {
+      const appeared = record.links === PEER_LINKS_ABSENT;
+      const gone = links === PEER_LINKS_ABSENT;
+      out.push({
+        kind: "peer",
+        severity: "block",
+        ref: url,
+        expected: record.links,
+        actual: links,
+        summary: appeared
+          ? "A peer now publishes a links.json it did not have when locked; the runtime lays it over the peer's links, so this is changed code."
+          : gone
+            ? "A peer's links.json is gone since the lock was written; the peer's links now resolve differently."
+            : "A peer's links.json changed since the lock was written; the runtime lays it over the peer's links, so this is changed code.",
+      });
+    }
+  }
   // The peer's signer, when it publishes a plumbline.signature.json. Only the kid is compared here; verifying the
   // signature needs a trust store, which is the verifier's job (src/core).
   let kid: string | undefined;
@@ -224,8 +276,9 @@ async function checkPeer(url: string, record: PlumblineLock["peers"][string], en
     if (sig.ok) {
       try {
         const parsed = JSON.parse(sig.text()) as { kid?: unknown };
-        if (typeof parsed.kid === "string") kid = parsed.kid;
-        else signatureProblem = "its plumbline.signature.json has no kid";
+        // a kid outside its exact pattern is treated as none: a stranger's string never reaches a finding
+        if (typeof parsed.kid === "string" && KID_PATTERN.test(parsed.kid)) kid = parsed.kid;
+        else signatureProblem = "its plumbline.signature.json has no valid kid";
       } catch {
         signatureProblem = "its plumbline.signature.json is not valid JSON";
       }

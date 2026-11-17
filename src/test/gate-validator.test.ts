@@ -139,3 +139,23 @@ test("validator adapter: unavailable when the target cannot be reached, never pa
   const bad = await run({}, "not a url");
   assert.equal(bad.finding.state, "unavailable");
 });
+
+test("REGRESSION (reviewer finding 10): a network or manifest with duplicate keys anywhere fails, and the summary says why", async () => {
+  // JSON.parse keeps the last `commondefs`; the runtime's HOCON reader merges both. The old port saw a clean file.
+  const clean = JSON.stringify(network());
+  assert.ok(clean.includes('"commondefs"'), "the real Atlas network has commondefs, so a second one placed first is hidden");
+  const duplicated = clean.replace(/^\{/, '{"commondefs":{"replacement_values":{"x":"y"}},');
+  assert.deepEqual(JSON.parse(duplicated), network(), "JSON.parse cannot tell the two files apart");
+  const net = await run({ [MANIFEST]: { body: manifest() }, [NETWORK]: { body: duplicated } });
+  assert.equal(net.finding.state, "fail");
+  assert.match(net.finding.summary, /duplicate keys: the reference runtime merges them, so the file means something different from what a JSON reader sees/);
+  assert.ok(!net.finding.summary.includes("replacement_values"));
+
+  const manifestText = JSON.stringify(manifest()).replace(/^\{/, '{"zz_dup":"A","zz_dup":"B",');
+  const man = await run({ [MANIFEST]: { body: manifestText }, [NETWORK]: { body: network() } });
+  assert.equal(man.finding.state, "fail");
+  assert.match(man.finding.summary, /1 x duplicate keys/);
+
+  // the same files without duplicates pass
+  assert.equal((await run({ [MANIFEST]: { body: manifest() }, [NETWORK]: { body: clean } })).finding.state, "pass");
+});

@@ -9,7 +9,14 @@ import {
   INVALID_REASONS,
   KEY_FILE,
   KEY_TYPE,
+  KID_PATTERN,
+  LINKS_FILE,
   LOCK_FILE,
+  MANIFEST_FILE,
+  PEER_LINKS_ABSENT,
+  PUBLIC_KEY_PATTERN,
+  SHA256_PATTERN,
+  SUBJECT_PATH_PATTERN,
   REVOCATION_FILE,
   REVOCATION_TYPE,
   ROTATION_FILE,
@@ -35,6 +42,39 @@ test("published file names", () => {
   assert.equal(ROTATION_FILE, "plumbline-rotation.json");
   assert.equal(REVOCATION_FILE, "plumbline-revocation.json");
   assert.equal(LOCK_FILE, "plumbline.lock.json");
+  assert.equal(MANIFEST_FILE, "agent-manifest.json");
+  assert.equal(LINKS_FILE, "links.json");
+});
+
+test("the exact patterns every inbound kid, public key, digest and subject path is held to", () => {
+  assert.equal(KID_PATTERN.source, "^[0-9a-f]{16}$");
+  assert.equal(PUBLIC_KEY_PATTERN.source, "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$");
+  assert.equal(SHA256_PATTERN.source, "^[0-9a-f]{64}$");
+  assert.equal(SUBJECT_PATH_PATTERN.source, "^[A-Za-z0-9._/-]+$");
+  for (const p of [KID_PATTERN, PUBLIC_KEY_PATTERN, SHA256_PATTERN, SUBJECT_PATH_PATTERN]) assert.equal(p.flags, "");
+});
+
+test("a subject's sha256 is SHA-256 of the file's exact bytes (since 2026-11-17), never of a re-serialisation", async () => {
+  const { generateKey, sha256Hex, signSubjects } = await import("../core/index.js");
+  const k = await generateKey(new Date("2026-11-17T12:00:00.000Z"));
+  const manifest = '{ "b": 1,\n  "a": 2 }\r\n';
+  const sig = await signSubjects({ privateKey: k.privateKey, key: k.key, origin: "https://w.example", files: [{ path: MANIFEST_FILE, content: manifest }] });
+  assert.deepEqual(sig.subjects, [{ path: MANIFEST_FILE, sha256: await sha256Hex(manifest) }]);
+  assert.deepEqual(Object.keys(sig.subjects[0] ?? {}).sort(), ["path", "sha256"]);
+});
+
+test("trust entries: adoptedVia is the one new field, set only on an entry adopted through a rotation", async () => {
+  const { adoptRotation, generateKey, rotateKey } = await import("../core/index.js");
+  const oldK = await generateKey(new Date("2026-11-17T12:00:00.000Z"));
+  const newK = await generateKey(new Date("2026-11-17T12:00:00.000Z"));
+  const rotation = await rotateKey({ oldPrivateKey: oldK.privateKey, oldKey: oldK.key, newKey: newK.key });
+  const entry = adoptRotation(rotation, [{ kid: oldK.key.kid, origin: "https://w.example", publicKey: oldK.key.publicKey }], "https://w.example");
+  assert.deepEqual(Object.keys(entry).sort(), ["adoptedVia", "kid", "origin", "publicKey"]);
+  assert.equal(entry.adoptedVia, oldK.key.kid);
+});
+
+test("the lock's peer record: links is a sha256 or the literal string absent", () => {
+  assert.equal(PEER_LINKS_ABSENT, "absent");
 });
 
 test("enum strings are exact and three-state where the standard demands it", () => {

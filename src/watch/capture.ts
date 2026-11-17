@@ -1,21 +1,22 @@
 // `watch --init`: capture the current state into a PlumblineLock. What is captured, and where it comes from:
 //   runtime.files    every file under the vendored runtime folder (`runtime/`, else `site/runtime/`, or deps.runtimeDir),
-//                    keyed by path relative to the root with `/` separators; hashed as text with CRLF folded to LF.
+//                    keyed by path relative to the root with `/` separators. Every hash here is SHA-256 of exact bytes.
 //   runtime.commit   the nsdeploy commit the runtime README or NOTICE names ("nsdeploy commit `53a787c`"), else "unknown".
 //   grounding        agent-manifest.json, links.json and every `*.network.json` at the root, plus deps.extraSources.
 //   peers            every partner network address the root's network definitions and links.json point at: the keys of
 //                    `link_labels`, `http(s)` entries in an agent's `tools` that are not MCP endpoints, and the `http(s)`
-//                    values in links.json. Each is fetched through safeFetch; its hash and signer kid are recorded.
+//                    values in links.json. Each is fetched through safeFetch; its hash, the hash of its links.json at
+//                    the same base (or "absent" on 404/410) and its signer kid are recorded.
 // Anything that cannot be captured is NOT written to the lock and comes back as a finding, so a lock with a gap is
 // never mistaken for a complete one.
 
 import { readdir, readFile } from "node:fs/promises";
 import { join, posix, relative, sep } from "node:path";
-import { FORMAT_VERSION, type DriftFinding, type PlumblineLock } from "../core/types.js";
-import { hashDocument } from "../net/canonical.js";
+import { FORMAT_VERSION, KID_PATTERN, type DriftFinding, type PlumblineLock } from "../core/types.js";
+import { hashBytes } from "../net/canonical.js";
 import { locatePeerFile } from "../net/locate.js";
 import { SafeFetchError } from "../net/safe-fetch.js";
-import { hashLocal, hashRef, why, type DetectorEnv } from "./detectors.js";
+import { hashLocal, hashRef, peerLinksState, why, type DetectorEnv } from "./detectors.js";
 
 const COMMIT = /nsdeploy commit\s+`?([0-9a-f]{7,40})`?/i;
 
@@ -135,17 +136,29 @@ export async function captureLock(
       const { fileUrl, base } = await locatePeerFile(url, env.fetch, env.fetchOptions);
       const response = await env.fetch(fileUrl, env.fetchOptions);
       if (!response.ok) throw new Error(`answered HTTP ${response.status}`);
+      let links: string;
+      try {
+        links = await peerLinksState(env, base);
+      } catch (error) {
+        throw new Error(`its links.json ${(error as Error).message}`);
+      }
       let kid: string | undefined;
       try {
         const sig = await env.fetch(`${base}plumbline.signature.json`, env.fetchOptions);
         if (sig.ok) {
           const parsed = JSON.parse(sig.text()) as { kid?: unknown };
-          if (typeof parsed.kid === "string") kid = parsed.kid;
+          // a kid outside its exact pattern is not recorded: a stranger's string never reaches the lock or a finding
+          if (typeof parsed.kid === "string" && KID_PATTERN.test(parsed.kid)) kid = parsed.kid;
         }
       } catch {
         // an unsigned or unreachable signature file means no kid is recorded
       }
-      peers[url] = { sha256: await hashDocument(response.text()), ...(kid !== undefined ? { kid } : {}), checkedAt: options.now.toISOString() };
+      peers[url] = {
+        sha256: await hashBytes(response.bytes),
+        links,
+        ...(kid !== undefined ? { kid } : {}),
+        checkedAt: options.now.toISOString(),
+      };
     } catch (error) {
       const detail = error instanceof SafeFetchError ? why(error) : error instanceof Error ? error.message : "it could not be fetched";
       findings.push({ kind: "peer", severity: "warn", ref: url, summary: `A peer could not be locked, so it is not in the lock (${detail}).` });

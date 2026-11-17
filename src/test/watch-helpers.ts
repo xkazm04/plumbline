@@ -10,8 +10,10 @@ export const PEER = "https://peer.example/partner";
 export const PEER_FILE = "https://peer.example/partner.network.json";
 export const PEER_SIGNATURE = "https://peer.example/plumbline.signature.json";
 export const PEER_MANIFEST = "https://peer.example/agent-manifest.json";
+export const PEER_LINKS = "https://peer.example/links.json";
 export const PEER2 = "https://other-peer.example/shuttle";
 export const PEER2_FILE = "https://other-peer.example/shuttle.network.json";
+export const PEER2_LINKS = "https://other-peer.example/links.json";
 
 /** The newest upstream commit is the one the fixture runtime README names. */
 export const UPSTREAM_SAME: Route = { body: [{ sha: "53a787c0123456789abcdef0123456789abcdef0" }] };
@@ -27,8 +29,11 @@ export function baseRoutes(): Record<string, Route> {
     [PEER_MANIFEST]: { status: 404 },
     [PEER_FILE]: { body: peerNetwork() },
     [PEER_SIGNATURE]: { status: 404 },
+    // peer.example publishes no links.json; other-peer.example publishes one (both states are locked)
+    [PEER_LINKS]: { status: 404 },
     "https://other-peer.example/agent-manifest.json": { status: 404 },
     [PEER2_FILE]: { body: peerNetwork("shuttle") },
+    [PEER2_LINKS]: { body: { version: 1, networks: { shuttle: { partner: "https://peer.example/partner" } } } },
     "https://other-peer.example/plumbline.signature.json": { status: 404 },
   };
 }

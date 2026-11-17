@@ -21,7 +21,7 @@ import { signText } from "../core/keys.js";
 const ORIGIN = "https://site.example";
 const T0 = new Date("2026-11-17T12:00:00.000Z");
 const LATER = new Date("2026-11-20T12:00:00.000Z");
-const files: SubjectFile[] = [{ path: "agent-manifest.json", content: { name: "Site" } }];
+const files: SubjectFile[] = [{ path: "agent-manifest.json", content: JSON.stringify({ name: "Site" }) }];
 
 const entryOf = (g: GeneratedKey, origin = ORIGIN): TrustEntry => ({ kid: g.key.kid, origin, publicKey: g.key.publicKey });
 const storeOf = (...entries: TrustEntry[]): TrustStore => ({
@@ -90,7 +90,7 @@ test("revocation is checked before the digests: a revoked signer's tampered file
   const k = await generateKey(T0);
   const signature = await signSubjects({ privateKey: k.privateKey, key: k.key, origin: ORIGIN, files, now: T0 });
   const revoked: TrustEntry = { ...entryOf(k), revokedAt: LATER.toISOString() };
-  const changed = [{ path: "agent-manifest.json", content: { name: "Other" } }];
+  const changed = [{ path: "agent-manifest.json", content: JSON.stringify({ name: "Other" }) }];
   assert.equal((await verifySignature(signature, changed, storeOf(revoked), { now: T0 })).reason, "revoked");
 });
 
@@ -164,7 +164,7 @@ test("expectedOrigin: a signature for another origin is unverifiable, an invalid
   assert.equal(elsewhere.reason, undefined);
   assert.equal(elsewhere.detail, "The files may be genuine but are not attested for the origin they were checked as: the signature names a different origin (see the result's origin field).");
   assert.equal(elsewhere.origin, "https://site.example");
-  const changed = [{ path: "agent-manifest.json", content: { name: "Other" } }];
+  const changed = [{ path: "agent-manifest.json", content: JSON.stringify({ name: "Other" }) }];
   const tampered = await verifySignature(signature, changed, trust, { now: T0, expectedOrigin: "https://mirror.example" });
   assert.deepEqual([tampered.verdict, tampered.reason], ["invalid", "tampered"]);
 });

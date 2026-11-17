@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { SafeFetchError } from "../net/safe-fetch.js";
@@ -34,11 +34,12 @@ test("runtime drift: a missing vendored file is a block", async () => {
   assert.match(findings[0]!.summary, /missing/);
 });
 
-test("runtime neighbour: untouched files, and a CRLF checkout of them, are not drift", async () => {
+test("runtime neighbour: untouched files are not drift; the same file with CRLF line endings is (exact bytes, LF pinned)", async () => {
   const root = await locked();
   assert.deepEqual((await watch(root, baseRoutes())).findings, []);
-  writeFileSync(join(root, "runtime/engine.js"), "export const engine = 1;\r\n");
-  assert.deepEqual((await watch(root, baseRoutes())).findings, []);
+  const original = readFileSync(join(root, "runtime/engine.js"), "utf8");
+  writeFileSync(join(root, "runtime/engine.js"), original.replace(/\n/g, "\r\n"));
+  assert.deepEqual((await watch(root, baseRoutes())).findings.map((f) => [f.kind, f.severity, f.ref]), [["runtime", "block", "runtime/engine.js"]]);
 });
 
 test("runtime upstream: a newer upstream commit is info with both short SHAs (recorded real GitHub response)", async () => {

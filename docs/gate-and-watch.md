@@ -40,6 +40,7 @@ port of the rules**, written from reading that code, and its summary says "port"
 | missing references | an agent's `tools` entry is not an MCP endpoint, a remote agent address, a declared `link_slots` name, or an agent in this network |
 | manifest | `networks[]` has no entry, or an entry lacks `name`, `front_man` or `hocon`; `front_man` differs from the network's front agent |
 | duplicates (ours, not in the reference) | two agents share a name |
+| duplicate keys (ours, not in the reference) | the manifest or a network definition repeats a key inside one object, anywhere in the file (keys compared after unescaping). The summary says "duplicate keys: the reference runtime merges them, so the file means something different from what a JSON reader sees": `JSON.parse` keeps the last value, the runtime's HOCON reader deep-merges them, so a duplicate `commondefs` can change an agent's instructions while every JSON tool, this port included, sees a clean file |
 
 Not ported: HOCON parsing, `{token}` expansion before validation, partner and action-tool checks. States: `pass` when every
 network definition checked is clean; `fail` for a rule violation, a manifest or network that answers 404 or is not JSON, or an
@@ -86,19 +87,54 @@ is checked.
 | `grounding` | each `grounding.sources[].ref` (a path under the root, or an https URL through `safeFetch`), hashed again | changed: `warn`. Unreadable, missing or outside the root: `warn`, saying so |
 | `runtime` (a) | each file in `runtime.files`, under the root | changed or missing: `block` (the vendored runtime is copy-do-not-change) |
 | `runtime` (b) | newest commit of `cognizant-ai-lab/nsdeploy` from the GitHub API, unauthenticated | differs from `runtime.commit`: `info` "Upstream is ahead" with both short SHAs. Cannot ask (timeout, rate limit, HTTP error, odd answer): `info` "Could not check upstream". Never `block` |
-| `peer` | each `peers[url]`: the network JSON, hashed again | changed or no longer JSON: `block` (a peer's definition runs in the visitor's browser, so a changed one is changed code). Unreachable: `warn` |
-| `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`. Signed when locked, no usable signature now: `warn`. Unsigned when locked, signed now: `info` |
+| `peer` | each `peers[url]`: the network definition, hashed again | changed in any byte: `block` (a peer's definition runs in the visitor's browser, so a changed one is changed code). Unreachable: `warn` |
+| `peer` links | each `peers[url].links`: the peer's `links.json` at the same site base (the runtime fetches it for every peer network it loads and lays it over that network's links) | appeared (locked `absent`, now served), changed, or gone (404/410 now): `block`. Cannot be read (timeout, HTTP 5xx): `warn`. A lock written before 2026-11-17 has no `links` for the peer: `warn`, "re-lock to track it", never a silent pass |
+| `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`. Signed when locked, no usable signature now: `warn`. Unsigned when locked, signed now: `info`. A `kid` that is not exactly 16 lowercase hex characters is never recorded or quoted; it counts as no usable signature |
 
-Hashing: the canonical JSON (sorted keys, no whitespace, `undefined` dropped, UTF-8; the same bytes as `canonicalJson` in
-`src/core`) when the text parses as JSON, else the text with CRLF folded to LF and a leading BOM ignored, so re-serialising a
-JSON file or checking out files on Windows is not drift. Bytes that are not UTF-8 are hashed as they are. The signer check
-compares the kid only; verifying a signature needs a trust store and is `src/core`'s job.
+Hashing: every hash the watch writes or compares is SHA-256 of the **exact bytes**, read from disk or fetched (`hashBytes`
+in `src/net/canonical.ts`). Nothing is normalised: no JSON canonicalisation, no CRLF folding, no BOM stripping. So
+re-serialising a JSON file (key order, spacing) is drift. That is deliberate: the reference runtime reads network files
+with its own HOCON parser, which merges duplicate keys that `JSON.parse` collapses, so "the same JSON" is not "the same
+program". Line endings do not cause false drift because repositories pin LF (`.gitattributes`: `* text=auto eol=lf`, as
+this one does) and web servers serve bytes as stored; a site repository that does not pin LF will see drift when it is
+checked out with CRLF, and should add that line. Locks written before 2026-11-17 hashed JSON canonically, so their
+JSON hashes no longer match: write a fresh lock (below). The signer check compares the kid only; verifying a signature
+needs a trust store and is `src/core`'s job.
 
 `--init` captures: every file under `runtime/` (else `site/runtime/`) and the nsdeploy commit its README or NOTICE names
 (`nsdeploy commit \`53a787c\``, else `unknown`); `agent-manifest.json`, `links.json` and every `*.network.json` at the root plus any
 `--source` as grounding; and as peers the keys of `link_labels`, the `http(s)` non-MCP entries of an agent's `tools`, and the
-`http(s)` values in `links.json`. Something that cannot be captured (an unreachable peer, a missing source) is left OUT of the
-lock and returned as a finding, so a lock with a gap is never mistaken for a complete one.
+`http(s)` values in `links.json`, each with the hash of its network definition and the state of its `links.json`.
+Something that cannot be captured (an unreachable peer, a peer whose `links.json` answers neither 2xx nor 404/410, a
+missing source) is left OUT of the lock and returned as a finding, so a lock with a gap is never mistaken for a complete
+one.
+
+### The lock (`plumbline.lock.json`)
+
+```json
+{
+  "version": 1,
+  "runtime": { "source": "nsdeploy", "commit": "53a787c", "files": { "runtime/engine.js": "<sha256>" } },
+  "grounding": { "sources": [{ "ref": "agent-manifest.json", "sha256": "<sha256>" }], "builtAt": "<ISO UTC>" },
+  "peers": {
+    "https://peer.example/partner": { "sha256": "<sha256>", "links": "<sha256> or absent", "kid": "<kid>", "checkedAt": "<ISO UTC>" }
+  }
+}
+```
+
+Every `<sha256>` is the lowercase hex SHA-256 of exact bytes. `peers[url].links` is the hash of the peer's `links.json`
+at its site base, or the literal string `absent` when the peer answered 404 or 410, so a `links.json` that appears later
+is drift. `kid` is present only when the peer published a signature. Absent optional fields are omitted, never `null`.
+
+**The lock is a published, signed file.** When a site serves `plumbline.lock.json`, `plumbline sign` signs it (the Desk
+reads it, and an unsigned baseline would be anyone's word), and a lock that is present but not signed makes the
+signature `invalid tampered` (`docs/signature-format.md`). So the publisher's order is:
+
+1. `plumbline watch --init` writes the lock;
+2. `plumbline sign` signs the site, the lock included;
+3. later, when the watch reports drift you accept: review it, move the old lock aside, run `watch --init` again into a
+   fresh lock, and **sign again**. Re-signing after accepting drift is part of the workflow: a lock changed after signing
+   makes the signature `invalid tampered` until you do.
 
 ## `safeFetch` (`src/net/safe-fetch.ts`)
 
@@ -108,10 +144,12 @@ Every fetch of an address we do not own goes through this one function. Its rule
    the tests' loopback server and `plumbline gate --allow-local` set it. Private ranges stay refused even then, and so
    does `http` to a public address.
 2. **Resolve, then check every answer**, with `node:dns`, before connecting. Refused: `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`,
-   `169.254/16` (cloud metadata), `172.16/12`, `192.0.0/24`, `192.0.2/24`, `192.168/16`, `198.18/15`, `198.51.100/24`, `203.0.113/24`,
-   multicast and reserved `224/3`; in v6 `::`, `::1`, `fc00::/7`, `fe80::/10`, `fec0::/10`, `ff00::/8`, `2001:db8::/32`, Teredo, and the
-   v6 forms that carry a v4 address (`::ffff:a.b.c.d`, `::a.b.c.d`, `64:ff9b::/96`, `2002::/16`) judged by the address inside. One bad
-   answer among several refuses the host. An unparseable address is refused.
+   `169.254/16` (cloud metadata), `172.16/12`, `192.0.0/24`, `192.0.2/24`, `192.88.99/24` (deprecated 6to4 relay anycast),
+   `192.168/16`, `198.18/15`, `198.51.100/24`, `203.0.113/24`, multicast and reserved `224/3`; in v6 `::`, `::1`, `fc00::/7`,
+   `fe80::/10`, `fec0::/10`, `ff00::/8`, `2001:db8::/32`, Teredo, the v4-compatible `::a.b.c.d`, the v4-translated
+   `::ffff:0:a.b.c.d` and everything else in the IETF-reserved `::/8`, and the v6 forms that carry a v4 address judged by the
+   address inside (`::ffff:a.b.c.d`, `64:ff9b::/96`, `2002::/16`, and ISATAP interface identifiers `::0:5efe:a.b.c.d` and
+   `::200:5efe:a.b.c.d` under any prefix). One bad answer among several refuses the host. An unparseable address is refused.
 3. **Connect to the address that was checked** (a `lookup` that returns it): no second resolution, so DNS rebinding between check and connect does not work.
 4. **At most 3 redirects**, each hop re-validated from rule 1. Custom headers are dropped when a hop changes origin.
 5. **Body ceiling: 512 KiB (524,288 bytes).** Measured 2026-11-17: the largest real `*.network.json` among the example sites in
@@ -134,6 +172,6 @@ Failures carry their own code: `blocked-address`, `insecure-scheme`, `dns-failed
 
 ## Known deviations and temporary pieces
 
-- `src/net/canonical.ts` re-exports core's `canonicalJson` and `sha256Hex` (core is the one authority for the canonical bytes) and adds the document fingerprints; the parity test against `src/core` stays.
+- `src/net/canonical.ts` re-exports core's `canonicalJson` and `sha256Hex` (core is the one authority for them) and adds the document fingerprints, which are plain SHA-256 of exact bytes; the parity test against `src/core` stays.
 - The Agent Customs public key is pinned in source (first seen 2026-11-17, key id `-DC99sDa-qJjBp2N`); if Customs rotates it, the customs adapter is `unavailable` until the pin is updated.
 - The gate sends the target address to Agent Atlas' public API, as the adapter's job.

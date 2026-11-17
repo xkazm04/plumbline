@@ -6,7 +6,7 @@
 
 import { canonicalJson } from "./canonical.js";
 import { keyId, keyIdOfPrivate, signText, verifyText } from "./keys.js";
-import { KID_PATTERN, isBase64Url, isIsoUtc } from "./verify.js";
+import { KID_PATTERN, isBase64Url, isIsoUtc, isPublicKey } from "./verify.js";
 import {
   ALG,
   FORMAT_VERSION,
@@ -70,17 +70,56 @@ function shapeProblem(r: unknown): string | undefined {
   return undefined;
 }
 
+/** The earlier of two ISO timestamps (both already checked). */
+function earliest(a: string | undefined, b: string): string {
+  return a !== undefined && Date.parse(a) <= Date.parse(b) ? a : b;
+}
+
+/**
+ * The trust entries with every revocation spread to where it belongs, as a new array (entries not affected are
+ * returned as they are). Two rules, applied until nothing changes:
+ *   1. a kid is revoked everywhere once ANY entry for it carries `revokedAt` (a revocation names no origin);
+ *   2. an entry whose `adoptedVia` names a revoked kid is revoked too (it was adopted on that key's word, and a leaked
+ *      key could have named its thief's key as successor), and so on down the chain.
+ * Each entry keeps the earliest `revokedAt` that reaches it. Pure; it only ever takes trust away.
+ */
+export function spreadRevocations(entries: readonly TrustEntry[]): TrustEntry[] {
+  const dead = new Map<string, string>();
+  for (const e of entries) if (e.revokedAt !== undefined) dead.set(e.kid, earliest(dead.get(e.kid), e.revokedAt));
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const e of entries) {
+      const via = e.adoptedVia !== undefined ? dead.get(e.adoptedVia) : undefined;
+      if (via === undefined) continue;
+      const next = earliest(dead.get(e.kid), via);
+      if (next !== dead.get(e.kid)) {
+        dead.set(e.kid, next);
+        changed = true;
+      }
+    }
+  }
+  return entries.map((e) => {
+    const at = dead.get(e.kid);
+    if (at === undefined || e.revokedAt === at) return e;
+    return { ...e, revokedAt: earliest(e.revokedAt, at) };
+  });
+}
+
 /**
  * Checks a revocation against the trust entry the verifier ALREADY holds for its `kid` (never against a key that arrives
  * with the statement). `verified` returns the entry with `revokedAt` set; the caller replaces its entry with it, and from
  * then on verifySignature and verifyRotation answer `invalid` / `revoked` for that key. No entry (the verifier never
  * trusted the key) is `unverifiable`, and a revocation that does not verify under the trusted key is `invalid`.
- * A revocation carries no origin: it applies to every trust entry for that kid, so call it once per entry.
+ *
+ * Pass the verifier's whole trust store as `trustEntries` and a `verified` result also carries `entries`: that store
+ * with the revocation applied and spread (spreadRevocations), so every entry for the revoked kid, at every origin, and
+ * every entry adopted through a rotation chain that leads to it, carries `revokedAt`. Replace the store with it.
  */
 export async function applyRevocation(
   revocation: PlumblineRevocation,
   entry: TrustEntry | undefined,
-): Promise<VerifyResult & { entry?: TrustEntry }> {
+  trustEntries?: readonly TrustEntry[],
+): Promise<VerifyResult & { entry?: TrustEntry; entries?: TrustEntry[] }> {
   const problem = shapeProblem(revocation);
   if (problem !== undefined) {
     return invalid("malformed", `The revocation is malformed: ${problem}.`, undefined, entry?.origin);
@@ -96,7 +135,7 @@ export async function applyRevocation(
   }
   let derived: string | undefined;
   try {
-    derived = await keyId(entry.publicKey);
+    derived = isPublicKey(entry.publicKey) ? await keyId(entry.publicKey) : undefined;
   } catch {
     derived = undefined;
   }
@@ -109,7 +148,13 @@ export async function applyRevocation(
     );
   }
   const { sig, ...unsigned } = revocation;
-  if (!(await verifyText(entry.publicKey, canonicalJson(unsigned), sig))) {
+  let signed: string;
+  try {
+    signed = canonicalJson(unsigned);
+  } catch {
+    return invalid("malformed", "The revocation carries a value canonical JSON cannot encode.", kid, entry.origin);
+  }
+  if (!(await verifyText(entry.publicKey, signed, sig))) {
     return invalid(
       "bad-signature",
       "The revocation does not verify under the key this verifier trusts for it, so it was not made by that key and is refused.",
@@ -118,15 +163,14 @@ export async function applyRevocation(
     );
   }
   // Keep the earliest revocation time seen; the time is informational, since a revoked key is dead whatever the dates.
-  const revokedAt =
-    entry.revokedAt !== undefined && Date.parse(entry.revokedAt) <= Date.parse(revocation.revokedAt)
-      ? entry.revokedAt
-      : revocation.revokedAt;
+  const mark = (e: TrustEntry): TrustEntry => ({ ...e, revokedAt: earliest(e.revokedAt, revocation.revokedAt) });
+  const entries = trustEntries === undefined ? undefined : spreadRevocations(trustEntries.map((e) => (e.kid === kid ? mark(e) : e)));
   return {
     verdict: "verified",
     kid,
     origin: entry.origin,
     detail: "A key this verifier trusts has revoked itself: nothing signed by it is accepted any more.",
-    entry: { ...entry, revokedAt },
+    entry: mark(entry),
+    ...(entries !== undefined ? { entries } : {}),
   };
 }

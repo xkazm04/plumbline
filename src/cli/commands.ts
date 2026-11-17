@@ -18,16 +18,23 @@ import {
   DEFAULT_LIFETIME_DAYS,
   FORMAT_VERSION,
   KEY_FILE,
+  LINKS_FILE,
+  LOCK_FILE,
+  MANIFEST_FILE,
   REVOCATION_FILE,
   ROTATION_FILE,
   SIGNATURE_FILE,
   applyRevocation,
   generateKey,
   isAcceptableOrigin,
+  isKid,
+  isPublicKey,
+  parseManifest,
   revokeKey,
   rotateKey,
   signSubjects,
   signedPathsOf,
+  spreadRevocations,
   verifySignature,
   type PlumblineKey,
   type PlumblineRevocation,
@@ -39,9 +46,6 @@ import {
 } from "../core/index.js";
 
 export type Out = (line: string) => void;
-
-const MANIFEST_FILE = "agent-manifest.json";
-const LINKS_FILE = "links.json";
 
 function isIsoUtc(text: string): boolean {
   const ms = Date.parse(text);
@@ -117,16 +121,27 @@ export async function sign(argv: string[], out: Out): Promise<number> {
   }
   const privateFile = await readPrivateKeyFile(required(args, "key"));
 
-  const manifest = await loadSubject(root, MANIFEST_FILE, true);
+  const manifest = await loadSubject(root, MANIFEST_FILE);
   if (!manifest) throw new CliError(`${MANIFEST_FILE} not found in ${root}`);
-  const links = await loadSubject(root, LINKS_FILE, true);
-  // Which files are signed is core's signedPathsOf, the one rule the CLI and the Desk share.
+  const parsed = parseManifest(manifest.content);
+  if (parsed === undefined) throw new CliError(`${MANIFEST_FILE} is not valid JSON`);
+  const links = await loadSubject(root, LINKS_FILE);
+  const lock = await loadSubject(root, LOCK_FILE);
+  // Which files are signed is core's signedPathsOf, the one rule the CLI and the Desk share. Every subject is the
+  // file's exact bytes; the lock is signed when it exists, so run `watch --init` BEFORE `sign`.
+  let paths: string[];
+  try {
+    paths = signedPathsOf(parsed, { links: links !== undefined, lock: lock !== undefined });
+  } catch (error) {
+    throw new CliError(`cannot sign: ${(error as Error).message}`);
+  }
   const files: SubjectFile[] = [];
-  for (const rel of signedPathsOf(manifest.content, links !== undefined)) {
+  for (const rel of paths) {
     if (rel === MANIFEST_FILE) files.push(manifest);
     else if (rel === LINKS_FILE && links) files.push(links);
+    else if (rel === LOCK_FILE && lock) files.push(lock);
     else {
-      const loaded = await loadSubject(root, rel, true);
+      const loaded = await loadSubject(root, rel);
       if (!loaded) throw new CliError(`network file named by the manifest is missing: ${rel}`);
       files.push(loaded);
     }
@@ -167,25 +182,31 @@ async function readTrustStore(file: string): Promise<CliTrustStore> {
   if (typeof value !== "object" || value === null || value.version !== 1 || !Array.isArray(value.entries)) {
     throw new CliError(`not a Plumbline trust store: ${file}`);
   }
-  const entries: TrustEntry[] = [];
+  const read: TrustEntry[] = [];
   for (const raw of value.entries as unknown[]) {
     const e = raw as Record<string, unknown> | null;
+    // kid and publicKey are held to their exact patterns; the message never quotes what failed.
     if (
       !e ||
-      typeof e.kid !== "string" ||
+      !isKid(e.kid) ||
       typeof e.origin !== "string" ||
-      typeof e.publicKey !== "string" ||
-      (e.revokedAt !== undefined && (typeof e.revokedAt !== "string" || !isIsoUtc(e.revokedAt)))
+      !isPublicKey(e.publicKey) ||
+      (e.revokedAt !== undefined && (typeof e.revokedAt !== "string" || !isIsoUtc(e.revokedAt))) ||
+      (e.adoptedVia !== undefined && !isKid(e.adoptedVia))
     ) {
       throw new CliError(`a trust store entry is malformed: ${file}`);
     }
-    entries.push({
+    read.push({
       kid: e.kid,
       origin: e.origin,
       publicKey: e.publicKey,
       ...(typeof e.revokedAt === "string" ? { revokedAt: e.revokedAt } : {}),
+      ...(typeof e.adoptedVia === "string" ? { adoptedVia: e.adoptedVia } : {}),
     });
   }
+  // A kid revoked at ANY origin is revoked at every origin, and so is every key adopted through a rotation from it:
+  // the same rule the Desk applies, so a revocation recorded once is never lost at another origin.
+  const entries = spreadRevocations(read);
   return { entries, find: (kid, origin) => entries.find((e) => e.kid === kid && e.origin === origin) };
 }
 
@@ -227,11 +248,13 @@ async function applyRevocationFile(root: string, trust: CliTrustStore): Promise<
   }
   const results: VerifyResult[] = [];
   let applied = false;
-  for (const [entry, index] of matching) {
-    const { entry: revoked, ...result } = await applyRevocation(revocation, entry);
+  for (const [entry] of matching) {
+    const { entry: _revoked, entries, ...result } = await applyRevocation(revocation, entry, trust.entries);
+    void _revoked;
     results.push(result);
-    if (result.verdict === "verified" && revoked) {
-      trust.entries[index] = revoked;
+    if (result.verdict === "verified" && entries) {
+      // every entry for the kid, at every origin, and every entry adopted through it (applyRevocation spreads it)
+      trust.entries.splice(0, trust.entries.length, ...entries);
       applied = true;
     }
   }
@@ -277,13 +300,20 @@ export async function verify(argv: string[], out: Out): Promise<number> {
         if (typeof rel !== "string") continue;
         let loaded: SubjectFile | undefined;
         try {
-          loaded = await loadSubject(root, rel, false);
+          loaded = await loadSubject(root, rel);
         } catch (error) {
           // an unsafe path in a signature must never read outside the root; it simply is not a present file
           if (!(error instanceof CliError)) throw error;
         }
         if (loaded) files.push(loaded);
       }
+    }
+    // links.json and the lock are passed whenever they exist, signed or not: an unsigned one is `tampered`, because
+    // the runtime (links) and the Desk (lock) read them.
+    for (const rel of [LINKS_FILE, LOCK_FILE]) {
+      if (files.some((f) => f.path === rel)) continue;
+      const loaded = await loadSubject(root, rel);
+      if (loaded) files.push(loaded);
     }
     let publishedKey: PlumblineKey | undefined;
     const keyText = await readTextIfPresent(path.join(root, ...KEY_FILE.split("/")));

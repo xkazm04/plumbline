@@ -1,5 +1,6 @@
-// Known-answer vectors: src/test/vectors.json was generated once from a fixed seeded key and is committed as data.
-// This test regenerates nothing; it only checks the committed answers. WP3 runs the same JSON in a browser.
+// Known-answer vectors: src/test/vectors.json was generated from a fixed seeded key and is committed as data
+// (regenerated deliberately on 2026-11-17, same seed, when subjects became exact bytes). This test regenerates nothing;
+// it only checks the committed answers. The Desk runs the same JSON in a browser.
 import assert from "node:assert/strict";
 import { createHash, createPrivateKey, sign as nodeSign } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -19,6 +20,7 @@ import {
 // dist/test/vectors.test.js -> ../../src/test/vectors.json
 const vectors = JSON.parse(readFileSync(new URL("../../src/test/vectors.json", import.meta.url), "utf8")) as {
   canonical: { inputJson: string; canonical: string }[];
+  canonicalRefused: string[];
   sha256: { text: string; sha256: string }[];
   seedHex: string;
   privateKey: string;
@@ -43,6 +45,20 @@ const vectors = JSON.parse(readFileSync(new URL("../../src/test/vectors.json", i
 
 test("vector canonical strings", () => {
   for (const c of vectors.canonical) assert.equal(canonicalJson(JSON.parse(c.inputJson)), c.canonical);
+});
+
+test("vector canonical refusals: a non-finite number has no canonical form (1e999 would otherwise encode as null)", () => {
+  assert.ok(vectors.canonicalRefused.length >= 1);
+  for (const input of vectors.canonicalRefused) assert.throws(() => canonicalJson(JSON.parse(input)), /non-finite/, input);
+});
+
+test("vector subjects: every committed digest is SHA-256 of the file text's exact UTF-8 bytes", async () => {
+  const byPath = new Map(vectors.files.map((f) => [f.path, f.content]));
+  for (const subject of vectors.signature.subjects) {
+    const content = byPath.get(subject.path);
+    assert.equal(typeof content, "string", subject.path);
+    assert.equal(await sha256Hex(new TextEncoder().encode(content as string)), subject.sha256, subject.path);
+  }
 });
 
 test("vector sha256 digests", async () => {

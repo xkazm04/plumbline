@@ -3,7 +3,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { FORMAT_VERSION, LOCK_FILE, type DriftFinding, type PlumblineLock } from "../core/types.js";
+import { FORMAT_VERSION, KID_PATTERN, LOCK_FILE, PEER_LINKS_ABSENT, type DriftFinding, type PlumblineLock } from "../core/types.js";
 import type { Fetcher } from "../net/locate.js";
 import type { SafeFetchOptions } from "../net/safe-fetch.js";
 
@@ -49,7 +49,13 @@ export function lockProblem(value: unknown): string | null {
   }
   if (!isObject(peers)) return "the lock's peers section is malformed";
   for (const p of Object.values(peers)) {
-    if (!isObject(p) || !isHex(p.sha256) || typeof p.checkedAt !== "string" || (p.kid !== undefined && typeof p.kid !== "string")) {
+    if (
+      !isObject(p) ||
+      !isHex(p.sha256) ||
+      typeof p.checkedAt !== "string" ||
+      (p.kid !== undefined && (typeof p.kid !== "string" || !KID_PATTERN.test(p.kid))) ||
+      (p.links !== undefined && !isHex(p.links) && p.links !== PEER_LINKS_ABSENT)
+    ) {
       return "the lock's peer entries are malformed";
     }
   }

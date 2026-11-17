@@ -5,6 +5,7 @@ import type { GateFinding, GateState } from "../core/types.js";
 import { describeFetchError, finding, worst, type Adapter, type GateContext } from "./context.js";
 import {
   describeIssues,
+  duplicateKeyIssues,
   frontManAgrees,
   mergeIssues,
   validateManifestEntries,
@@ -36,7 +37,10 @@ export const validatorAdapter: Adapter = async (ctx: GateContext): Promise<GateF
   const states: GateState[] = [];
   const notes: string[] = [];
   if (located.manifest !== undefined) {
-    const manifestIssues = validateManifestEntries(located.manifest, located.requestedName);
+    const manifestIssues = [
+      ...validateManifestEntries(located.manifest, located.requestedName),
+      ...(located.manifestText !== undefined ? duplicateKeyIssues(located.manifestText) : []),
+    ];
     issues.push(manifestIssues);
     if (manifestIssues.length > 0) states.push("fail");
   } else {
@@ -68,15 +72,16 @@ export const validatorAdapter: Adapter = async (ctx: GateContext): Promise<GateF
       continue;
     }
     let parsed: unknown;
+    const text = response.text();
     try {
-      parsed = JSON.parse(response.text());
+      parsed = JSON.parse(text);
     } catch {
       states.push("fail");
       notes.push("a network definition is not valid JSON");
       continue;
     }
     checked += 1;
-    const networkIssues = validateNetworkDefinition(parsed);
+    const networkIssues = [...validateNetworkDefinition(parsed), ...duplicateKeyIssues(text)];
     if (!frontManAgrees(network.frontMan, parsed)) networkIssues.push({ code: "manifest-front-man-mismatch", count: 1 });
     issues.push(networkIssues);
     if (networkIssues.length > 0) states.push("fail");

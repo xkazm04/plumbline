@@ -1,9 +1,19 @@
 // Canonical bytes. Pure: no node:* imports, so this runs in Node 22 and in a browser.
-// The rule is byte-identical to Agent Customs' canonicalJson (montbaga/agent-customs, Apache-2.0): sorted keys
-// (UTF-16 code unit order), no whitespace, members whose value is `undefined` dropped, `null` kept, UTF-8 on the wire.
+// The rule is byte-identical to Agent Customs' canonicalJson (montbaga/agent-customs, Apache-2.0) on every finite
+// value: sorted keys (UTF-16 code unit order), no whitespace, members whose value is `undefined` dropped, `null` kept,
+// UTF-8 on the wire. One deliberate difference: a non-finite number throws here, where JSON.stringify writes `null`.
+//
+// Canonical JSON covers only Plumbline's OWN objects: the signature without `sig`, and the rotation and revocation
+// statements. A signed site file (a subject) is hashed as its exact bytes, never re-serialised (see sign.ts).
 
-/** Sorted keys, no whitespace, `undefined` keys dropped, UTF-8. Byte-identical to Agent Customs' canonicalJson. */
+/**
+ * Sorted keys, no whitespace, `undefined` keys dropped, UTF-8. Throws on a non-finite number: JSON has no form for
+ * it, and writing `null` (as JSON.stringify does) would let `1e999` and `null` share one encoding.
+ */
 export function canonicalJson(value: unknown): string {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new Error("canonical JSON has no form for a non-finite number");
+  }
   if (value === null || typeof value !== "object") return JSON.stringify(value ?? null);
   if (Array.isArray(value)) return "[" + value.map(canonicalJson).join(",") + "]";
   const record = value as Record<string, unknown>;

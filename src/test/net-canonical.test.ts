@@ -13,21 +13,22 @@ test("sha256 of a known vector", async () => {
   assert.equal(await sha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 });
 
-test("a document hashes by its canonical JSON when it parses, so key order and spacing do not matter", async () => {
+test("a document hashes by its exact bytes: re-serialising JSON (key order, spacing) is a different document", async () => {
   const a = await hashDocument('{"b": 1, "a": 2}');
-  const b = await hashDocument('{\n  "a": 2,\n  "b": 1\n}\n');
-  assert.equal(a, b);
-  assert.equal(a, await sha256Hex('{"a":2,"b":1}'));
-  assert.notEqual(a, await hashDocument('{"a":2,"b":3}'));
+  assert.equal(a, await sha256Hex('{"b": 1, "a": 2}'));
+  assert.notEqual(a, await hashDocument('{\n  "a": 2,\n  "b": 1\n}\n'));
+  assert.notEqual(a, await hashDocument('{"a":2,"b":1}'));
 });
 
-test("a non-JSON document hashes by its text, with CRLF folded and a BOM ignored", async () => {
+test("nothing is folded: CRLF, a BOM and a duplicate key each change the hash", async () => {
   const lf = await hashDocument("line one\nline two\n");
-  assert.equal(await hashDocument("line one\r\nline two\r\n"), lf);
-  assert.equal(await hashDocument("﻿line one\nline two\n"), lf);
   assert.equal(lf, await sha256Hex("line one\nline two\n"));
-  assert.notEqual(await hashDocument("line one\nline 2\n"), lf);
-  assert.equal(await hashBytes(new TextEncoder().encode("line one\r\nline two\r\n")), lf);
+  assert.notEqual(await hashDocument("line one\r\nline two\r\n"), lf);
+  assert.notEqual(await hashDocument("\uFEFFline one\nline two\n"), lf);
+  assert.notEqual(await hashBytes(new TextEncoder().encode("line one\r\nline two\r\n")), lf);
+  assert.equal(await hashBytes(new TextEncoder().encode("line one\nline two\n")), lf);
+  // JSON.parse sees one object here; the runtime's HOCON reader merges the two `a` members. Different bytes, different hash.
+  assert.notEqual(await hashDocument('{"a":{"x":1},"a":{"y":2}}'), await hashDocument('{"a":{"y":2}}'));
 });
 
 test("bytes that are not UTF-8 are hashed as they are", async () => {

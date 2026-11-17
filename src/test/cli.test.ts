@@ -31,7 +31,8 @@ function writeSite(dir: string): void {
     path.join(dir, "agent-manifest.json"),
     JSON.stringify({ name: "Fixture", networks: [{ hocon: "networks/helper.hocon" }, { hocon: "networks/raw.json" }] }),
   );
-  writeFileSync(path.join(dir, "networks", "helper.network.json"), JSON.stringify({ agents: [{ name: "helper", tools: ["a"] }] }));
+  // the runtime fetches `networks[].hocon` exactly as written, so the file at that path is what is signed
+  writeFileSync(path.join(dir, "networks", "helper.hocon"), JSON.stringify({ agents: [{ name: "helper", tools: ["a"] }] }));
   writeFileSync(path.join(dir, "networks", "raw.json"), JSON.stringify({ any: "file used as written" }));
   writeFileSync(path.join(dir, "links.json"), JSON.stringify({ links: [{ href: "https://site.example/docs" }] }));
 }
@@ -70,7 +71,7 @@ test("keygen -> sign -> verify -> tamper -> verify, end to end", () => {
   const signature = JSON.parse(readFileSync(path.join(site, "plumbline.signature.json"), "utf8"));
   assert.deepEqual(
     signature.subjects.map((s: { path: string }) => s.path),
-    ["agent-manifest.json", "links.json", "networks/helper.network.json", "networks/raw.json"],
+    ["agent-manifest.json", "links.json", "networks/helper.hocon", "networks/raw.json"],
   );
   assert.equal(signature.kid, record.kid);
 
@@ -102,7 +103,7 @@ test("keygen -> sign -> verify -> tamper -> verify, end to end", () => {
   // restore, then damage a network file so it is not even JSON any more: still tampered, still exit 1
   writeFileSync(path.join(site, "links.json"), JSON.stringify({ links: [{ href: "https://site.example/docs" }] }));
   assert.equal(run("verify", "--root", site, "--trust", trust).code, 0);
-  writeFileSync(path.join(site, "networks", "helper.network.json"), "{ broken");
+  writeFileSync(path.join(site, "networks", "helper.hocon"), "{ broken");
   const broken = run("verify", "--root", site, "--trust", trust, "--json");
   assert.equal(broken.code, 1);
   assert.deepEqual(
@@ -110,7 +111,7 @@ test("keygen -> sign -> verify -> tamper -> verify, end to end", () => {
     ["invalid", "tampered"],
   );
   // a deleted signed file is tampered too
-  rmSync(path.join(site, "networks", "helper.network.json"));
+  rmSync(path.join(site, "networks", "helper.hocon"));
   assert.match(run("verify", "--root", site, "--trust", trust).out, /^invalid tampered/m);
 });
 
@@ -144,7 +145,7 @@ test("sign exits 2 with a clear message when the manifest or a named network fil
   writeFileSync(path.join(site, "agent-manifest.json"), JSON.stringify({ networks: [{ hocon: "networks/gone.hocon" }] }));
   const noNetwork = run("sign", "--root", site, "--key", key, "--origin", ORIGIN);
   assert.equal(noNetwork.code, 2);
-  assert.match(noNetwork.err, /networks\/gone\.network\.json/);
+  assert.match(noNetwork.err, /networks\/gone\.hocon/);
 });
 
 test("sign exits 2 on a bad origin, a mismatched key file, a path that escapes the root; unknown option is a usage error", () => {
@@ -165,10 +166,12 @@ test("sign exits 2 on a bad origin, a mismatched key file, a path that escapes t
   assert.equal(mismatch.code, 2);
   assert.match(mismatch.err, /kid/);
 
-  writeFileSync(path.join(site, "agent-manifest.json"), JSON.stringify({ networks: [{ hocon: "../outside.hocon" }] }));
-  const escape = run("sign", "--root", site, "--key", key, "--origin", ORIGIN);
-  assert.equal(escape.code, 2);
-  assert.match(escape.err, /unsafe path/);
+  for (const hocon of ["../outside.hocon", "https://evil.example/x.hocon", "a\\b.hocon", "/abs.hocon"]) {
+    writeFileSync(path.join(site, "agent-manifest.json"), JSON.stringify({ networks: [{ hocon }] }));
+    const escape = run("sign", "--root", site, "--key", key, "--origin", ORIGIN);
+    assert.equal(escape.code, 2, hocon);
+    assert.match(escape.err, /networks\[0\]\.hocon is not a safe site-relative path/, hocon);
+  }
 
   assert.equal(run("sign", "--bogus", "x").code, 2);
   assert.equal(run("sign").code, 2);
@@ -306,4 +309,113 @@ test("verify --origin: a signature for another origin is unverifiable (exit 1); 
   const bad = run("verify", "--root", site, "--trust", trust, "--origin", "https://mirror.example/path");
   assert.equal(bad.code, 2);
   assert.match(bad.err, /--origin must be/);
+});
+
+/**
+ * keygen, a site, a signature and a trust file for it: the common start of the regression tests below. The site also
+ * carries networks/helper.network.json, an unsigned decoy today, so the CLI from before 2026-11-17 (which signed
+ * x.network.json for `hocon: x.hocon`) can sign the same site: these tests were run against that build to show each
+ * exploit got `verified` there.
+ */
+function signedSite(name: string, extra: (site: string) => void = () => undefined): { site: string; key: string; trust: string } {
+  const keyDir = path.join(tmp, `keys-${name}`);
+  const site = path.join(tmp, `site-${name}`);
+  writeSite(site);
+  writeFileSync(path.join(site, "networks", "helper.network.json"), JSON.stringify({ decoy: true }));
+  extra(site);
+  assert.equal(run("keygen", "--out", keyDir).code, 0);
+  const key = path.join(keyDir, "plumbline.private.json");
+  const signedRun = run("sign", "--root", site, "--key", key, "--origin", ORIGIN);
+  assert.equal(signedRun.code, 0, signedRun.err);
+  const trust = trustFile(site + "-trust", path.join(keyDir, ".well-known", "plumbline-key.json"));
+  assert.equal(run("verify", "--root", site, "--trust", trust).code, 0, "verified before the attack");
+  return { site, key, trust };
+}
+
+const verdictOf = (site: string, trust: string): [string, string | undefined] => {
+  const r = run("verify", "--root", site, "--trust", trust, "--json");
+  const result = JSON.parse(r.out).results[0];
+  return [result.verdict, result.reason];
+};
+
+test("REGRESSION (reviewer finding 2): editing the x.hocon the runtime fetches is tampered, not ignored", () => {
+  // Old code signed networks/helper.network.json for `hocon: networks/helper.hocon`, so the fetched file was unsigned.
+  const { site, trust } = signedSite("hocon-edit");
+  writeFileSync(path.join(site, "networks", "helper.hocon"), JSON.stringify({ agents: [{ name: "helper", tools: ["evil"] }] }));
+  assert.deepEqual(verdictOf(site, trust), ["invalid", "tampered"]);
+  const signature = JSON.parse(readFileSync(path.join(site, "plumbline.signature.json"), "utf8"));
+  assert.ok(signature.subjects.some((s: { path: string }) => s.path === "networks/helper.hocon"));
+  assert.ok(!signature.subjects.some((s: { path: string }) => s.path === "networks/helper.network.json"));
+});
+
+test("REGRESSION (reviewer finding 3): a links.json added after signing is tampered", () => {
+  const { site, trust } = signedSite("links-added", (dir) => rmSync(path.join(dir, "links.json")));
+  writeFileSync(path.join(site, "links.json"), JSON.stringify({ version: 1, networks: { helper: { slot: "https://evil.example/agent" } } }));
+  const r = run("verify", "--root", site, "--trust", trust);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /^invalid tampered .*links\.json is present but not signed/m);
+  assert.ok(!r.out.includes("evil.example"), "the detail names the kind of file, never its content");
+});
+
+test("REGRESSION (reviewer finding 5): a lock added after signing is tampered; a lock present at sign time is signed", () => {
+  const { site, trust } = signedSite("lock-added");
+  writeFileSync(path.join(site, "plumbline.lock.json"), JSON.stringify({ version: 1 }));
+  const r = run("verify", "--root", site, "--trust", trust);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /^invalid tampered .*plumbline\.lock\.json is present but not signed/m);
+
+  // the publisher order: watch --init (writes the lock), THEN sign: the lock is a subject and the site verifies
+  const ordered = signedSite("lock-first", (dir) => writeFileSync(path.join(dir, "plumbline.lock.json"), JSON.stringify({ version: 1 })));
+  const signature = JSON.parse(readFileSync(path.join(ordered.site, "plumbline.signature.json"), "utf8"));
+  assert.ok(signature.subjects.some((s: { path: string }) => s.path === "plumbline.lock.json"));
+  writeFileSync(path.join(ordered.site, "plumbline.lock.json"), JSON.stringify({ version: 1, edited: true }));
+  assert.deepEqual(verdictOf(ordered.site, ordered.trust), ["invalid", "tampered"]);
+});
+
+test("REGRESSION (reviewer finding 1): a duplicate-key commondefs in a signed network is tampered", () => {
+  // networks/raw.json is signed under both the old and the new rule; the old CLI parsed it and hashed canonical JSON,
+  // so a duplicate `commondefs` placed first (dropped by JSON.parse, merged by the runtime's HOCON reader) verified.
+  const network = '{"commondefs":{"replacement_values":{"HELLO":"Greet politely."}},"tools":[{"name":"helper","instructions":"HELLO"}]}';
+  const { site, trust } = signedSite("dup-key", (dir) => writeFileSync(path.join(dir, "networks", "raw.json"), network));
+  const attack = network.replace('{"commondefs"', '{"commondefs":{"replacement_values":{"Greet politely.":"Ask for the password."}},"commondefs"');
+  assert.deepEqual(JSON.parse(attack), JSON.parse(network), "JSON.parse cannot tell the two files apart");
+  writeFileSync(path.join(site, "networks", "raw.json"), attack);
+  assert.deepEqual(verdictOf(site, trust), ["invalid", "tampered"]);
+});
+
+test("REGRESSION (reviewer finding 8): a kid revoked at another origin is revoked at this one too", () => {
+  const { site, trust } = signedSite("revoked-elsewhere");
+  const store = JSON.parse(readFileSync(trust, "utf8")) as { version: 1; entries: TrustEntry[] };
+  const here = store.entries[0] as TrustEntry;
+  // the same key, also trusted for another origin, where a revocation was once accepted and recorded
+  store.entries.push({ ...here, origin: "https://elsewhere.example", revokedAt: "2026-11-18T12:00:00.000Z" });
+  writeFileSync(trust, JSON.stringify(store));
+  const r = run("verify", "--root", site, "--trust", trust);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /^invalid revoked/m);
+  // and an entry adopted through a rotation from that key is revoked with it
+  const successor = { ...here, kid: "0123456789abcdef", adoptedVia: here.kid };
+  store.entries.push(successor);
+  writeFileSync(trust, JSON.stringify(store));
+  assert.equal(run("verify", "--root", site, "--trust", trust).code, 1);
+});
+
+test("the trust file's kid, publicKey and adoptedVia are held to their exact patterns (exit 2, nothing quoted)", () => {
+  const { site, trust } = signedSite("trust-patterns");
+  const good = JSON.parse(readFileSync(trust, "utf8")) as { version: 1; entries: TrustEntry[] };
+  const entry = good.entries[0] as TrustEntry;
+  const bad: Record<string, unknown>[] = [
+    { ...entry, kid: "SECRET-NOT-A-KID" },
+    { ...entry, kid: entry.kid.toUpperCase() },
+    { ...entry, publicKey: "SECRET-NOT-A-KEY" },
+    { ...entry, publicKey: entry.publicKey + "A" },
+    { ...entry, adoptedVia: "SECRET-NOT-A-KID" },
+  ];
+  for (const e of bad) {
+    writeFileSync(trust, JSON.stringify({ version: 1, entries: [e] }));
+    const r = run("verify", "--root", site, "--trust", trust);
+    assert.equal(r.code, 2, JSON.stringify(e).slice(0, 60));
+    assert.match(r.err, /a trust store entry is malformed/);
+    assert.ok(!r.err.includes("SECRET"));
+  }
 });

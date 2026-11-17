@@ -3,9 +3,16 @@
 import { canonicalJson } from "./canonical.js";
 import { keyId, verifyText } from "./keys.js";
 import { isAcceptableOrigin, subjectDigest } from "./sign.js";
+import { isSafeSubjectPath, parseManifest, signedPathsOf } from "./signed-paths.js";
 import {
   ALG,
   FORMAT_VERSION,
+  KID_PATTERN,
+  LINKS_FILE,
+  LOCK_FILE,
+  MANIFEST_FILE,
+  PUBLIC_KEY_PATTERN,
+  SHA256_PATTERN,
   SIGNATURE_TYPE,
   type InvalidReason,
   type PlumblineKey,
@@ -31,9 +38,17 @@ export interface VerifyOptions {
 /** How far in the future a `signedAt` may sit before it is called malformed (clock skew allowance). */
 export const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
-export const KID_PATTERN = /^[0-9a-f]{16}$/;
-const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+export { KID_PATTERN, PUBLIC_KEY_PATTERN };
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+export function isKid(value: unknown): value is string {
+  return typeof value === "string" && KID_PATTERN.test(value);
+}
+
+/** base64url of exactly 32 bytes, the only form a raw Ed25519 public key takes on the wire. */
+export function isPublicKey(value: unknown): value is string {
+  return typeof value === "string" && PUBLIC_KEY_PATTERN.test(value);
+}
 
 export function isIsoUtc(text: unknown): text is string {
   if (typeof text !== "string") return false;
@@ -76,6 +91,7 @@ function shapeProblem(sig: unknown): string | undefined {
   for (const subject of sig.subjects as unknown[]) {
     if (!isRecord(subject)) return "a subject entry is not an object";
     if (typeof subject.path !== "string" || subject.path === "") return "a subject has no path";
+    if (!isSafeSubjectPath(subject.path)) return "a subject path is not a safe site-relative path";
     if (typeof subject.sha256 !== "string" || !SHA256_PATTERN.test(subject.sha256)) {
       return "a subject digest is not 64 lowercase hex characters";
     }
@@ -85,7 +101,7 @@ function shapeProblem(sig: unknown): string | undefined {
   return undefined;
 }
 
-/** The signed bytes: canonical JSON of the signature object without `sig`. */
+/** The signed bytes: canonical JSON of the signature object without `sig`. Throws on a value canonical JSON refuses. */
 export function signedBytesOf(signature: PlumblineSignature): string {
   const { sig: _sig, ...rest } = signature;
   void _sig;
@@ -101,7 +117,7 @@ export async function resolveTrusted(
   const entry = trust.find(kid, origin);
   if (!entry) return undefined;
   try {
-    if (entry.kid === kid && (await keyId(entry.publicKey)) === kid) return { entry };
+    if (entry.kid === kid && isPublicKey(entry.publicKey) && (await keyId(entry.publicKey)) === kid) return { entry };
   } catch {
     // an unreadable key in a trust entry is the same defect as a mismatched one
   }
@@ -167,7 +183,7 @@ async function verifyAgainstTrust(
   // 2b. a revoked key is dead for everything; its holder (or a thief) can backdate signedAt, so dates do not matter
   if (trusted && trusted.entry.revokedAt !== undefined) return revokedResult("signature", kid, origin);
 
-  // 3. every signed path is present and its digest matches; unsigned files are ignored
+  // 3. every signed path is present and its exact bytes match
   const byPath = new Map<string, SubjectFile>();
   for (const file of files) byPath.set(file.path, file);
   for (const subject of signature.subjects) {
@@ -178,6 +194,11 @@ async function verifyAgainstTrust(
     }
   }
 
+  // 3b. the signature covers every file the runtime loads: the networks the SIGNED manifest names, and links.json and
+  // plumbline.lock.json whenever they are present. Other unsigned files are ignored.
+  const coverage = coverageProblem(signature, byPath);
+  if (coverage !== undefined) return invalid(coverage.reason, coverage.detail, kid, origin);
+
   // 4. time
   if (now.getTime() >= Date.parse(signature.expiresAt)) {
     return invalid("expired", "The signature has expired and must be renewed by the publisher.", kid, origin);
@@ -186,7 +207,12 @@ async function verifyAgainstTrust(
     return invalid("malformed", "The signature claims to have been made in the future.", kid, origin);
   }
 
-  const signed = signedBytesOf(signature);
+  let signed: string;
+  try {
+    signed = signedBytesOf(signature);
+  } catch {
+    return invalid("malformed", "The signature carries a value canonical JSON cannot encode (a non-finite number).", kid, origin);
+  }
 
   // 5. a signer the verifier already trusts: the TRUST STORE's key decides
   if (trusted) {
@@ -203,7 +229,7 @@ async function verifyAgainstTrust(
   // 6. a stranger: never verified. Say whether the math holds under the published key, for the person deciding.
   const published = options.publishedKey;
   let consistent = false;
-  if (published && published.kid === kid) {
+  if (published && isRecord(published) && published.kid === kid && isPublicKey(published.publicKey)) {
     try {
       consistent =
         (await keyId(published.publicKey)) === kid && (await verifyText(published.publicKey, signed, signature.sig));
@@ -219,4 +245,45 @@ async function verifyAgainstTrust(
       ? "The signature is internally consistent but the signer is unknown: this verifier has no trust entry for the key, so it proves nothing about who published the files."
       : "The signer is unknown to this verifier and the signature cannot be checked: no published key record matching it was supplied, or the record did not verify.",
   };
+}
+
+/**
+ * Why the signature does not cover what the runtime would load, or undefined when it does. The manifest's own digest
+ * has already been checked, so the network list read here is the signed one.
+ */
+function coverageProblem(
+  signature: PlumblineSignature,
+  byPath: Map<string, SubjectFile>,
+): { reason: InvalidReason; detail: string } | undefined {
+  const signedPaths = new Set(signature.subjects.map((s) => s.path));
+  const manifest = byPath.get(MANIFEST_FILE);
+  if (!signedPaths.has(MANIFEST_FILE) || !manifest) {
+    return {
+      reason: "tampered",
+      detail: "The signature does not cover agent-manifest.json, so it cannot say which network files the site loads.",
+    };
+  }
+  let required: string[];
+  try {
+    required = signedPathsOf(parseManifest(manifest.content), { links: byPath.has(LINKS_FILE), lock: byPath.has(LOCK_FILE) });
+  } catch {
+    return {
+      reason: "malformed",
+      detail: "The signed manifest names a network file that is not a safe site-relative path, so no signature can pin what the runtime loads.",
+    };
+  }
+  for (const path of required) {
+    if (signedPaths.has(path)) continue;
+    if (path === LINKS_FILE) {
+      return {
+        reason: "tampered",
+        detail: "A links.json is present but not signed; the runtime lays it over the network's links, so it would change what the signed site does.",
+      };
+    }
+    if (path === LOCK_FILE) {
+      return { reason: "tampered", detail: "A plumbline.lock.json is present but not signed, so the drift baseline it carries is not attested." };
+    }
+    return { reason: "tampered", detail: "A network file the signed manifest names is not covered by the signature, so the runtime would load unsigned code." };
+  }
+  return undefined;
 }

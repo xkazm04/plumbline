@@ -17,14 +17,19 @@
 //   - manifest: each `networks[]` entry has non-empty `name`, `front_man` and `hocon`, and `front_man` agrees with
 //     the front agent found in the network (build_network.mjs checkManifest).
 // What is ours and NOT in the reference rules: duplicate agent names are reported (the spec lists them; the
-// reference only keeps the last), and `tools` entries that are not arrays are reported.
+// reference only keeps the last), `tools` entries that are not arrays are reported, and a manifest or network file with
+// duplicate keys anywhere fails: the reference runtime's HOCON reader merges them where JSON.parse keeps the last, so
+// such a file means something different from what this port (or any JSON reader) sees.
 // What is NOT ported: HOCON parsing, `{token}` replacement-string expansion before validation, partner checks, the
 // action-tool checks, and every check Agent Atlas and Agent Customs run (those are their adapters).
 //
 // Findings carry codes, and the summary is built from the codes and counts only: an inspected site's own words
 // (agent names, references) are never copied into a summary.
 
+import { countDuplicateKeys } from "../core/json-keys.js";
+
 export type IssueCode =
+  | "duplicate-keys"
   | "manifest-no-networks"
   | "manifest-entry-incomplete"
   | "manifest-front-man-mismatch"
@@ -43,6 +48,8 @@ export interface Issue {
 }
 
 const ISSUE_TEXT: Record<IssueCode, string> = {
+  "duplicate-keys":
+    "duplicate keys: the reference runtime merges them, so the file means something different from what a JSON reader sees",
   "manifest-no-networks": "the manifest lists no networks",
   "manifest-entry-incomplete": "a manifest network entry lacks a name, front_man or hocon",
   "manifest-front-man-mismatch": "a manifest front_man names a different agent than the network's front agent",
@@ -150,6 +157,17 @@ export function frontManAgrees(entryFrontMan: string | undefined, config: unknow
   if (entryFrontMan === undefined || !isObject(config)) return true;
   const front = findFrontAgent(config);
   return front === null || front === entryFrontMan;
+}
+
+/** The duplicate-key rule on a file's text (a manifest or a network definition). Text that is not JSON yields nothing. */
+export function duplicateKeyIssues(text: string): Issue[] {
+  let count = 0;
+  try {
+    count = countDuplicateKeys(text);
+  } catch {
+    return [];
+  }
+  return count > 0 ? [{ code: "duplicate-keys", count }] : [];
 }
 
 function flatten(counts: Map<IssueCode, number>): Issue[] {

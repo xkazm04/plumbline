@@ -2,13 +2,14 @@
 
 import { canonicalJson } from "./canonical.js";
 import { keyId, keyIdOfPrivate, signText, verifyText } from "./keys.js";
-import { KID_PATTERN, isBase64Url, isIsoUtc, resolveTrusted, revokedResult } from "./verify.js";
+import { KID_PATTERN, isBase64Url, isIsoUtc, isPublicKey, resolveTrusted, revokedResult } from "./verify.js";
 import {
   FORMAT_VERSION,
   ROTATION_TYPE,
   type InvalidReason,
   type PlumblineKey,
   type PlumblineRotation,
+  type TrustEntry,
   type TrustStore,
   type VerifyResult,
 } from "./types.js";
@@ -57,7 +58,7 @@ function shapeProblem(r: unknown): string | undefined {
   if (o.version !== FORMAT_VERSION) return "the format version is not supported";
   if (typeof o.from !== "string" || !KID_PATTERN.test(o.from)) return "from is not a kid";
   if (typeof o.to !== "string" || !KID_PATTERN.test(o.to)) return "to is not a kid";
-  if (!isBase64Url(o.toPublicKey)) return "toPublicKey is not base64url";
+  if (!isPublicKey(o.toPublicKey)) return "toPublicKey is not the base64url of a 32-byte key";
   if (!isIsoUtc(o.signedAt)) return "signedAt is not a UTC ISO timestamp";
   if (!isBase64Url(o.sig)) return "the signature value is not base64url";
   return undefined;
@@ -111,7 +112,33 @@ export async function verifyRotation(
   }
   const { sig: _sig, ...unsigned } = rotation;
   void _sig;
-  return (await verifyText(trusted.entry.publicKey, canonicalJson(unsigned), sig))
+  let signed: string;
+  try {
+    signed = canonicalJson(unsigned);
+  } catch {
+    return invalid("malformed", "The rotation statement carries a value canonical JSON cannot encode.", from, origin);
+  }
+  return (await verifyText(trusted.entry.publicKey, signed, sig))
     ? { verdict: "verified", kid: from, origin, detail: "A key this verifier already trusts for this origin named its successor." }
     : invalid("bad-signature", "The rotation statement does not verify under the trusted old key.", from, origin);
+}
+
+/**
+ * The trust entry a verifier adds for `origin` once verifyRotation(rotation, trust, origin) returned `verified`: the
+ * successor key, with `adoptedVia` set to the old kid, so a later revocation of the old key (or of any key up the
+ * chain) revokes this entry too (applyRevocation, spreadRevocations). It checks the statement's shape and that the old
+ * key is trusted, unrevoked, for that origin among `trustEntries`; it does NOT check the signature, which is
+ * verifyRotation's job and must come first. Throws when a check fails. Plumbline's CLI and Desk never call this on
+ * their own: adopting a successor is the verifier's decision.
+ */
+export function adoptRotation(rotation: PlumblineRotation, trustEntries: readonly TrustEntry[], origin: string): TrustEntry {
+  const problem = shapeProblem(rotation);
+  if (problem !== undefined) throw new Error(`the rotation statement is malformed: ${problem}`);
+  if (rotation.from === rotation.to) throw new Error("the rotation names the same key as its successor");
+  const old = trustEntries.find((e) => e.kid === rotation.from && e.origin === origin);
+  if (!old) throw new Error("the old key is not trusted for this origin, so its successor cannot be adopted");
+  if (trustEntries.some((e) => e.kid === rotation.from && e.revokedAt !== undefined)) {
+    throw new Error("the old key has been revoked, so its successor is never adopted");
+  }
+  return { kid: rotation.to, origin, publicKey: rotation.toPublicKey, adoptedVia: rotation.from };
 }

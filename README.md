@@ -23,10 +23,10 @@ A verified signature proves who published the files and that they did not change
 ```sh
 npm ci && npm run build
 node dist/cli/index.js keygen --out ./keys            # keep keys/plumbline.private.json out of git
-node dist/cli/index.js sign --root ./site --key ./keys/plumbline.private.json --origin https://example.org
+node dist/cli/index.js watch --root ./site --init     # writes plumbline.lock.json; later runs report drift
+node dist/cli/index.js sign --root ./site --key ./keys/plumbline.private.json --origin https://example.org   # after the lock: it is signed too
 node dist/cli/index.js verify --root ./site --trust ./plumbline.trust.json --origin https://example.org
 node dist/cli/index.js gate https://agent-atlas-phi.vercel.app/
-node dist/cli/index.js watch --root ./site --init     # writes plumbline.lock.json; later runs report drift
 ```
 
 Exit codes: 0 clean, 1 findings, 2 usage or I/O error. `gate --allow-local` checks a site on your own machine over

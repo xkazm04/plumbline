@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { CliError } from "./args.js";
 import type { PlumblineKey, SubjectFile } from "../core/index.js";
-import { ALG, FORMAT_VERSION, KEY_TYPE, derivePublicKey } from "../core/index.js";
+import { ALG, FORMAT_VERSION, KEY_TYPE, derivePublicKey, isSafeSubjectPath } from "../core/index.js";
 
 export const PRIVATE_KEY_FILE = "plumbline.private.json";
 export const PRIVATE_KEY_TYPE = "plumbline-private-key";
@@ -77,36 +77,32 @@ export async function keyRecordOf(privateFile: PrivateKeyFile, now: Date): Promi
   };
 }
 
-/** A site-relative posix path resolved under `root`; absolute paths, backslashes and `..` are refused. */
+/**
+ * A site-relative posix path resolved under `root`. Core's subject-path rule decides (isSafeSubjectPath): only
+ * `[A-Za-z0-9._/-]`, relative, no empty, `.` or `..` segment. The message never quotes the refused path.
+ */
 export function resolveUnder(root: string, relative: string): string {
-  if (
-    relative === "" ||
-    relative.includes("\\") ||
-    relative.includes("\0") ||
-    relative.startsWith("/") ||
-    /^[A-Za-z]:/.test(relative) ||
-    relative.split("/").some((segment) => segment === ".." || segment === "")
-  ) {
-    throw new CliError(`unsafe path (must be relative, inside the site root): ${relative}`);
+  if (!isSafeSubjectPath(relative)) {
+    throw new CliError("unsafe path (must be relative, inside the site root, and use only A-Z a-z 0-9 . _ / -)");
   }
   return path.join(root, ...relative.split("/"));
 }
 
-/**
- * A path ending `.json` is parsed (and canonicalised when hashed); any other path is raw UTF-8 text. When verifying,
- * a `.json` file that no longer parses is handed over as text, so it fails the digest as `tampered`.
- */
-export async function loadSubject(root: string, relative: string, strict: boolean): Promise<SubjectFile | undefined> {
-  const text = await readTextIfPresent(resolveUnder(root, relative));
-  if (text === undefined) return undefined;
-  if (!relative.endsWith(".json")) return { path: relative, content: text };
+/** Reads a file's exact bytes, or returns undefined when it does not exist. Any other failure is an I/O error. */
+export async function readBytesIfPresent(file: string): Promise<Uint8Array | undefined> {
   try {
-    return { path: relative, content: JSON.parse(text) };
-  } catch {
-    if (strict) throw new CliError(`${relative} is not valid JSON`);
-    return { path: relative, content: text };
+    return new Uint8Array(await readFile(file));
+  } catch (error) {
+    if (isEnoent(error)) return undefined;
+    throw new CliError(`cannot read ${file}: ${(error as Error).message}`);
   }
 }
 
-/** `x.hocon` names `x.network.json`; the rule lives in core (signedPathsOf), shared with the Desk. */
-export { networkFileFor } from "../core/index.js";
+/**
+ * A subject is the file's exact bytes, as a web server would serve them: no parse, no decode, no newline change.
+ * Returns undefined when the file does not exist.
+ */
+export async function loadSubject(root: string, relative: string): Promise<SubjectFile | undefined> {
+  const bytes = await readBytesIfPresent(resolveUnder(root, relative));
+  return bytes === undefined ? undefined : { path: relative, content: bytes };
+}
