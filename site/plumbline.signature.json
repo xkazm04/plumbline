@@ -1,0 +1,36 @@
+{
+  "type": "plumbline-signature",
+  "version": 1,
+  "alg": "Ed25519",
+  "kid": "91971cfa8d0e630c",
+  "origin": "https://plumbline.xkazm04.workers.dev",
+  "signedAt": "2026-11-17T21:37:16.016Z",
+  "expiresAt": "2027-02-15T21:37:16.016Z",
+  "subjects": [
+    {
+      "path": "agent-manifest.json",
+      "sha256": "a8f5614318b4e324db3809e0f37266581c78942e3ab799ac46c92ade6e78ef22"
+    },
+    {
+      "path": "bridge/action-bridge.html",
+      "sha256": "401eeb8bedc6c1a84f203078a7ca1a95ba847dbc40cb97adb3144266c96623e5"
+    },
+    {
+      "path": "links.json",
+      "sha256": "65d1f30574ffa75e5dcc69324798f0d623995b2be302e21fee53a4ccf075e120"
+    },
+    {
+      "path": "plumbline.lock.json",
+      "sha256": "0ef406d7e01cc989ff8b73feeac50141094e974d86cf32fa13a4802e14195f6f"
+    },
+    {
+      "path": "plumbline_desk.network.json",
+      "sha256": "872a92ccc1b249d804eb51365dc33f66250e16517b1180db5748689fe77ec25a"
+    },
+    {
+      "path": "site-actions.js",
+      "sha256": "e86d0a9ec3ce38ee71bb38114b46e92578d6e2b5331d45b6c282b4cf0554c349"
+    }
+  ],
+  "sig": "Bzha11on-qHO-SpJCyEZv0e84Um1RTK15nqukRergMrGlI3ySbEjle0I_jUpOlwKglQRo_6wmJue_H58848sCQ"
+}
