@@ -1,8 +1,10 @@
 # Plumbline watch: a daily check for three drifts (grounding, runtime, peer) against plumbline.lock.json.
 # Copy this file to .github/workflows/plumbline-watch.yml in the site's repository.
 # Needs plumbline.lock.json committed first: in a clone of xkazm04/plumbline at the pinned commit, run
-# `npm ci && node dist/cli/index.js watch --root <your site> --init`, then sign the site, and commit both.
-# It only reads the repository and opens or updates ONE issue titled "Plumbline drift"; it never pushes or opens a PR.
+# `npm ci && node dist/cli/index.js watch --root <your site> --init`, then sign the site (the lock is a signed file),
+# and commit both. After you review a drift you accept: `watch --root <your site> --relock`, sign again, commit both.
+# It only reads the repository and keeps ONE issue titled "Plumbline drift": opened or updated on warn or block
+# findings, closed with a comment on the next clean run. It never pushes or opens a PR.
 name: Plumbline watch
 
 on:
@@ -40,55 +42,30 @@ jobs:
           command: watch
           root: "."
 
-      - name: Build the issue body
-        id: issue
-        shell: bash
-        env:
-          REPORT: ${{ steps.watch.outputs.report }}
-        run: |
-          report="$REPORT"
-          node - "$report" "$RUNNER_TEMP/plumbline-issue.md" >> "$GITHUB_OUTPUT" <<'JS'
-          const fs = require("node:fs");
-          const [report, out] = process.argv.slice(2);
-          const findings = JSON.parse(fs.readFileSync(report, "utf8")).findings.filter(
-            (f) => f.severity === "warn" || f.severity === "block",
-          );
-          const cell = (text) => String(text ?? "").replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ");
-          const rows = findings.map(
-            (f) => `| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`,
-          );
-          const noLock = findings.some((f) => f.summary === "no lock");
-          const body = [
-            "Plumbline watch found drift since `plumbline.lock.json` was written.",
-            "",
-            "| Severity | Kind | Ref | What |",
-            "| --- | --- | --- | --- |",
-            ...rows,
-            "",
-            noLock
-              ? "There is no lock yet. In a clone of xkazm04/plumbline at the pinned commit run `npm ci && node dist/cli/index.js watch --root <your site> --init`, review the lock, sign the site again and commit both."
-              : "`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. " +
-                "After reviewing a change you accept, update the lock, sign the site again if it is signed, and close this issue.",
-            "",
-            "A clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.",
-          ].join("\n");
-          fs.writeFileSync(out, body + "\n");
-          console.log(`has_findings=${findings.length > 0}`);
-          JS
-
-      - name: Open or update the drift issue
-        if: steps.issue.outputs.has_findings == 'true'
+      # The Action read the report once: `findings` counts warn and block, `issue-body` is the issue text for them.
+      - name: Open, update or close the drift issue
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          FINDINGS: ${{ steps.watch.outputs.findings }}
+          BODY: ${{ steps.watch.outputs.issue-body }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          body="$RUNNER_TEMP/plumbline-issue.md"
-          # One open issue only: edit it if it exists, create it if it does not.
+          # A count that is not a number means the Action did not read a report: never take that for clean.
+          case "$FINDINGS" in ''|*[!0-9]*) echo "::error::the Action gave no findings count"; exit 1 ;; esac
+          # One open issue only: edit it if it exists, create it if it does not, close it when the watch is clean.
           number=$(gh issue list --state open --search '"Plumbline drift" in:title' --json number,title --jq '[.[] | select(.title == "Plumbline drift")][0].number // empty')
-          if [ -n "$number" ]; then
-            gh issue edit "$number" --body-file "$body"
-            echo "Updated issue #$number"
+          if [ "$FINDINGS" != "0" ]; then
+            if [ -n "$number" ]; then
+              gh issue edit "$number" --body-file "$BODY"
+              echo "Updated issue #$number"
+            else
+              gh issue create --title "Plumbline drift" --body-file "$BODY"
+            fi
+          elif [ -n "$number" ]; then
+            gh issue close "$number" --comment "Plumbline watch is clean as of $RUN_URL: the locked files, peers and runtime match plumbline.lock.json. Closing. (Clean is not safe: it means nothing locked has drifted.)"
+            echo "Closed issue #$number"
           else
-            gh issue create --title "Plumbline drift" --body-file "$body"
+            echo "Clean, and no open drift issue."
           fi

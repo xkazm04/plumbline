@@ -34,6 +34,9 @@ outputs:
   findings:
     description: For `watch`, how many findings of severity warn or block the report holds.
     value: ${{ steps.run.outputs.findings }}
+  issue-body:
+    description: For `watch`, path to a Markdown file with the drift issue's body (warn and block findings, and what to do about them).
+    value: ${{ steps.run.outputs.issue-body }}
 
 runs:
   using: composite
@@ -76,12 +79,8 @@ runs:
             code=$?
             set -e
             cat "$report"
-            state=$(node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(String(r.state));' "$report" 2>/dev/null || echo unknown)
-            echo "state=$state" >> "$GITHUB_OUTPUT"
-            {
-              echo "### Plumbline gate: $state"
-              node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); for (const f of r.findings) console.log("- **" + f.adapter + "**: " + f.state + ". " + f.summary);' "$report" 2>/dev/null || true
-            } >> "$GITHUB_STEP_SUMMARY"
+            # One read of the report: the state output and the job summary (state=unknown when it cannot be read).
+            node "$GITHUB_ACTION_PATH/report.mjs" gate "$report"
             exit "$code"
             ;;
           watch)
@@ -92,8 +91,9 @@ runs:
             set -e
             cat "$report"
             if [ "$code" -gt 1 ]; then echo "::error::plumbline watch failed with exit code $code"; exit "$code"; fi
-            findings=$(node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(String(r.findings.filter((f) => f.severity === "warn" || f.severity === "block").length));' "$report")
-            echo "findings=$findings" >> "$GITHUB_OUTPUT"
+            # One read of the report: the warn-or-block count and the drift issue's body. A report it cannot read
+            # fails the step (exit 2), so a broken run is never taken for a clean one.
+            node "$GITHUB_ACTION_PATH/report.mjs" watch "$report" "$RUNNER_TEMP/plumbline-issue.md"
             ;;
           *) echo "::error::command must be gate or watch"; exit 2 ;;
         esac

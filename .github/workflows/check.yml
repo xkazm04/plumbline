@@ -26,4 +26,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run check:wire
+      # The Action's report reader and the watch workflows' issue handling: plain node --test, no build, no npm.
+      - run: node --test "action/*.test.mjs"
       - run: npm run test:site

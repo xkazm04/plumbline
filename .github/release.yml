@@ -1,0 +1,27 @@
+# Categories for GitHub's generated release notes. Security fixes come first, because the release list is how Action
+# adopters hear about them (SECURITY.md, action/README.md). Generated notes list merged pull requests by label; work
+# committed straight to master is not in them, so each release's notes are also written by hand from its commits, and a
+# security fix is always named there, with the versions it affects.
+changelog:
+  exclude:
+    labels:
+      - skip-release-notes
+  categories:
+    - title: Security fixes
+      labels:
+        - security
+    - title: Breaking changes
+      labels:
+        - breaking
+    - title: Fixes
+      labels:
+        - bug
+    - title: Features
+      labels:
+        - enhancement
+    - title: Documentation
+      labels:
+        - documentation
+    - title: Other changes
+      labels:
+        - "*"
