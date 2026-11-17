@@ -9,3 +9,4 @@ plumbline.private.*
 .ai/lens-scan/
 .ai/*.local.*
 .build-*/
+site/lib/

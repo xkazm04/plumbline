@@ -5,7 +5,7 @@
 // a network address ("site address plus network name", no extension), the address of an agent-manifest.json, or the
 // address of a `<name>.network.json`. The manifest's `networks[].hocon` is authoritative for where a network's JSON is.
 
-import type { SafeFetchOptions, SafeFetchResponse } from "./safe-fetch.js";
+import type { SafeFetchOptions, SafeFetchResponse } from "./fetch-types.js";
 
 export type Fetcher = (url: string, options?: SafeFetchOptions) => Promise<SafeFetchResponse>;
 

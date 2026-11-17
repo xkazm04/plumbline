@@ -3,7 +3,7 @@
 
 import type { GateFinding, GateState } from "../core/types.js";
 import { locateTarget, type Fetcher, type Located } from "../net/locate.js";
-import { SafeFetchError, type SafeFetchOptions } from "../net/safe-fetch.js";
+import { SafeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
 
 export const ATLAS_BASE = "https://agent-atlas-phi.vercel.app";
 export const CUSTOMS_BASE = "https://montbaga.github.io/agent-customs/";

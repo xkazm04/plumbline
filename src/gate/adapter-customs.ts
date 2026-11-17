@@ -19,6 +19,7 @@
 // that changed since is not detected here; the watch's peer and grounding detectors cover change over time.
 
 import type { GateFinding, GateState } from "../core/types.js";
+import { base64UrlToBytes, bytesToBase64Url } from "../core/index.js";
 import { canonicalJson, sha256Hex } from "../net/canonical.js";
 import { describeFetchError, finding, worst, type Adapter, type GateContext, type PinnedCustomsKey } from "./context.js";
 
@@ -31,19 +32,21 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 
 const subtle = (): SubtleCrypto => globalThis.crypto.subtle;
 
-function toBase64Url(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("base64url");
-}
+// Browser-safe: core's base64url helpers, no Node Buffer (the Desk runs this adapter in a browser).
+const toBase64Url = (bytes: Uint8Array): string => bytesToBase64Url(bytes);
+const fromBase64Url = (text: string): Uint8Array => base64UrlToBytes(text);
 
-function fromBase64Url(text: string): Uint8Array {
-  return new Uint8Array(Buffer.from(text, "base64url"));
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
 }
 
 /** Customs' key id: the first 12 bytes of SHA-256 of canonicalJson({crv,kty,x,y}), base64url (receipts.js keyIdOf). */
 export async function customsKeyId(jwk: { crv: string; kty: string; x: string; y: string }): Promise<string> {
   const { crv, kty, x, y } = jwk;
   const digest = await sha256Hex(canonicalJson({ crv, kty, x, y }));
-  return toBase64Url(Buffer.from(digest, "hex").subarray(0, 12));
+  return toBase64Url(hexToBytes(digest).subarray(0, 12));
 }
 
 /** receipts.js receiptPath: https://shop.example/agents/bakery becomes shop.example/agents/bakery.json. */
