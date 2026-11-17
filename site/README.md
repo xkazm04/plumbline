@@ -216,7 +216,7 @@ own card.
 | Path | What |
 | --- | --- |
 | `index.html` | the page: structure only (the overview, one section per view, the assistant panel), and the Content-Security-Policy; every visible string is in `strings.js` |
-| `_headers` | response headers for hosts that read it: `frame-ancestors` and the sandbox worker's policy |
+| `_headers` | response headers for hosts that read it: `frame-ancestors`, the sandbox worker's policy, and cross-origin reads (`Access-Control-Allow-Origin: *`, no credentials) on the public agent artifacts |
 | `strings.js` | every visible string |
 | `fix.css` | the page's look: "The Fix" (contest B/3), ported from the winner's stylesheet |
 | `assistant.css` | the assistant panel, the skill's assistant CSS (`--ns-*` colours) and the confirmation dialog |

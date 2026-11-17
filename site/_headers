@@ -14,3 +14,20 @@
 # runtime asks for (runtime/sandbox-worker.js); without it the worker refuses to run any peer's coded tool.
 /runtime/sandbox-worker.js
   Content-Security-Policy: default-src 'none'; script-src blob:; connect-src 'none'; worker-src 'none'
+
+# The spec requires public agent artifacts to allow cross-origin reads, without credentials: other agentic sites load
+# this Desk's network in their visitors' browsers, and verifiers read its signature, key and lock from other origins.
+/agent-manifest.json
+  Access-Control-Allow-Origin: *
+/agent-mcp.json
+  Access-Control-Allow-Origin: *
+/plumbline_desk.network.json
+  Access-Control-Allow-Origin: *
+/links.json
+  Access-Control-Allow-Origin: *
+/plumbline.signature.json
+  Access-Control-Allow-Origin: *
+/plumbline.lock.json
+  Access-Control-Allow-Origin: *
+/.well-known/*
+  Access-Control-Allow-Origin: *
