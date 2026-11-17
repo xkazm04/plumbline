@@ -1,6 +1,6 @@
 # Plumbline watch: a daily check for three drifts (grounding, runtime, peer) against plumbline.lock.json.
 # Copy this file to .github/workflows/plumbline-watch.yml in the site's repository.
-# Needs plumbline.lock.json committed first: run `npx plumbline watch --init` once and commit the lock.
+# Needs plumbline.lock.json committed first: run `npx plumbline@0.1.0 watch --init` once and commit the lock.
 # It only reads the repository and opens or updates ONE issue titled "Plumbline drift"; it never pushes or opens a PR.
 name: Plumbline watch
 
@@ -34,11 +34,14 @@ jobs:
       - name: Run plumbline watch
         id: watch
         shell: bash
+        env:
+          # The exact plumbline version this template runs; bump it deliberately, after reading the release.
+          PLUMBLINE_VERSION: 0.1.0
         run: |
           report="$RUNNER_TEMP/plumbline-watch.json"
           # Exit 1 means warn or block findings, which is not a failure of this job; 2 is a real error.
           set +e
-          npx --yes plumbline watch --json > "$report"
+          npx --yes "plumbline@$PLUMBLINE_VERSION" watch --json > "$report"
           code=$?
           set -e
           cat "$report"
@@ -66,7 +69,7 @@ jobs:
             ...rows,
             "",
             noLock
-              ? "There is no lock yet. Run `npx plumbline watch --init`, review the lock and commit it."
+              ? "There is no lock yet. Run `npx plumbline@" + process.env.PLUMBLINE_VERSION + " watch --init`, review the lock and commit it."
               : "`block` means a vendored runtime file or a peer's definition changed: look before the next release. " +
                 "After reviewing a change you accept, update the lock and close this issue.",
             "",

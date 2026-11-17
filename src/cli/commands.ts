@@ -1,4 +1,4 @@
-// The signing commands: keygen, sign, verify, rotate. Exit 0 clean, 1 findings, 2 usage or I/O error.
+// The signing commands: keygen, sign, verify, rotate, revoke. Exit 0 clean, 1 findings, 2 usage or I/O error.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -8,7 +8,6 @@ import {
   PRIVATE_KEY_TYPE,
   keyRecordOf,
   loadSubject,
-  networkFileFor,
   readJsonFile,
   readPrivateKeyFile,
   readTextIfPresent,
@@ -19,13 +18,19 @@ import {
   DEFAULT_LIFETIME_DAYS,
   FORMAT_VERSION,
   KEY_FILE,
+  REVOCATION_FILE,
   ROTATION_FILE,
   SIGNATURE_FILE,
+  applyRevocation,
   generateKey,
+  isAcceptableOrigin,
+  revokeKey,
   rotateKey,
   signSubjects,
+  signedPathsOf,
   verifySignature,
   type PlumblineKey,
+  type PlumblineRevocation,
   type PlumblineSignature,
   type SubjectFile,
   type TrustEntry,
@@ -37,6 +42,11 @@ export type Out = (line: string) => void;
 
 const MANIFEST_FILE = "agent-manifest.json";
 const LINKS_FILE = "links.json";
+
+function isIsoUtc(text: string): boolean {
+  const ms = Date.parse(text);
+  return Number.isFinite(ms) && new Date(ms).toISOString() === text;
+}
 
 export const KEY_CUSTODY_WARNINGS = [
   "Back up the private key file and never commit it: key loss is identity loss, and a leaked key lets anyone sign as you.",
@@ -109,24 +119,18 @@ export async function sign(argv: string[], out: Out): Promise<number> {
 
   const manifest = await loadSubject(root, MANIFEST_FILE, true);
   if (!manifest) throw new CliError(`${MANIFEST_FILE} not found in ${root}`);
-  const files: SubjectFile[] = [manifest];
-  const named = new Set<string>([MANIFEST_FILE]);
-
-  const networks = (manifest.content as { networks?: unknown } | null)?.networks;
-  if (Array.isArray(networks)) {
-    for (const entry of networks) {
-      const hocon = (entry as { hocon?: unknown } | null)?.hocon;
-      if (typeof hocon !== "string") continue;
-      const file = networkFileFor(hocon);
-      if (named.has(file)) continue;
-      const loaded = await loadSubject(root, file, true);
-      if (!loaded) throw new CliError(`network file named by the manifest is missing: ${file}`);
+  const links = await loadSubject(root, LINKS_FILE, true);
+  // Which files are signed is core's signedPathsOf, the one rule the CLI and the Desk share.
+  const files: SubjectFile[] = [];
+  for (const rel of signedPathsOf(manifest.content, links !== undefined)) {
+    if (rel === MANIFEST_FILE) files.push(manifest);
+    else if (rel === LINKS_FILE && links) files.push(links);
+    else {
+      const loaded = await loadSubject(root, rel, true);
+      if (!loaded) throw new CliError(`network file named by the manifest is missing: ${rel}`);
       files.push(loaded);
-      named.add(file);
     }
   }
-  const links = await loadSubject(root, LINKS_FILE, true);
-  if (links) files.push(links);
 
   let signature: PlumblineSignature;
   try {
@@ -153,7 +157,12 @@ export async function sign(argv: string[], out: Out): Promise<number> {
   return 0;
 }
 
-async function readTrustStore(file: string): Promise<TrustStore> {
+/** The CLI's trust store: the entries are kept so a revocation can be applied to them in memory. */
+interface CliTrustStore extends TrustStore {
+  entries: TrustEntry[];
+}
+
+async function readTrustStore(file: string): Promise<CliTrustStore> {
   const value = (await readJsonFile(file, "trust store")) as { version?: unknown; entries?: unknown } | null;
   if (typeof value !== "object" || value === null || value.version !== 1 || !Array.isArray(value.entries)) {
     throw new CliError(`not a Plumbline trust store: ${file}`);
@@ -161,12 +170,72 @@ async function readTrustStore(file: string): Promise<TrustStore> {
   const entries: TrustEntry[] = [];
   for (const raw of value.entries as unknown[]) {
     const e = raw as Record<string, unknown> | null;
-    if (!e || typeof e.kid !== "string" || typeof e.origin !== "string" || typeof e.publicKey !== "string") {
+    if (
+      !e ||
+      typeof e.kid !== "string" ||
+      typeof e.origin !== "string" ||
+      typeof e.publicKey !== "string" ||
+      (e.revokedAt !== undefined && (typeof e.revokedAt !== "string" || !isIsoUtc(e.revokedAt)))
+    ) {
       throw new CliError(`a trust store entry is malformed: ${file}`);
     }
-    entries.push({ kid: e.kid, origin: e.origin, publicKey: e.publicKey });
+    entries.push({
+      kid: e.kid,
+      origin: e.origin,
+      publicKey: e.publicKey,
+      ...(typeof e.revokedAt === "string" ? { revokedAt: e.revokedAt } : {}),
+    });
   }
-  return { find: (kid, origin) => entries.find((e) => e.kid === kid && e.origin === origin) };
+  return { entries, find: (kid, origin) => entries.find((e) => e.kid === kid && e.origin === origin) };
+}
+
+/** What `verify` did with a `plumbline-revocation.json` it found in the site root. */
+interface RevocationReport {
+  file: string;
+  /** True when the revocation verified under a trusted key and that key's entries were marked revoked in memory. */
+  applied: boolean;
+  /** One result per trust entry for the revoked kid; one result when no entry matched or the file was unreadable. */
+  results: VerifyResult[];
+}
+
+/**
+ * Reads `plumbline-revocation.json` from the site root when present and applies it, in memory, to every trust entry
+ * for the revoked kid (a revocation names no origin: the key is dead everywhere). The trust file on disk is never
+ * written. A revocation that does not verify under the trusted key changes nothing.
+ */
+async function applyRevocationFile(root: string, trust: CliTrustStore): Promise<RevocationReport | undefined> {
+  const file = path.join(root, REVOCATION_FILE);
+  const text = await readTextIfPresent(file);
+  if (text === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return {
+      file,
+      applied: false,
+      results: [{ verdict: "invalid", reason: "malformed", detail: "The revocation file is not valid JSON." }],
+    };
+  }
+  const revocation = parsed as PlumblineRevocation;
+  const kid = (parsed as { kid?: unknown } | null)?.kid;
+  const matching = trust.entries.map((e, i) => [e, i] as const).filter(([e]) => e.kid === kid);
+  if (matching.length === 0) {
+    const { entry: _none, ...result } = await applyRevocation(revocation, undefined);
+    void _none;
+    return { file, applied: false, results: [result] };
+  }
+  const results: VerifyResult[] = [];
+  let applied = false;
+  for (const [entry, index] of matching) {
+    const { entry: revoked, ...result } = await applyRevocation(revocation, entry);
+    results.push(result);
+    if (result.verdict === "verified" && revoked) {
+      trust.entries[index] = revoked;
+      applied = true;
+    }
+  }
+  return { file, applied, results };
 }
 
 export function formatResult(result: VerifyResult): string {
@@ -179,9 +248,14 @@ export function formatResult(result: VerifyResult): string {
 }
 
 export async function verify(argv: string[], out: Out): Promise<number> {
-  const args = parseArgs(argv, ["root", "trust", "now"]);
+  const args = parseArgs(argv, ["root", "trust", "now", "origin"]);
   const root = required(args, "root");
+  const expectedOrigin = args.values.get("origin");
+  if (expectedOrigin !== undefined && !isAcceptableOrigin(expectedOrigin)) {
+    throw new CliError("--origin must be an https:// origin with no path and no trailing slash, like https://example.com");
+  }
   const trust = await readTrustStore(required(args, "trust"));
+  const revocation = await applyRevocationFile(root, trust);
   const sigText = await readTextIfPresent(path.join(root, SIGNATURE_FILE));
   if (sigText === undefined) throw new CliError(`${SIGNATURE_FILE} not found in ${root}`);
 
@@ -225,9 +299,20 @@ export async function verify(argv: string[], out: Out): Promise<number> {
     result = await verifySignature(signature as PlumblineSignature, files, trust, {
       ...(now ? { now } : {}),
       ...(publishedKey ? { publishedKey } : {}),
+      ...(expectedOrigin !== undefined ? { expectedOrigin } : {}),
     });
   }
-  emit(args, out, { results: [result] }, [formatResult(result)]);
+  // The verdict line stays last, so a reader of the text output finds it in the same place with or without a revocation.
+  const lines = revocation
+    ? [
+        revocation.applied
+          ? `revocation applied: ${REVOCATION_FILE} revokes a trusted key, so nothing that key signs is accepted`
+          : `revocation not applied: ${REVOCATION_FILE} is present but changes nothing for this trust store`,
+        ...revocation.results.map((r) => `  ${formatResult(r)}`),
+        formatResult(result),
+      ]
+    : [formatResult(result)];
+  emit(args, out, { results: [result], ...(revocation ? { revocation } : {}) }, lines);
   return result.verdict === "verified" ? 0 : 1;
 }
 
@@ -256,6 +341,36 @@ export async function rotate(argv: string[], out: Out): Promise<number> {
     `rotation ${statement.from} -> ${statement.to}`,
     `wrote ${target}`,
     "next: publish the new key record, then run sign with the new key so the site is signed by it.",
+  ]);
+  return 0;
+}
+
+export async function revoke(argv: string[], out: Out): Promise<number> {
+  const args = parseArgs(argv, ["root", "key", "reason", "now"]);
+  const root = required(args, "root");
+  const now = nowFrom(args) ?? new Date();
+  const reason = args.values.get("reason");
+  const privateFile = await readPrivateKeyFile(required(args, "key"));
+  let statement: PlumblineRevocation;
+  try {
+    statement = await revokeKey({
+      privateKey: privateFile.privateKey,
+      key: await keyRecordOf(privateFile, now),
+      now,
+      ...(reason !== undefined ? { reason } : {}),
+    });
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    throw new CliError(`cannot revoke: ${(error as Error).message}`);
+  }
+  const target = path.join(root, REVOCATION_FILE);
+  await mkdir(root, { recursive: true });
+  await writeFile(target, JSON.stringify(statement, null, 2) + "\n", "utf8");
+  emit(args, out, { kid: statement.kid, revokedAt: statement.revokedAt, revocationFile: target }, [
+    `revoked ${statement.kid} at ${statement.revokedAt}`,
+    `wrote ${target}`,
+    "next: publish it at the site base, make a NEW key with keygen, re-sign the site with it, and re-establish trust " +
+      "with your verifiers through the first-contact ceremony. Never rotate from the revoked key: verifiers refuse it.",
   ]);
   return 0;
 }

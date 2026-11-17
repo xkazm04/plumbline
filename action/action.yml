@@ -11,9 +11,13 @@ inputs:
     required: false
     default: validator,atlas,customs
   fail-on:
-    description: "`fail` fails the step only when the gate state is fail. `unavailable` also fails it when an adapter could not be reached."
+    description: "`fail` fails the step when the gate state is fail, or when EVERY adapter was unavailable (nothing was checked). `unavailable` also fails it when any adapter could not be reached."
     required: false
     default: fail
+  plumbline-version:
+    description: The exact plumbline package version to run. Pinning this action by commit SHA pins this default too, so the code that runs is pinned, not whatever npm serves today. A test holds the default equal to package.json's version.
+    required: false
+    default: 0.1.0
 
 outputs:
   state:
@@ -34,16 +38,22 @@ runs:
         PLUMBLINE_TARGET: ${{ inputs.target }}
         PLUMBLINE_ADAPTERS: ${{ inputs.adapters }}
         PLUMBLINE_FAIL_ON: ${{ inputs.fail-on }}
+        PLUMBLINE_VERSION: ${{ inputs.plumbline-version }}
       run: |
         case "$PLUMBLINE_FAIL_ON" in
           fail|unavailable) ;;
           *) echo "::error::fail-on must be fail or unavailable"; exit 2 ;;
         esac
+        # An exact version only (no range, tag or URL), so the package that runs is the one named.
+        if ! printf '%s' "$PLUMBLINE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+          echo "::error::plumbline-version must be an exact version such as 0.1.0"; exit 2
+        fi
         report="$RUNNER_TEMP/plumbline-gate.json"
         # GitHub runs this with -e; the exit code is needed, so errexit is off for the one command.
-        # It is read straight from the command, not through a pipe: 0 passed by fail-on, 1 failed by it, 2 usage.
+        # It is read straight from the command, not through a pipe: 0 passed by fail-on, 1 failed by it (or nothing was
+        # checked), 2 usage. The gate never gets --allow-local here: CI checks public https sites only.
         set +e
-        npx --yes plumbline gate "$PLUMBLINE_TARGET" --adapters "$PLUMBLINE_ADAPTERS" --fail-on "$PLUMBLINE_FAIL_ON" --json > "$report"
+        npx --yes "plumbline@$PLUMBLINE_VERSION" gate "$PLUMBLINE_TARGET" --adapters "$PLUMBLINE_ADAPTERS" --fail-on "$PLUMBLINE_FAIL_ON" --json > "$report"
         code=$?
         cat "$report"
         state=$(node -e 'const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(String(r.state));' "$report" 2>/dev/null || echo unknown)

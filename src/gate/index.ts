@@ -16,7 +16,7 @@ export { ALL_ADAPTERS, type GateOptions } from "./run.js";
 /** Injection points for tests and for pointing the gate at a different Atlas or Customs host. Production passes none. */
 export interface GateDeps {
   fetch?: Fetcher;
-  /** Merged into every safeFetch call (tests pass `allowInsecureLoopbackForTests` here). */
+  /** Merged into every safeFetch call (tests and `gate --allow-local` pass `allowLocal` here). */
   fetchOptions?: SafeFetchOptions;
   now?: () => Date;
   atlasBase?: string;

@@ -1,19 +1,20 @@
 #!/usr/bin/env node
-// plumbline keygen|sign|verify|rotate|gate|watch|init
+// plumbline keygen|sign|verify|rotate|revoke|gate|watch|init
 // Exit 0 clean, 1 findings, 2 usage or I/O error. Signing commands in commands.ts; gate and watch in their own command modules; init is not built yet.
 
 import { CliError } from "./args.js";
-import { keygen, rotate, sign, verify, type Out } from "./commands.js";
+import { keygen, revoke, rotate, sign, verify, type Out } from "./commands.js";
 import { runGateCommand } from "./gate-command.js";
 import { runWatchCommand } from "./watch-command.js";
 
-const COMMANDS = ["keygen", "sign", "verify", "rotate", "gate", "watch", "init"] as const;
+const COMMANDS = ["keygen", "sign", "verify", "rotate", "revoke", "gate", "watch", "init"] as const;
 
 const SIGNING: Record<string, (argv: string[], out: Out) => Promise<number>> = {
   keygen,
   sign,
   verify,
   rotate,
+  revoke,
   gate: (argv) => runGateCommand(argv),
   watch: (argv) => runWatchCommand(argv),
 };

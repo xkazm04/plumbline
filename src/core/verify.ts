@@ -20,6 +20,12 @@ export interface VerifyOptions {
   now?: Date;
   /** The key record fetched beside the signature. Used only to say "the math holds but the signer is unknown". */
   publishedKey?: PlumblineKey;
+  /**
+   * The origin the files were actually fetched from (or are being checked as). When given and the signature's `origin`
+   * differs, a result that is not already `invalid` becomes `unverifiable`: the files may be genuine, but they are not
+   * attested for this origin. Absent, the signature's own `origin` is used and nothing changes.
+   */
+  expectedOrigin?: string;
 }
 
 /** How far in the future a `signedAt` may sit before it is called malformed (clock skew allowance). */
@@ -102,12 +108,40 @@ export async function resolveTrusted(
   return { poisoned: true };
 }
 
+/** The `invalid` / `revoked` result for anything signed by a key whose trust entry carries `revokedAt`. */
+export function revokedResult(what: string, kid: string, origin: string): VerifyResult {
+  return invalid(
+    "revoked",
+    `The key that made this ${what} has been revoked by its holder, so nothing it signs is accepted, whatever the dates.`,
+    kid,
+    origin,
+  );
+}
+
 /** `verified` needs the signer in the trust store; an unknown signer is `unverifiable`, whatever the math says. */
 export async function verifySignature(
   signature: PlumblineSignature,
   files: SubjectFile[],
   trust: TrustStore,
   options: VerifyOptions = {},
+): Promise<VerifyResult> {
+  const result = await verifyAgainstTrust(signature, files, trust, options);
+  const expected = options.expectedOrigin;
+  if (expected === undefined || result.verdict === "invalid" || signature.origin === expected) return result;
+  // An invalid result stays invalid (tampering is tampering wherever it is served). Anything else is not attested here.
+  return {
+    verdict: "unverifiable",
+    kid: signature.kid,
+    origin: signature.origin,
+    detail: "The files may be genuine but are not attested for the origin they were checked as: the signature names a different origin (see the result's origin field).",
+  };
+}
+
+async function verifyAgainstTrust(
+  signature: PlumblineSignature,
+  files: SubjectFile[],
+  trust: TrustStore,
+  options: VerifyOptions,
 ): Promise<VerifyResult> {
   // 1. shape
   const problem = shapeProblem(signature);
@@ -130,6 +164,8 @@ export async function verifySignature(
       origin,
     );
   }
+  // 2b. a revoked key is dead for everything; its holder (or a thief) can backdate signedAt, so dates do not matter
+  if (trusted && trusted.entry.revokedAt !== undefined) return revokedResult("signature", kid, origin);
 
   // 3. every signed path is present and its digest matches; unsigned files are ignored
   const byPath = new Map<string, SubjectFile>();

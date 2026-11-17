@@ -1,8 +1,9 @@
 // safeFetch: the ONE function through which Plumbline fetches an address it does not own.
 //
 // Rules, each enforced before or while connecting (docs/gate-and-watch.md lists them for readers):
-//   1. https only. http is accepted solely for the loopback test server, behind the explicit
-//      `allowInsecureLoopbackForTests` option, which defaults to false.
+//   1. https only. http and loopback addresses are accepted solely behind the explicit `allowLocal` option, which
+//      defaults to false: the loopback test server, and `plumbline gate --allow-local` for a site on this machine.
+//      Even then every private range stays refused (rule 2), and http to a public address is still refused.
 //   2. The hostname is resolved here, with node:dns, and EVERY resolved address must be public. Private,
 //      loopback, link-local, multicast, unique-local, documentation and reserved ranges are refused, in v4 and v6,
 //      including v4-mapped, v4-compatible, NAT64 and 6to4 v6 forms that carry a v4 address inside.
@@ -118,7 +119,7 @@ function isBlockedIPv6(b: number[], allowLoopback: boolean): boolean {
 
 /**
  * True when connecting to this literal address must be refused. An unparseable address is refused too: when in
- * doubt the answer is no. `allowLoopback` exists for the test server only.
+ * doubt the answer is no. `allowLoopback` (safeFetch's `allowLocal`) lets loopback through and nothing else.
  */
 export function isBlockedAddress(address: string, allowLoopback = false): boolean {
   const bare = address.startsWith("[") && address.endsWith("]") ? address.slice(1, -1) : address;
@@ -160,7 +161,7 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBytes = Math.min(options.maxBytes ?? MAX_BODY_BYTES, MAX_BODY_BYTES);
   const maxRedirects = Math.min(options.maxRedirects ?? MAX_REDIRECTS, MAX_REDIRECTS);
-  const testMode = options.allowInsecureLoopbackForTests === true;
+  const allowLocal = options.allowLocal === true;
   const resolver = options.resolver ?? defaultResolver;
 
   const abort = new AbortController();
@@ -176,7 +177,7 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
     if (target.protocol !== "https:" && target.protocol !== "http:") {
       throw new SafeFetchError("insecure-scheme", `refused scheme ${target.protocol}`);
     }
-    if (target.protocol === "http:" && !testMode) throw new SafeFetchError("insecure-scheme", "refused http: only https is fetched");
+    if (target.protocol === "http:" && !allowLocal) throw new SafeFetchError("insecure-scheme", "refused http: only https is fetched");
     const host = target.hostname.startsWith("[") ? target.hostname.slice(1, -1) : target.hostname;
     if (host === "") throw new SafeFetchError("bad-url", "no host");
 
@@ -193,7 +194,7 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
     }
     if (addresses.length === 0) throw new SafeFetchError("dns-failed", `${host} resolved to no address`);
     for (const a of addresses) {
-      if (isBlockedAddress(a.address, testMode)) {
+      if (isBlockedAddress(a.address, allowLocal)) {
         throw new SafeFetchError("blocked-address", `refused ${host}: it resolves to a non-public address`);
       }
     }

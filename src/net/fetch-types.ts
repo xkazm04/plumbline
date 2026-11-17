@@ -54,8 +54,12 @@ export interface SafeFetchOptions {
   maxBytes?: number;
   /** Redirects to follow; clamped to MAX_REDIRECTS. */
   maxRedirects?: number;
-  /** TESTS ONLY: accept http and loopback addresses. Private ranges stay refused. Defaults to false. */
-  allowInsecureLoopbackForTests?: boolean;
+  /**
+   * Accept http and loopback addresses (127/8, ::1 and their mapped forms). Every private range (10/8, 172.16/12,
+   * 192.168/16, 169.254/16, fc00::/7 and the rest) stays refused, and http to a public address stays refused. Defaults
+   * to false. Set by tests and by `plumbline gate --allow-local`; never by the Action.
+   */
+  allowLocal?: boolean;
   /** Replaces DNS resolution (tests inject one; production uses node:dns). */
   resolver?: (hostname: string) => Promise<ResolvedAddress[]>;
 }

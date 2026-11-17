@@ -40,6 +40,7 @@ function trustFile(dir: string, keyRecordPath: string, origin = ORIGIN): string 
   const key = JSON.parse(readFileSync(keyRecordPath, "utf8")) as PlumblineKey;
   const entry: TrustEntry = { kid: key.kid, origin, publicKey: key.publicKey };
   const file = path.join(dir, "plumbline.trust.json");
+  mkdirSync(dir, { recursive: true });
   writeFileSync(file, JSON.stringify({ version: 1, entries: [entry] }));
   return file;
 }
@@ -226,4 +227,83 @@ test("--json on an error prints a JSON error object and exits 2", () => {
   const r = run("keygen", "--json");
   assert.equal(r.code, 2);
   assert.match(JSON.parse(r.out).error, /missing --out/);
+});
+
+test("revoke writes plumbline-revocation.json; verify applies it in memory and refuses the revoked key's signature", () => {
+  const keyDir = path.join(tmp, "keys-revoke");
+  const site = path.join(tmp, "site-revoke");
+  writeSite(site);
+  assert.equal(run("keygen", "--out", keyDir).code, 0);
+  const key = path.join(keyDir, "plumbline.private.json");
+  assert.equal(run("sign", "--root", site, "--key", key, "--origin", ORIGIN).code, 0);
+  const trust = trustFile(site + "-trust", path.join(keyDir, ".well-known", "plumbline-key.json"));
+  assert.equal(run("verify", "--root", site, "--trust", trust).code, 0);
+  const trustBefore = readFileSync(trust, "utf8");
+
+  const revoked = run("revoke", "--root", site, "--key", key, "--reason", "key leaked", "--now", "2026-11-18T12:00:00.000Z");
+  assert.equal(revoked.code, 0, revoked.err);
+  assert.match(revoked.out, /first-contact/);
+  const statement = JSON.parse(readFileSync(path.join(site, "plumbline-revocation.json"), "utf8"));
+  assert.deepEqual(Object.keys(statement).sort(), ["alg", "kid", "reason", "revokedAt", "sig", "type", "version"]);
+  assert.equal(statement.revokedAt, "2026-11-18T12:00:00.000Z");
+
+  const after = run("verify", "--root", site, "--trust", trust);
+  assert.equal(after.code, 1);
+  assert.match(after.out, /^revocation applied/m);
+  assert.match(after.out, /^invalid revoked/m);
+  const asJson = JSON.parse(run("verify", "--root", site, "--trust", trust, "--json").out);
+  assert.deepEqual([asJson.results[0].verdict, asJson.results[0].reason], ["invalid", "revoked"]);
+  assert.equal(asJson.revocation.applied, true);
+  assert.equal(asJson.revocation.results[0].verdict, "verified");
+  assert.equal(readFileSync(trust, "utf8"), trustBefore, "the trust file on disk is never written");
+});
+
+test("verify refuses a revocation file signed by another key and verifies as before, saying so", () => {
+  const keyDir = path.join(tmp, "keys-revoke-forged");
+  const thiefDir = path.join(tmp, "keys-revoke-thief");
+  const site = path.join(tmp, "site-revoke-forged");
+  writeSite(site);
+  assert.equal(run("keygen", "--out", keyDir).code, 0);
+  assert.equal(run("keygen", "--out", thiefDir).code, 0);
+  const key = path.join(keyDir, "plumbline.private.json");
+  assert.equal(run("sign", "--root", site, "--key", key, "--origin", ORIGIN).code, 0);
+  const trust = trustFile(site + "-trust", path.join(keyDir, ".well-known", "plumbline-key.json"));
+  // the thief revokes their own key, then relabels the statement with the publisher's kid
+  assert.equal(run("revoke", "--root", site, "--key", path.join(thiefDir, "plumbline.private.json")).code, 0);
+  const file = path.join(site, "plumbline-revocation.json");
+  const forged = JSON.parse(readFileSync(file, "utf8"));
+  forged.kid = JSON.parse(readFileSync(path.join(keyDir, ".well-known", "plumbline-key.json"), "utf8")).kid;
+  writeFileSync(file, JSON.stringify(forged));
+
+  const result = run("verify", "--root", site, "--trust", trust, "--json");
+  assert.equal(result.code, 0, result.out);
+  const parsed = JSON.parse(result.out);
+  assert.equal(parsed.results[0].verdict, "verified");
+  assert.equal(parsed.revocation.applied, false);
+  assert.equal(parsed.revocation.results[0].reason, "bad-signature");
+
+  writeFileSync(file, "{ not json");
+  const garbled = run("verify", "--root", site, "--trust", trust);
+  assert.equal(garbled.code, 0);
+  assert.match(garbled.out, /^revocation not applied/m);
+  assert.equal(run("revoke", "--root", site).code, 2, "revoke needs --key");
+});
+
+test("verify --origin: a signature for another origin is unverifiable (exit 1); the same origin, or no flag, is unchanged", () => {
+  const keyDir = path.join(tmp, "keys-origin");
+  const site = path.join(tmp, "site-origin");
+  writeSite(site);
+  assert.equal(run("keygen", "--out", keyDir).code, 0);
+  assert.equal(run("sign", "--root", site, "--key", path.join(keyDir, "plumbline.private.json"), "--origin", ORIGIN).code, 0);
+  const trust = trustFile(site + "-trust", path.join(keyDir, ".well-known", "plumbline-key.json"));
+
+  assert.equal(run("verify", "--root", site, "--trust", trust).code, 0, "without --origin nothing changes");
+  assert.equal(run("verify", "--root", site, "--trust", trust, "--origin", ORIGIN).code, 0);
+  const elsewhere = run("verify", "--root", site, "--trust", trust, "--origin", "https://mirror.example");
+  assert.equal(elsewhere.code, 1);
+  assert.match(elsewhere.out, /^unverifiable/m);
+  assert.match(elsewhere.out, /not attested for the origin they were checked as/);
+  const bad = run("verify", "--root", site, "--trust", trust, "--origin", "https://mirror.example/path");
+  assert.equal(bad.code, 2);
+  assert.match(bad.err, /--origin must be/);
 });

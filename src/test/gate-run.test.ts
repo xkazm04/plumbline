@@ -100,7 +100,7 @@ test("gate: end to end through the real safeFetch against a loopback test server
   try {
     const report = await runGate(
       { target: `${site.url}/`, adapters: ["validator", "atlas"], timeoutMs: 3000 },
-      { atlasBase: site.url, fetchOptions: { allowInsecureLoopbackForTests: true } },
+      { atlasBase: site.url, fetchOptions: { allowLocal: true } },
     );
     assert.deepEqual(report.findings.map((f) => [f.adapter, f.state]), [["validator", "pass"], ["atlas", "pass"]]);
     // Without the test option the same gate reaches nothing.

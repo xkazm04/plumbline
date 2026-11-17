@@ -2,7 +2,7 @@
 
 import { canonicalJson } from "./canonical.js";
 import { keyId, keyIdOfPrivate, signText, verifyText } from "./keys.js";
-import { KID_PATTERN, isBase64Url, isIsoUtc, resolveTrusted } from "./verify.js";
+import { KID_PATTERN, isBase64Url, isIsoUtc, resolveTrusted, revokedResult } from "./verify.js";
 import {
   FORMAT_VERSION,
   ROTATION_TYPE,
@@ -86,6 +86,8 @@ export async function verifyRotation(
       origin,
     );
   }
+  // A rotation from a revoked key is never honoured: whoever holds a leaked key could otherwise name their own successor.
+  if (trusted && trusted.entry.revokedAt !== undefined) return revokedResult("rotation", from, origin);
 
   let derivedTo: string | undefined;
   try {

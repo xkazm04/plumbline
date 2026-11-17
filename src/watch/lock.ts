@@ -10,7 +10,7 @@ import type { SafeFetchOptions } from "../net/safe-fetch.js";
 /** Injection points for tests; production passes none. */
 export interface WatchDeps {
   fetch?: Fetcher;
-  /** Merged into every safeFetch call (tests pass `allowInsecureLoopbackForTests` here). */
+  /** Merged into every safeFetch call (tests pass `allowLocal` here). */
   fetchOptions?: SafeFetchOptions;
   now?: () => Date;
   /** `init` only: extra grounding sources to lock, as paths under the root or https URLs. */

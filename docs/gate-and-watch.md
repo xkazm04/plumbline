@@ -7,11 +7,24 @@ Everything here was checked against the live services on 2026-11-17; the recorde
 
 ## The gate
 
-`plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--json]`.
+`plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--allow-local] [--json]`.
 The target is a site address, a network address (site address plus network name), the address of an `agent-manifest.json`, or
 the address of a `<name>.network.json`. The report state is the worst finding: `fail`, then `unavailable`, then `pass`. Asking
 for no adapters is `unavailable`, not `pass`. Adapters run independently, each with its own deadline (five times the per-fetch
-timeout); one failing, hanging or throwing never hides the others. Exit code: 0 passed by `--fail-on`, 1 failed by it, 2 usage.
+timeout); one failing, hanging or throwing never hides the others.
+
+Exit code: 0 passed by `--fail-on`, 1 failed by it, 2 usage. One rule sits above `--fail-on`: when **every** adapter is
+`unavailable`, nothing was checked, and the gate exits 1 whatever `--fail-on` says, with the line
+`plumbline gate: nothing was checked: every adapter was unavailable, so this is not a pass` on stderr (so `--json` output
+stays one JSON document). Otherwise `--fail-on fail` fails only on a `fail`, so a run where some adapters were
+`unavailable` and the rest passed exits 0, and `--fail-on unavailable` fails on any `unavailable` too. Earlier builds exited 0
+for an all-unavailable run under `--fail-on fail`; bp's adoption review recorded that as a deviation from "unavailable is
+never pass", and this rule closes it.
+
+`--allow-local` lets the gate check a site on this machine: it allows `http` and loopback addresses (`127/8`, `::1`) for
+this run, and prints a one-line warning to stderr. It still refuses every private range (`10/8`, `172.16/12`,
+`192.168/16`, `169.254/16`, `fc00::/7` and the rest of rule 2 below) and `http` to a public address. The Action never
+passes it.
 
 ### `validator`: a port, not the reference validator
 
@@ -91,7 +104,9 @@ lock and returned as a finding, so a lock with a gap is never mistaken for a com
 
 Every fetch of an address we do not own goes through this one function. Its rules:
 
-1. **https only.** `http` is accepted for the loopback test server alone, behind `allowInsecureLoopbackForTests`, which defaults to false.
+1. **https only.** `http` and loopback addresses are accepted only behind the `allowLocal` option, which defaults to false:
+   the tests' loopback server and `plumbline gate --allow-local` set it. Private ranges stay refused even then, and so
+   does `http` to a public address.
 2. **Resolve, then check every answer**, with `node:dns`, before connecting. Refused: `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`,
    `169.254/16` (cloud metadata), `172.16/12`, `192.0.0/24`, `192.0.2/24`, `192.168/16`, `198.18/15`, `198.51.100/24`, `203.0.113/24`,
    multicast and reserved `224/3`; in v6 `::`, `::1`, `fc00::/7`, `fe80::/10`, `fec0::/10`, `ff00::/8`, `2001:db8::/32`, Teredo, and the
@@ -110,7 +125,7 @@ Failures carry their own code: `blocked-address`, `insecure-scheme`, `dns-failed
 ## What a clean report does NOT mean
 
 - **A gate `pass` is not a security review.** The validator port checks structure, not what the instructions say. Atlas checks public files against a spec profile ("not that a site's agents are safe to trust"). A Customs receipt is a stamp on one inspection on one date; the live network was not rechecked.
-- **`unavailable` is not `pass`.** Fail the build on it (`--fail-on unavailable`) if an unchecked site must not ship.
+- **`unavailable` is not `pass`.** A gate where every adapter was `unavailable` exits 1 under either `--fail-on`. Fail the build on any `unavailable` (`--fail-on unavailable`) if a partly checked site must not ship.
 - **A clean watch means the locked things match the lock.** It does not cover anything not in the lock: a new grounding file, a new peer, a runtime file added next to the locked ones. Re-run `--init` into a fresh lock and diff it to find those.
 - **It does not verify signatures.** The peer check compares signer kids; the signature itself is verified by the verifier in `src/core` against a trust store.
 - **It sees only public files and only what the fetch could reach.** A peer that serves different bytes to different visitors, or only to browsers, is not seen. A peer on a private address is never contacted.
@@ -119,6 +134,6 @@ Failures carry their own code: `blocked-address`, `insecure-scheme`, `dns-failed
 
 ## Known deviations and temporary pieces
 
-- `src/net/canonical.ts` is a private copy of core's `canonicalJson` and `sha256Hex` (byte-identical, covered by a parity test against `src/core`), kept so the gate and watch do not depend on core internals. It can be replaced by a re-export of `../core/index.js`.
+- `src/net/canonical.ts` re-exports core's `canonicalJson` and `sha256Hex` (core is the one authority for the canonical bytes) and adds the document fingerprints; the parity test against `src/core` stays.
 - The Agent Customs public key is pinned in source (first seen 2026-11-17, key id `-DC99sDa-qJjBp2N`); if Customs rotates it, the customs adapter is `unavailable` until the pin is updated.
 - The gate sends the target address to Agent Atlas' public API, as the adapter's job.

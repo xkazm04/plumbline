@@ -1,10 +1,33 @@
-// plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--json]
-// Exit 0: the gate passed (or, with --fail-on fail, only `unavailable` was seen). 1: the gate failed by --fail-on.
-// 2: usage error. The Director wires runGateCommand into src/cli/index.ts.
+// plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--allow-local] [--json]
+// Exit 0: the gate passed by --fail-on (with --fail-on fail, `unavailable` on SOME adapters alone does not fail it).
+// 1: the gate failed by --fail-on, or NOTHING was checked (every adapter `unavailable`, whatever --fail-on says).
+// 2: usage error.
 
 import { runGate, ALL_ADAPTERS, type GateOptions } from "../gate/index.js";
+import type { GateReport } from "../core/types.js";
 
-const USAGE = "usage: plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--json]\n";
+const USAGE =
+  "usage: plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--allow-local] [--json]\n";
+
+export const NOTHING_CHECKED = "nothing was checked: every adapter was unavailable, so this is not a pass";
+
+export const ALLOW_LOCAL_WARNING =
+  "WARNING: --allow-local: http and loopback addresses are allowed for this run (private ranges stay refused); use it only for a site on this machine";
+
+/** True when no adapter produced a verdict: every finding is `unavailable` (or there are none). */
+export function nothingChecked(report: GateReport): boolean {
+  return report.findings.every((f) => f.state === "unavailable");
+}
+
+/**
+ * The exit code for a report. A gate that checked nothing exits 1 whatever --fail-on says: `unavailable` is never
+ * `pass`, and with --fail-on fail an all-unavailable run would otherwise go green having looked at nothing.
+ */
+export function gateExitCode(report: GateReport, failOn: "fail" | "unavailable"): 0 | 1 {
+  if (nothingChecked(report)) return 1;
+  const failed = report.state === "fail" || (failOn === "unavailable" && report.state === "unavailable");
+  return failed ? 1 : 0;
+}
 
 export async function runGateCommand(args: string[]): Promise<number> {
   let target: string | undefined;
@@ -12,11 +35,13 @@ export async function runGateCommand(args: string[]): Promise<number> {
   let failOn: "fail" | "unavailable" = "fail";
   let timeoutMs: number | undefined;
   let json = false;
+  let allowLocal = false;
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i] as string;
     const value = (): string | undefined => args[++i];
     if (arg === "--json") json = true;
+    else if (arg === "--allow-local") allowLocal = true;
     else if (arg === "--adapters") {
       const list = (value() ?? "").split(",").map((s) => s.trim()).filter(Boolean);
       const known = list.filter((a): a is (typeof ALL_ADAPTERS)[number] => (ALL_ADAPTERS as readonly string[]).includes(a));
@@ -53,12 +78,17 @@ export async function runGateCommand(args: string[]): Promise<number> {
     return 2;
   }
 
-  const report = await runGate({ target, ...(adapters ? { adapters } : {}), ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
+  if (allowLocal) process.stderr.write(`${ALLOW_LOCAL_WARNING}\n`);
+  const report = await runGate(
+    { target, ...(adapters ? { adapters } : {}), ...(timeoutMs !== undefined ? { timeoutMs } : {}) },
+    allowLocal ? { fetchOptions: { allowLocal: true } } : {},
+  );
   if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   else {
     process.stdout.write(`gate ${report.state}: ${report.target}\n`);
     for (const f of report.findings) process.stdout.write(`  ${f.state.padEnd(11)} ${f.adapter}: ${f.summary}\n`);
   }
-  const failed = report.state === "fail" || (failOn === "unavailable" && report.state === "unavailable");
-  return failed ? 1 : 0;
+  // On stderr, so --json output stays one JSON document.
+  if (nothingChecked(report)) process.stderr.write(`plumbline gate: ${NOTHING_CHECKED}\n`);
+  return gateExitCode(report, failOn);
 }

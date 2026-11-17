@@ -108,7 +108,5 @@ export async function loadSubject(root: string, relative: string, strict: boolea
   }
 }
 
-/** `x.hocon` names `x.network.json`; any other path is used as written. */
-export function networkFileFor(hocon: string): string {
-  return hocon.endsWith(".hocon") ? `${hocon.slice(0, -".hocon".length)}.network.json` : hocon;
-}
+/** `x.hocon` names `x.network.json`; the rule lives in core (signedPathsOf), shared with the Desk. */
+export { networkFileFor } from "../core/index.js";

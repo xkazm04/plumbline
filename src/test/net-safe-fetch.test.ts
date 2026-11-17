@@ -80,13 +80,13 @@ test("a local loopback server is reachable ONLY with the test option", async () 
   try {
     assert.equal(await codeOf(safeFetch(`${server.url}/`)), "insecure-scheme");
     assert.equal(await codeOf(safeFetch(`https://127.0.0.1:${server.port}/`)), "blocked-address");
-    assert.equal(await codeOf(safeFetch(`${server.url}/`, { allowInsecureLoopbackForTests: false })), "insecure-scheme");
-    const ok = await safeFetch(`${server.url}/`, { allowInsecureLoopbackForTests: true });
+    assert.equal(await codeOf(safeFetch(`${server.url}/`, { allowLocal: false })), "insecure-scheme");
+    const ok = await safeFetch(`${server.url}/`, { allowLocal: true });
     assert.equal(ok.status, 200);
     assert.equal(ok.text(), "hello");
     // The option opens loopback only: a private address is still refused.
-    assert.equal(await codeOf(safeFetch("http://10.0.0.1/", { allowInsecureLoopbackForTests: true })), "blocked-address");
-    assert.equal(await codeOf(safeFetch("http://169.254.169.254/", { allowInsecureLoopbackForTests: true })), "blocked-address");
+    assert.equal(await codeOf(safeFetch("http://10.0.0.1/", { allowLocal: true })), "blocked-address");
+    assert.equal(await codeOf(safeFetch("http://169.254.169.254/", { allowLocal: true })), "blocked-address");
   } finally {
     await server.close();
   }
@@ -101,7 +101,7 @@ test("the connection goes to the address that was checked: one lookup, the Host 
   let lookups = 0;
   try {
     const result = await safeFetch(`http://pinned.test:${server.port}/x`, {
-      allowInsecureLoopbackForTests: true,
+      allowLocal: true,
       resolver: async () => {
         lookups += 1;
         return [{ address: "127.0.0.1", family: 4 }];
@@ -128,13 +128,13 @@ test("a redirect hop to a private address is refused, each hop being re-checked"
   });
   try {
     for (const path of ["/to-private", "/to-metadata", "/to-mapped"]) {
-      assert.equal(await codeOf(safeFetch(`${server.url}${path}`, { allowInsecureLoopbackForTests: true })), "blocked-address", path);
+      assert.equal(await codeOf(safeFetch(`${server.url}${path}`, { allowLocal: true })), "blocked-address", path);
     }
     // A hop to a public-looking host that resolves to a private address is refused through the resolver as well.
     assert.equal(
       await codeOf(
         safeFetch(`${server.url}/to-http`, {
-          allowInsecureLoopbackForTests: true,
+          allowLocal: true,
           resolver: async () => [{ address: "10.9.9.9", family: 4 }],
         }),
       ),
@@ -158,11 +158,11 @@ test("at most 3 redirects are followed", async () => {
     res.end("arrived");
   });
   try {
-    const three = await safeFetch(`${server.url}/hop0?until=3`, { allowInsecureLoopbackForTests: true });
+    const three = await safeFetch(`${server.url}/hop0?until=3`, { allowLocal: true });
     assert.equal(three.text(), "arrived");
     assert.equal(three.redirects, 3);
-    assert.equal(await codeOf(safeFetch(`${server.url}/hop0?until=4`, { allowInsecureLoopbackForTests: true })), "too-many-redirects");
-    assert.equal(await codeOf(safeFetch(`${server.url}/hop0?until=99`, { allowInsecureLoopbackForTests: true, maxRedirects: 50 })), "too-many-redirects");
+    assert.equal(await codeOf(safeFetch(`${server.url}/hop0?until=4`, { allowLocal: true })), "too-many-redirects");
+    assert.equal(await codeOf(safeFetch(`${server.url}/hop0?until=99`, { allowLocal: true, maxRedirects: 50 })), "too-many-redirects");
   } finally {
     await server.close();
   }
@@ -180,7 +180,7 @@ test("the body ceiling trips with its own error, by declared length and by strea
     } else res.end("x".repeat(100));
   });
   try {
-    const opts = { allowInsecureLoopbackForTests: true, maxBytes: 100 } as const;
+    const opts = { allowLocal: true, maxBytes: 100 } as const;
     assert.equal(await codeOf(safeFetch(`${server.url}/declared`, opts)), "body-too-large");
     assert.equal(await codeOf(safeFetch(`${server.url}/streamed`, opts)), "body-too-large");
     const exact = await safeFetch(`${server.url}/exact`, opts);
@@ -195,7 +195,7 @@ test("the ceiling constant is 512 KiB and a caller cannot raise it", async () =>
   assert.ok(MAX_BODY_BYTES >= 41_156 * 10, "ceiling is the measured largest network (41,156 bytes) times ten, or more");
   const server = await loopbackServer((_req, res) => res.end("z".repeat(MAX_BODY_BYTES + 1)));
   try {
-    assert.equal(await codeOf(safeFetch(`${server.url}/`, { allowInsecureLoopbackForTests: true, maxBytes: MAX_BODY_BYTES * 10 })), "body-too-large");
+    assert.equal(await codeOf(safeFetch(`${server.url}/`, { allowLocal: true, maxBytes: MAX_BODY_BYTES * 10 })), "body-too-large");
   } finally {
     await server.close();
   }
@@ -209,7 +209,7 @@ test("the absolute timeout trips with its own error, including on a body that ne
     res.on("close", () => clearInterval(timer));
   });
   try {
-    const opts = { allowInsecureLoopbackForTests: true, timeoutMs: 250 } as const;
+    const opts = { allowLocal: true, timeoutMs: 250 } as const;
     const started = Date.now();
     assert.equal(await codeOf(safeFetch(`${server.url}/silent`, opts)), "timeout");
     assert.equal(await codeOf(safeFetch(`${server.url}/drip`, opts)), "timeout");
@@ -228,8 +228,8 @@ test("the three failure modes are distinct errors", async () => {
   });
   try {
     const codes = new Set([
-      await codeOf(safeFetch(`${server.url}/big`, { allowInsecureLoopbackForTests: true, maxBytes: 10 })),
-      await codeOf(safeFetch(`${server.url}/silent`, { allowInsecureLoopbackForTests: true, timeoutMs: 100 })),
+      await codeOf(safeFetch(`${server.url}/big`, { allowLocal: true, maxBytes: 10 })),
+      await codeOf(safeFetch(`${server.url}/silent`, { allowLocal: true, timeoutMs: 100 })),
       await codeOf(safeFetch("https://10.0.0.1/")),
     ]);
     assert.deepEqual([...codes].sort(), ["blocked-address", "body-too-large", "timeout"]);
@@ -251,7 +251,7 @@ test("non-2xx answers are returned, not thrown, and custom headers are dropped o
     res.end();
   });
   try {
-    const result = await safeFetch(`${first.url}/start`, { allowInsecureLoopbackForTests: true, headers: { "x-secret": "token" } });
+    const result = await safeFetch(`${first.url}/start`, { allowLocal: true, headers: { "x-secret": "token" } });
     assert.equal(result.status, 404);
     assert.equal(result.ok, false);
     assert.equal(result.redirects, 1);

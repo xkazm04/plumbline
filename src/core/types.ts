@@ -8,6 +8,7 @@ export const ALG = "Ed25519" as const;
 export const SIGNATURE_TYPE = "plumbline-signature" as const;
 export const KEY_TYPE = "plumbline-key" as const;
 export const ROTATION_TYPE = "plumbline-rotation" as const;
+export const REVOCATION_TYPE = "plumbline-revocation" as const;
 
 /** Default signature lifetime in days. Illustrative: the publisher sets the real one. */
 export const DEFAULT_LIFETIME_DAYS = 90;
@@ -16,13 +17,14 @@ export const DEFAULT_LIFETIME_DAYS = 90;
 export const SIGNATURE_FILE = "plumbline.signature.json" as const;
 export const KEY_FILE = ".well-known/plumbline-key.json" as const;
 export const ROTATION_FILE = "plumbline-rotation.json" as const;
+export const REVOCATION_FILE = "plumbline-revocation.json" as const;
 export const LOCK_FILE = "plumbline.lock.json" as const;
 
 /** Three states, never two: first contact with a signer nobody has met is `unverifiable`. */
 export const VERDICTS = ["verified", "invalid", "unverifiable"] as const;
 export type Verdict = (typeof VERDICTS)[number];
 
-export const INVALID_REASONS = ["bad-signature", "tampered", "expired", "kid-mismatch", "malformed"] as const;
+export const INVALID_REASONS = ["bad-signature", "tampered", "expired", "kid-mismatch", "malformed", "revoked"] as const;
 export type InvalidReason = (typeof INVALID_REASONS)[number];
 
 /** `unavailable` (an adapter could not be reached) is never `pass`. */
@@ -79,6 +81,24 @@ export interface PlumblineRotation {
   sig: string;
 }
 
+/**
+ * `plumbline-revocation.json`: a key declares itself dead. Signed by the REVOKED key, so anyone holding it may revoke it
+ * (the safe direction). A verifier accepts it only under the public key it ALREADY trusts for `kid`; once accepted, every
+ * signature and every rotation by that key is `invalid` / `revoked`, whatever their dates.
+ */
+export interface PlumblineRevocation {
+  type: typeof REVOCATION_TYPE;
+  version: typeof FORMAT_VERSION;
+  alg: typeof ALG;
+  /** The revoked key's kid. */
+  kid: string;
+  revokedAt: string;
+  /** A note for people; omitted when absent, never `null`. */
+  reason?: string;
+  /** base64url Ed25519 by the REVOKED key over canonicalJson(the object without `sig`). */
+  sig: string;
+}
+
 /** `plumbline.lock.json`, written by `watch`, read by the three drift detectors. */
 export interface PlumblineLock {
   version: typeof FORMAT_VERSION;
@@ -100,6 +120,8 @@ export interface TrustEntry {
   origin: string;
   /** base64url raw 32-byte public key the entry was adopted with. */
   publicKey: string;
+  /** Set once a revocation by this key has been accepted. A revoked key is dead for everything, whatever the dates. */
+  revokedAt?: string;
 }
 export interface TrustStore {
   find(kid: string, origin: string): TrustEntry | undefined;
