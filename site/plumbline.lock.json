@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "runtime": {
+    "source": "nsdeploy",
+    "commit": "53a787c",
+    "files": {
+      "runtime/LICENSE.txt": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+      "runtime/NOTICE": "5b61bc35b065432d546db951b773609960c46c4db4b01c58264d6520e3f85ae6",
+      "runtime/README.md": "17553dbb8afe91245285f668dee5b5b60592b951e3093e5bad7f994762587db1",
+      "runtime/action-bridge.js": "c6446e47af1ccefa3e4e9a99f0fcd142081ad31202de7289bf38714d3a4d0dbc",
+      "runtime/action-transport.js": "b2d998f7778121a38da1f6307e2de68412f98cd9814622d09562d91a686f302f",
+      "runtime/actions.js": "899a1eb474f09ac2521b550eea936ff621ccf42fdd2b74e0729676eeec013fca",
+      "runtime/byok.js": "da921db02f6817c037ec88f155160c8aca404bd62b0f0f3bb85c42451e56c73c",
+      "runtime/cruse-render.js": "ee5ff2ecafac86b00cc4302ec455e6d738d95c3d4d7ba517df99bcb170ccaadd",
+      "runtime/cruse.js": "ee53db4db813441f67041870348ecbcfa6e82b1e9c095cc05fd7fbac711a0510",
+      "runtime/discovered-actions.js": "4295ceb269844058c553c811846b05b6b0773520a6f64d9e694d2fba7b9c1e43",
+      "runtime/engine.js": "48f30e80ba724f807eb745f8e2dd5a630f9aa518184307981fe5cf5863bcd5ac",
+      "runtime/execution-stream.js": "ffe6bdd5e627535708f2c19ce6eec5bb5a7c0fac0fab9141fba569fc4341ad66",
+      "runtime/form-actions.js": "28526800bec03179fdb23c664e4172d2e5c3645f88ea9597c497bd2e681c95e2",
+      "runtime/generated/agent-runner.bundle.js": "c8851e5d28fc751d2ead9f809e66c60d2d3595ed80cb136e59f2219452974a61",
+      "runtime/generated/graph.gen.mjs": "d3344326b105069bfd7cd2de2bfa42a5e8963f88859a0fc33e678c5113b624af",
+      "runtime/generated/sly_data.gen.mjs": "653d3d6988109151f3200636ac4f143d66d4e363d4f1ab03af00216ee3c70c04",
+      "runtime/generated/validation.gen.mjs": "fc56d29878e18fa94f988311fe60f5f2e7823a45498f43139f87619015a59b3a",
+      "runtime/hocon.js": "4b11ae05268c11b3fac016eec0cc67090537cef424a0b4ce7d84122130b7e4ce",
+      "runtime/index.js": "ef2300a5bd916e08248f2bb82ad0cd24fa9c98ccf2f23a4644902a96f16a8a10",
+      "runtime/kernel.js": "e850a02ea2e46498df5dcc8df342fddbbe407dc8871479c65825b09fc361b63b",
+      "runtime/langchain-runner.mjs": "eba4db2a9305f75405312930628123e61f503f8d1b1132a185a23ee04f14f137",
+      "runtime/llm.js": "204fc5476727aa6def28cc8f36b8062573f832883dc2d3320c201998b5271e7d",
+      "runtime/mcp.js": "eb2b5a46fd24affbd6e009e6941c9929e5a11cd1e88e70b90c609a045fcfd128",
+      "runtime/model.js": "9714913d44e3db658de0d1fd1d9b250662d798a568ecbadb37fa2e3b629b646c",
+      "runtime/provider-error.js": "80fb6d491009e5867ea54e13419dbeb2f795ca5df4609e5f8d4340464acf80a1",
+      "runtime/remote.js": "2be37fcc67a1f18dea7013deae640a526400c3e1c1db7d9e021d672d8bf3193e",
+      "runtime/runner.js": "57d9d91e1c05ae4078ed7b361ff4c2481e0e1a78ad02d2007464b7f9b0e08f78",
+      "runtime/sandbox-worker.js": "21a94a5ccd3b3605f0fcd4f6e34d19355e1ac341cb585f5e65cb2fcc0ee4d527",
+      "runtime/sandbox.js": "0242f47f5481d3b2e64487b26b6a0a7a44f22a7c2a019ed7dc659ae809be71dc",
+      "runtime/trace.js": "b2186480f683649795f76ce371241da1c53c24cfcb140f0c57487caf5c7e0f43",
+      "runtime/turn-control.js": "f291b4733b3b08860b3516f6feffca433b9d7b3939993aa626e9996ebe6eabca",
+      "runtime/turn-status.js": "378393e6a8939c5f1cd5dc3bc659c4e6835d6fb6aeff5adf09900db9986edbc0",
+      "runtime/ui.js": "3030391c9445615b4266349da6ed189290d2b06cb9fd09f164ff5d1fd56c7f51",
+      "runtime/web-crypto.js": "7af171a63243d1dc9257f40c234c4a67760898505f37ffcae18474cec3d64361"
+    }
+  },
+  "grounding": {
+    "sources": [
+      {
+        "ref": "agent-manifest.json",
+        "sha256": "df5958bb37ce518b1a06a03945f145d5df75cfecaac349c2d841d4df19e13e9b"
+      },
+      {
+        "ref": "links.json",
+        "sha256": "946e1ce1ee1056ae8ccf0dfd4b13607ae6494607ba3d32e0e4395be9e2f7967b"
+      },
+      {
+        "ref": "plumbline_desk.network.json",
+        "sha256": "3632129821d3e84b9350d97f30406d6abafa34ccde0d461d901cdc2857d782f6"
+      }
+    ],
+    "builtAt": "2026-11-17T16:50:43.770Z"
+  },
+  "peers": {
+    "https://agent-atlas-phi.vercel.app/agent_atlas": {
+      "sha256": "4104d0b2f2ebf836f8f48419690131a7098efaa496a252887e792223b45be314",
+      "checkedAt": "2026-11-17T16:50:43.770Z"
+    },
+    "https://montbaga.github.io/agent-customs/agent_customs": {
+      "sha256": "ec05bb4ceb96e4da710cd0e4d468d18d404253433f6ae703249c8cb7a6b75a3a",
+      "checkedAt": "2026-11-17T16:50:43.770Z"
+    }
+  }
+}
