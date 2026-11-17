@@ -10,3 +10,4 @@ plumbline.private.*
 .ai/*.local.*
 .build-*/
 site/lib/
+.contest/
