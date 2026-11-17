@@ -168,6 +168,16 @@
                 <h3 class="sheet__h" id="trust-heading" data-s="verify.trustListHeading"></h3>
                 <p class="note" data-s="verify.trustListNote"></p>
                 <div id="trust-list" class="result"></div>
+                <div class="trustfile">
+                  <p class="note" data-s="verify.trustFileNote"></p>
+                  <div class="btnrow"><button id="trust-export" type="button" class="btn btn--ghost btn--small" data-s="verify.exportButton"></button></div>
+                  <div class="field">
+                    <label for="trust-import" data-s="verify.importLabel"></label>
+                    <input id="trust-import" type="file" accept=".json,application/json">
+                  </div>
+                  <p id="trust-io-status" class="msg" role="status" aria-live="polite"></p>
+                  <div id="trust-io-result" class="result"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -222,6 +232,19 @@
             <div id="key-result" class="result"></div>
             <h3 class="panel-h" id="custody-heading" data-s="key.custodyHeading"></h3>
             <ol id="custody-list" class="custody"></ol>
+            <h3 class="panel-h" id="revoke-heading" data-s="revoke.heading"></h3>
+            <p class="note" data-s="revoke.lead"></p>
+            <div class="field">
+              <label for="revoke-key" data-s="revoke.keyLabel"></label>
+              <input id="revoke-key" type="file" accept=".json,application/json">
+            </div>
+            <div class="field">
+              <label for="revoke-reason" data-s="revoke.reasonLabel"></label>
+              <input id="revoke-reason" type="text" maxlength="500" autocomplete="off">
+            </div>
+            <div class="btnrow"><button id="revoke-make" type="button" class="btn btn--ghost" data-s="revoke.button"></button></div>
+            <p id="revoke-status" class="msg" role="status" aria-live="polite"></p>
+            <div id="revoke-result" class="result"></div>
           </div>
         </div>
       </section>
@@ -291,19 +314,19 @@
                 <li data-s="about.watch"></li>
               </ul>
               <p class="lead" data-s="about.desk"></p>
+              <p class="lead"><span data-s="about.repoLead"></span> <a data-href="publish.repoLink" data-s="publish.repoName"></a></p>
             </div>
           </div>
           <div class="tool__panel">
             <h3 class="panel-h" id="publish-heading" data-s="publish.heading"></h3>
             <p class="note" data-s="publish.lead"></p>
             <code class="cli" data-s="publish.keygen"></code>
-            <code class="cli" data-s="publish.sign"></code>
             <code class="cli" data-s="publish.lock"></code>
+            <code class="cli" data-s="publish.sign"></code>
             <p class="note" data-s="publish.publishFiles"></p>
             <p class="note" data-s="publish.lockEncouraged"></p>
             <p class="note" data-s="publish.tellKid"></p>
-            <p class="note" data-s="publish.tools"></p>
-            <p class="note" data-s="publish.repoPending"></p>
+            <p class="note"><span data-s="publish.tools"></span> <a data-href="publish.repoLink" data-s="publish.repoName"></a></p>
             <p class="note rule" data-s="footer.license"></p>
           </div>
         </div>
@@ -324,6 +347,8 @@
       <p class="dock__sentence" data-s="assistant.lead"></p>
       <p class="note" data-s="assistant.note"></p>
       <p id="assistant-status" class="note dock__status" role="status" data-s="assistant.connecting"></p>
+      <label class="remember" for="remember-ai-key"><input id="remember-ai-key" type="checkbox"><span data-s="assistant.rememberKey"></span></label>
+      <p class="note" data-s="assistant.rememberNote"></p>
       <div id="agent-app">
         <div data-ns-slot="header"></div>
         <div class="assistant-panels">
@@ -336,5 +361,7 @@
   </div>
 
   <div class="live" id="live" role="status" aria-live="polite"></div>
+  <!-- What the Desk will not do here (in another site's frame, or without Ed25519); desk.js fills and shows it. -->
+  <p class="desk-notice" id="desk-notice" role="alert" hidden></p>
 </body>
 </html>

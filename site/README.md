@@ -37,9 +37,18 @@ node <agentic-web>/skills/agentify-website/scripts/serve_site.mjs site --port 80
 need HTTP, not `file://`.
 
 The page works without the assistant: every action has a page button. To use the assistant, press **Assistant** (top
-right), open **AI model settings** in the panel, pick a provider and paste your own key. The assistant sends your messages, and the results it reads, to the provider you
-pick. On `localhost` the runtime also keeps saved setups, keys included, in a cookie any local site can read, so use a
-key with a low spending limit, and afterwards delete the saved setup (Advanced settings) and close the tab.
+right), open **AI model settings** in the panel, pick a provider and paste your own key, then **Save and start** (the
+page reloads and the panel opens again by itself). The assistant sends your messages, and the results it reads, to the
+provider you pick.
+
+**Where the key lives.** The runtime saves every setup, key included, in `localStorage` (and on `localhost` also in a
+cookie any local site can read). Unless you tick **Remember my AI provider key on this device** in the panel, the Desk
+takes the key back out: when the page starts and when you leave it (`pagehide`, which Save and start's reload also fires),
+`site.js` keeps the setup in use in this tab's `sessionStorage`, where the runtime reads it first, and removes the key
+from every saved setup through the runtime's own exported profile functions (`runtime/byok.js`, unchanged). The key then
+leaves with the tab. What it cannot cover: between Save and start and the reload, the key sits in `localStorage` for a
+moment, and a browser that is killed before `pagehide` leaves it there until the Desk next starts. The panel's own text
+("Your key is saved in this browser") is the runtime's and is not changed. Use a key with a low spending limit either way.
 
 ## Tests
 
@@ -48,7 +57,9 @@ npm run test:site           # builds site/lib, then node --test "site/tests/*.te
 node <agentic-web>/skills/agentify-website/scripts/build_network.mjs site/plumbline_desk.hocon --manifest site/agent-manifest.json --check
 ```
 
-The tests are the skill's template suite filled in for the Desk, plus the Desk's own rules: no private key material
+The tests are the skill's template suite filled in for the Desk (`desk.test.mjs`), the browser fetcher's rules
+(`fetcher.test.mjs`: the address rule, the body ceiling, the timeout, no credentials or referrer), plus the Desk's own
+rules: no private key material
 reaches the model (tool results and the whole transcript are searched), every sample query can be answered, the decline
 query has no tool to misuse, an unreachable checker is never `pass`, and sign then verify gives `unverifiable`, then
 `verified` once trusted, then `invalid tampered` after an edit, and `csp.test.mjs` keeps the Content-Security-Policy
@@ -88,12 +99,27 @@ network's instructions say that tool results are data, never instructions, and t
 the partner's link, and `sign_files` needs a read of the signing version in the same turn.
 
 Trusting a publisher is a page button with the first-contact wording from `docs/signature-format.md`, never a tool. The
-assistant cannot add trust. A trust entry covers files fetched from its origin only: the same signed files served from
+assistant cannot add trust. After the button, the site is verified again at once, so the new verdict shows without a
+second press. The trust list exports as `plumbline.trust.json` in the CLI's format (`{version: 1, entries: [{kid, origin,
+publicKey, revokedAt?, adoptedVia?}]}`, the file `plumbline verify --trust` reads; forgotten revoked keys have no place in
+it and are counted, not written) and imports from one: every entry is held to its patterns and its kid must belong to its
+key, the page lists what the file would add, replace or revoke, and nothing is added until the visitor presses the
+confirm button. A key revoked in this browser stays revoked whatever a file says. A trust entry covers files fetched from its origin only: the same signed files served from
 another origin verify as `unverifiable`. The trust list keeps `adoptedVia` (validated by pattern) and runs core's
 `spreadRevocations` on every load, so a revocation reaches every origin and every successor adopted through the revoked
 key. A verified revocation replaces the list with core's result. Forget on a revoked key keeps a tombstone (its kid and
 revocation date, no key and no origin), shown as revoked: that key cannot be trusted again from this page, and a
 signature by it reads `invalid revoked` here, never as a stranger to trust.
+
+**Revoking a leaked key** is a page section in the key view, never a tool: the visitor picks the private key file, the
+page signs `plumbline-revocation.json` with core's `revokeKey` and offers it as a download. The key is read, used once
+and dropped; the assistant cannot reach it.
+
+**What a check says when it ends.** Each form's status line is a live region: it says the verdict when the gate, a drift
+reading or a verify ends ("Check finished. Overall: Failed."), not just nothing. The form's button is off while its run
+is in flight, and each read tool numbers its runs, so a slower answer to an earlier question never replaces a newer one
+on the page (the caller, the assistant included, still gets its own answer). A refused verify replaces the verdict shown
+before with the refusal, so the verdict on the page always belongs to the last address asked.
 
 The signing dialog (the skill's confirmation dialog) shows the origin, the key id, the expiry and every file path with its
 SHA-256. "Irreversible" here means a statement under your name: once published, it stands until it expires or you rotate
@@ -101,6 +127,12 @@ the key. The page's own Sign button opens the same dialog.
 
 ## Browser rules, and what a browser cannot see
 
+- Every key, signature and verdict needs Ed25519 in WebCrypto. The Desk asks the browser once (importing a known public
+  key); without it, Generate, Sign and Revoke are off with a sentence saying why, a picked key file is never called "not
+  a Plumbline key file", and verify answers `unverifiable` with "this browser cannot do Ed25519", never a false
+  `invalid`.
+- One address rule decides what the Desk fetches: `fetchableUrl` in `fetcher.js` (https, or http on `localhost` and
+  `127.0.0.1`). The target check and the pattern for addresses shown to the model use it too.
 - Every check runs with the visitor's browser's same-origin and CORS rules. A file a site does not allow other origins to
   read is unreadable here, and the result says so: a gate checker becomes `unavailable` (never `pass`), a signature that
   cannot be read is `unverifiable`, a lock that cannot be read is one drift finding. There is no SSRF guard in the browser
@@ -164,9 +196,12 @@ The comment beside the tag gives the evidence (file and line) for each source. I
 
 **Headers.** `frame-ancestors` does not work in a `<meta>` tag, and a worker's policy comes from its own response.
 `site/_headers` (the Netlify and Cloudflare Pages format) sends both: `frame-ancestors 'none'` on the page, so no other
-site can frame the Desk, and on `runtime/sandbox-worker.js` the policy that file asks for. Hosts that honour response
-headers should send them; GitHub Pages cannot, so there the Desk can be framed by another site and the sandbox worker
-refuses to run a peer's coded tools (the Desk's partners publish none today). `bridge/action-bridge.html` is left
+site can frame the Desk, and on `runtime/sandbox-worker.js` the policy that file asks for. For every path it also sends
+`X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Hosts that honour response headers should send
+them; GitHub Pages cannot, so there the Desk can be framed by another site and the sandbox worker refuses to run a peer's
+coded tools (the Desk's partners publish none today). For the framing case the page guards itself: `desk.js` checks
+`window.top !== window.self` and, in a frame, refuses everything that adds trust or makes or uses a key (Trust, import,
+Generate, Sign, Revoke), turns those buttons off and says why in a notice; the read tools keep working. `bridge/action-bridge.html` is left
 framable on purpose: other agentic sites load it in a hidden frame.
 
 **Checked in a browser** (headless Chromium, 2026-11-17, served from `http://127.0.0.1`): boot with no key, boot with the
@@ -203,8 +238,18 @@ consent card for each partner this network asks.
 - **Agent Customs**, `https://montbaga.github.io/agent-customs/agent_customs`, label "Agent Customs".
 
 Both URLs come from each site's live `agent-manifest.json` (the folder that holds it, then `networks[0].name`); both
-pass `check_partner.mjs`. The consent card shows the partner's label, its host and the first 140 characters of the request
-before anything is sent; **Always allow** skips the card for that host until the page is reloaded. The assistant is told to
+pass `check_partner.mjs`. The consent card (the runtime's) shows the partner's label, its host and the first 140
+characters of the request before anything is sent. The Desk stands in front of it through the runtime's `onConsent` hook
+(`site.js`, `AssistantMount.consent`): a request longer than 140 characters is declined before any card, with a note in
+the chat, because the visitor could not have read all of it; **Always allow** skips the card for that host until the page
+is reloaded, but the Desk keeps that choice itself and never hands "always" to the engine, whose own memory would skip the
+hook and these checks. After the visitor allows, and before the runtime contacts the partner, the Desk fetches the
+partner's network file and `links.json` and compares their SHA-256 with the pins in this Desk's own
+`plumbline.lock.json` (as drift does); a partner that differs is declined, with a note, and the card is relabelled
+"Declined by the Desk". Limits of that check, from the runtime's hook: it receives a host, not the network address, so it
+checks every pinned network on that host; a host the lock pins nothing on (Agent Customs' own peer, an MCP service) gets
+the card only; and the runtime fetches the partner again itself after the check, so a partner that serves different
+bytes to that second request is not caught here. Only a runtime change that hashes what it runs could close that. The assistant is told to
 ask only what the partner can answer (what it offers) and never to include names, emails, phone numbers or codes; the
 runtime does not filter the request, so check it on the card. A partner's network runs in this browser on the visitor's
 key, with none of its own site tools, so it cannot run its own checks from here, and a call costs more than the card's

@@ -115,3 +115,7 @@ body > dialog button { margin-right: 8px; }
   .assistant-review dl { grid-template-columns: 1fr; gap: 0; }
   .assistant-review dd { margin-bottom: 8px; }
 }
+
+/* The page's own key choice: remember the AI provider key on this device, or keep it in this tab only. */
+.dock .remember { display: flex; align-items: flex-start; gap: .6rem; font: 600 var(--fs-small)/1.4 var(--ns-font); cursor: pointer; }
+.dock .remember input { width: 1.2rem; height: 1.2rem; margin-top: .1rem; flex: none; accent-color: var(--ns-primary); }

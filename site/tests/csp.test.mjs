@@ -112,7 +112,13 @@ test("_headers forbids framing the Desk and gives the sandbox worker the policy 
   for (const page of ["/", "/index.html"]) {
     assert.deepEqual(rules.get(page), ["Content-Security-Policy: frame-ancestors 'none'"], `${page} must send frame-ancestors 'none'`);
   }
-  assert.ok(![...rules.keys()].some((p) => p === "/*" || p.startsWith("/bridge")), "bridge/action-bridge.html must stay framable");
+  // bridge/action-bridge.html must stay framable: no rule that covers it may forbid framing. The one rule for every path
+  // carries exactly nosniff and the referrer policy.
+  for (const [p, lines] of rules) {
+    if (p === "/*" || p.startsWith("/bridge")) assert.ok(!lines.some((l) => /frame-ancestors|x-frame-options/i.test(l)), "bridge/action-bridge.html must stay framable");
+  }
+  assert.ok(![...rules.keys()].some((p) => p.startsWith("/bridge")), "bridge/action-bridge.html must stay framable");
+  assert.deepEqual(rules.get("/*"), ["X-Content-Type-Options: nosniff", "Referrer-Policy: no-referrer"]);
   const worker = await read("runtime/sandbox-worker.js");
   const asked = worker.match(/Serve runtime\/sandbox-worker\.js with: ([^.]+)\./);
   assert.ok(asked, "runtime/sandbox-worker.js no longer states the policy it needs");

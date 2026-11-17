@@ -1033,7 +1033,7 @@ class DeskTest {
     const version = (await DeskTest.readState(registry)).signing.version;
     const plans = [
       { tool: "website_run_gate", arguments: { target: ATLAS }, check: (r) => r.findings.length === 3 && r.findings.every((f) => ["pass", "fail", "unavailable"].includes(f.state)) },
-      { tool: "website_read_drift", arguments: { target: CUSTOMS }, check: (r) => r.lockFound === false && r.findings.length === 1 },
+      { tool: "website_read_drift", arguments: { target: CUSTOMS }, check: (r) => r.lockFound === false && r.lockState === "absent" && r.findings.length === 0 },
       { tool: "website_verify_site", arguments: { target: ATLAS }, check: (r) => r.verdict === "unverifiable" && r.signed === false },
       { tool: "website_generate_key", arguments: {}, check: (r) => r.ok === true && /^[0-9a-f]{16}$/.test(r.kid) },
       { tool: "website_sign_files", arguments: { expectedVersion: version }, check: (r) => r.ok === true },
@@ -1229,7 +1229,7 @@ test("D1: the read tools fetch only a host the visitor chose, a partner, an exam
   // The browser wires the page's three address fields to noteVisitorTarget (desk.js wire()).
   const source = await siteFile("desk.js");
   assert.match(source, /addEventListener\("change", \(event\) => App\.page\.noteVisitorTarget\(event\.target\.value\)\)/);
-  assert.match(source, /App\.page\.noteVisitorTarget\(target\);\n    void handle/);
+  assert.match(source, /App\.page\.noteVisitorTarget\(target\);\n    button\.disabled = true;\n    void handle/);
 });
 
 test("D2: strings from an inspected site reach the model only when they pass their pattern; the network says results are data", async () => {
@@ -1450,7 +1450,8 @@ test("D6: a lock the browser is refused is said so, never 'publishes no lock'; o
     const refused = await App.page.readDrift({ target: `${SITE}/` });
     assert.equal(refused.lockState, "refused");
     assert.equal(refused.lockFound, false);
-    assert.ok(refused.findings[0].summary.startsWith("Could not read this site's plumbline.lock.json (the browser was refused)"));
+    // A lock that cannot be used is a lock state, never a drift finding (drift.js, B2's contract of 2026-11-17).
+    assert.deepEqual(refused.findings, []);
     assert.ok(shown().includes(STRINGS.drift.refused));
     assert.ok(!shown().includes(STRINGS.drift.noLock) && !/publishes no/.test(shown()), "a refused read said the site publishes no lock");
     for (const status of [404, 410]) {
@@ -1509,6 +1510,606 @@ test("browser drift: exact-byte peer hashes, the peer links.json rule and patter
     const bad = await App.page.readDrift({ target: `${SITE}/` });
     assert.equal(bad.lockState, "unusable");
   } finally {
+    restore();
+  }
+});
+
+// ---- the 2026-11-17 backlog wave (builder C): the Desk's own hooks around the vendored runtime ----
+
+const { hashBytes } = await import("../lib/plumbline/net/canonical.js");
+const { applyRevocation } = await import("../lib/plumbline/core/index.js");
+const desk = await import("../desk.js");
+const shell = await import("../shell.js");
+const { fetchableUrl } = await import("../fetcher.js");
+
+/** Lets every pending promise chain run (the page's handlers do not return their promise to the event). */
+async function settle(rounds = 30) {
+  for (let i = 0; i < rounds; i += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+class TabStorage extends MemoryStorage {
+  removeItem(key) {
+    this.map.delete(key);
+  }
+}
+
+const ATLAS_NET = PARTNERS[0].network;
+const ATLAS_HOST = new URL(ATLAS_NET).host;
+
+/**
+ * A scripted web for partner calls: the Desk's own lock at BASE, pinning Agent Atlas's network file and links.json as
+ * they are served (or, with `changed`, as they were before the partner changed its network).
+ */
+async function partnerWeb({ changed = false, lock = true } = {}) {
+  const site = await atlasWeb();
+  const networkText = await fixture("atlas-site-network.json");
+  site.set(`${ATLAS}links.json`, "not found", 404);
+  const pinned = changed ? `${networkText} ` : networkText;
+  const record = { sha256: await hashBytes(new TextEncoder().encode(pinned)), links: "absent", checkedAt: NOW.toISOString() };
+  if (lock) site.set(`${BASE}/plumbline.lock.json`, JSON.stringify({ version: 1, runtime: { files: {} }, grounding: { sources: [] }, peers: { [ATLAS_NET]: record } }));
+  return site;
+}
+
+/** The runtime's partner-call path with the Desk's consent hook in front of a scripted card and a scripted partner. */
+async function partnerCall({ request, card = "allow", composition }) {
+  const loaded = await DeskTest.load();
+  const registry = await DeskTest.registry();
+  const ctx = DeskTest.context(loaded, registry, new ScriptedModel([]), DeskTest.approve);
+  const seen = { cards: [], resolved: 0, sent: [] };
+  AssistantMount.defaultConsent = async (info) => {
+    seen.cards.push(info);
+    return card;
+  };
+  ctx.requestConsent = (info) => AssistantMount.consent(info);
+  ctx.composition = composition || { deadline: Date.now() + 90_000, remoteCalls: 0, maxRemoteCalls: 4, peerCalls: new Map(), maxCallsPerPeer: 1, agentCalls: 0, maxAgentCalls: 20 };
+  ctx.resolveRemote = async () => {
+    seen.resolved += 1;
+    return {
+      invoke: async (payload) => {
+        seen.sent.push(payload.user_message.text);
+        return { text: "Atlas lists agentic websites and checks them against the spec." };
+      },
+    };
+  };
+  const spec = loaded.network.getAgentSpec(loaded.network.findFrontMan());
+  const table = await buildToolTable(ctx, spec, [], null);
+  const entry = table.toolByName.get("agent_atlas");
+  assert.equal(entry.kind, "remote");
+  const result = await dispatchToolCall(ctx, entry, { request }, null, []);
+  return { result, seen, composition: ctx.composition };
+}
+
+function resetPartnerState(site) {
+  AssistantMount.alwaysHosts.clear();
+  AssistantMount.pins.clear();
+  AssistantMount.notes.length = 0;
+  AssistantMount.lockUrl = `${BASE}/plumbline.lock.json`;
+  App.page.configure({ fetch: site.fetch });
+}
+
+test("p-e5d961: a partner request longer than the card shows is declined before any card, with a note, and nothing is sent", async () => {
+  const site = await partnerWeb();
+  resetPartnerState(site);
+  const defaultConsent = AssistantMount.defaultConsent;
+  try {
+    const long = `What do you offer? ${"x".repeat(300)}`;
+    const { result, seen } = await partnerCall({ request: long });
+    assert.equal(seen.cards.length, 0, "a card was shown for a request it cannot show in full");
+    assert.equal(seen.resolved, 0, "the partner was contacted");
+    assert.deepEqual(seen.sent, []);
+    assert.match(String(result), /declined/);
+    assert.equal(AssistantMount.notes.length, 1);
+    assert.match(AssistantMount.notes[0], new RegExp(`${long.length} characters, longer than the 140`));
+    // Exactly what the card shows (140 characters) is still asked.
+    const fits = await partnerCall({ request: "y".repeat(140) });
+    assert.equal(fits.seen.cards.length, 1);
+    assert.deepEqual(fits.seen.sent, ["y".repeat(140)]);
+  } finally {
+    AssistantMount.defaultConsent = defaultConsent;
+    restore();
+  }
+});
+
+test("p-23c051: a scripted partner call: allow sends the request, decline sends nothing, a second call in one query is skipped", async () => {
+  const site = await partnerWeb();
+  resetPartnerState(site);
+  const defaultConsent = AssistantMount.defaultConsent;
+  try {
+    const allowed = await partnerCall({ request: "What do you offer?" });
+    assert.equal(allowed.seen.cards.length, 1);
+    assert.equal(allowed.seen.cards[0].peerOrigin, ATLAS_HOST);
+    assert.deepEqual(allowed.seen.sent, ["What do you offer?"]);
+    assert.match(allowed.result.text, /Atlas lists/);
+    const declined = await partnerCall({ request: "What do you offer?", card: "decline" });
+    assert.equal(declined.seen.resolved, 0);
+    assert.deepEqual(declined.seen.sent, []);
+    assert.match(String(declined.result), /^The user declined to contact/);
+    // The runtime's chain rule: one call per partner per query; the second is skipped, never sent.
+    const again = await partnerCall({ request: "And what else?", composition: allowed.composition });
+    assert.match(String(again.result), /^Skipped Agent Atlas: that network was already consulted/);
+    assert.deepEqual(again.seen.sent, []);
+  } finally {
+    AssistantMount.defaultConsent = defaultConsent;
+    restore();
+  }
+});
+
+test("p-92c1ea: after the visitor allows, a partner whose network differs from the lock's pin is declined, with a note; one that matches runs", async () => {
+  const defaultConsent = AssistantMount.defaultConsent;
+  try {
+    const drifted = await partnerWeb({ changed: true });
+    resetPartnerState(drifted);
+    const refused = await partnerCall({ request: "What do you offer?" });
+    assert.equal(refused.seen.cards.length, 1, "consent comes first: the pin is checked only after the visitor allows");
+    assert.equal(refused.seen.resolved, 0, "a partner that differs from the lock ran");
+    assert.match(String(refused.result), /declined/);
+    assert.match(AssistantMount.notes.at(-1), /not the one this Desk's lock pins \(its network file changed\)/);
+    // A lock the Desk cannot read fails closed, and is asked again next time.
+    const unlocked = await partnerWeb({ lock: false });
+    resetPartnerState(unlocked);
+    const blind = await partnerCall({ request: "What do you offer?" });
+    assert.equal(blind.seen.resolved, 0);
+    assert.match(AssistantMount.notes.at(-1), /could not read its own lock/);
+    assert.equal(AssistantMount.pins.has(ATLAS_HOST), false);
+    // The pinned network runs; "Always allow" is kept by the Desk, never handed to the engine, so the next call still
+    // passes through the Desk's checks without a card.
+    const pinned = await partnerWeb();
+    resetPartnerState(pinned);
+    const first = await partnerCall({ request: "What do you offer?", card: "always" });
+    assert.deepEqual(first.seen.sent, ["What do you offer?"]);
+    const second = await partnerCall({ request: "Which sites are conformant?" });
+    assert.equal(second.seen.cards.length, 0, "always-allowed host showed a card again");
+    assert.deepEqual(second.seen.sent, ["Which sites are conformant?"]);
+    const tooLong = await partnerCall({ request: "z".repeat(141) });
+    assert.equal(tooLong.seen.resolved, 0, "Always allow let a request through that the card could not show");
+  } finally {
+    AssistantMount.defaultConsent = defaultConsent;
+    resetPartnerState(web);
+    restore();
+  }
+});
+
+test("p-fde2cd: run as another site's partner (not top level), the Desk offers no website_* tool and says to use its page", async () => {
+  const loaded = await DeskTest.load();
+  const registry = await DeskTest.registry();
+  const model = new ScriptedModel([{ text: "This site checks agentic websites; its own page runs the checks." }]);
+  const ctx = { ...DeskTest.context(loaded, registry, model, DeskTest.approve), isTop: false };
+  const result = await runAgent(ctx, ctx.frontMan, "What can you check for me?", null, []);
+  const offered = model.toolNames(0);
+  assert.ok(offered.length > 0);
+  assert.deepEqual(offered.filter((n) => n.startsWith("website_")), [], `a partner run was offered ${offered.join(", ")}`);
+  assert.ok(model.calls[0].messages[0].content.includes("When you have no website_* tools, another site's assistant is asking"));
+  assert.match(result.text, /own page/);
+  // The same network at the top level does offer them.
+  const top = new ScriptedModel([{ text: "ok" }]);
+  await runAgent(DeskTest.context(loaded, registry, top, DeskTest.approve), loaded.network.findFrontMan(), "hi", null, []);
+  assert.ok(top.toolNames(0).includes("website_run_gate"));
+});
+
+test("p-b9144f: unless the visitor ticks remember, the AI key leaves localStorage and stays in this tab only", async () => {
+  const local = new TabStorage();
+  const session = new TabStorage();
+  globalThis.localStorage = local;
+  globalThis.sessionStorage = session;
+  try {
+    const byok = await import("../runtime/byok.js");
+    // What the runtime's Save and start does: a saved setup with the key, and the same setup applied to the tab.
+    const { profile } = byok.upsertByokProfile({ name: "Otari", key: "sk-test-123456789", router: "https://api.otari.ai/api/v1", model: "alibaba/qwen3.8-flash" });
+    byok.upsertByokProfile({ name: "Bare key", key: "sk-bare-987654321" }, { select: false });
+    byok.saveTabByokSetup(profile);
+    assert.ok(local.getItem("nsweb-byok-profiles-v1").includes("sk-test-123456789"));
+    assert.equal(AssistantMount.keepKeyInTab(byok), 2);
+    const stored = local.getItem("nsweb-byok-profiles-v1");
+    assert.ok(!stored.includes("sk-test-") && !stored.includes("sk-bare-"), "a key stayed in localStorage");
+    // The setup itself (router and model) is kept, and this tab still has the key the runtime reads first.
+    assert.equal(byok.loadByokStore().profiles.length, 1);
+    assert.equal(byok.getSelectedByokProfile().model, "alibaba/qwen3.8-flash");
+    assert.equal(byok.loadTabByokSetup(byok.getSelectedByokProfile()).key, "sk-test-123456789");
+    // Ticked: the runtime's own behaviour stands, the key is remembered.
+    AssistantMount.setRemembering(true);
+    byok.upsertByokProfile({ ...byok.getSelectedByokProfile(), key: "sk-kept-555555555" });
+    assert.equal(AssistantMount.keepKeyInTab(byok), 0);
+    assert.ok(local.getItem("nsweb-byok-profiles-v1").includes("sk-kept-555555555"));
+    AssistantMount.setRemembering(false);
+    assert.equal(AssistantMount.remembering(), false);
+  } finally {
+    delete globalThis.localStorage;
+    delete globalThis.sessionStorage;
+  }
+});
+
+test("p-717a4a: Save and start leaves a note in the tab, and the next load reopens the assistant once (within a minute)", () => {
+  const tab = new TabStorage();
+  shell.noteDockReopen(tab, 1_000);
+  assert.equal(shell.takeDockReopen(tab, 5_000), true);
+  assert.equal(shell.takeDockReopen(tab, 6_000), false, "the note reopened the panel twice");
+  shell.noteDockReopen(tab, 1_000);
+  assert.equal(shell.takeDockReopen(tab, 1_000 + 61_000), false, "a stale note reopened the panel");
+  assert.equal(tab.getItem("plumbline-desk.reopen-assistant"), null);
+});
+
+test("p-dc2052: in another site's frame the Desk refuses to trust, make or use a key, says so, and still reads", async () => {
+  assert.equal(desk.isFramed({ top: 1, self: 1 }), false);
+  assert.equal(desk.isFramed({ get top() { throw new Error("cross-origin"); }, self: 1 }), true);
+  assert.equal(desk.isFramed({ top: {}, self: {} }), true);
+  const keyFile = await DeskTest.keyFile();
+  App.page.configure({ framed: true });
+  try {
+    const framed = STRINGS.errors.framed;
+    assert.equal((await App.page.generateKey()).reason, framed);
+    assert.equal(App.page.checkSign().reason, framed);
+    assert.equal((await App.page.signFiles({})).reason, framed);
+    assert.equal((await App.page.revokeWithKeyFile(keyFile)).reason, framed);
+    App.page.verification = { result: { target: `${BASE}/`, fetchedFrom: BASE, verdict: "unverifiable", meaning: STRINGS.verdicts.unverifiableMeaning }, publishedKey: { kid: "0123456789abcdef", publicKey: "A".repeat(43) } };
+    assert.equal((await App.page.trustPublisher(true)).reason, framed);
+    App.page.trustImport = { name: "t.json", changes: [{ entry: { kid: "0123456789abcdef", origin: BASE, publicKey: "A".repeat(43) }, kind: "adds" }], unchanged: 0, rejected: 0 };
+    assert.equal(App.page.confirmTrustImport().reason, framed);
+    assert.equal(App.page.trust.list().length, 0);
+    // The page says so, and the buttons are off.
+    const lines = await desk.showLimits(App.page);
+    assert.deepEqual(lines, [framed]);
+    assert.equal(document.getElementById("desk-notice").hidden, false);
+    assert.equal(document.getElementById("desk-notice").textContent, framed);
+    for (const id of ["key-generate", "sign-button", "revoke-make", "trust-import"]) assert.equal(document.getElementById(id).disabled, true, id);
+    // Reading is not a write: the gate still runs.
+    assert.ok(["pass", "fail", "unavailable"].includes((await App.page.runGate({ target: ATLAS })).state));
+  } finally {
+    App.page.configure({ framed: false });
+    App.page.verification = null;
+    App.page.trustImport = null;
+    document.getElementById("trust-import").disabled = false;
+    await desk.showLimits(App.page);
+    restore();
+  }
+  assert.equal(document.getElementById("desk-notice").hidden, true);
+  assert.equal(document.getElementById("key-generate").disabled, false);
+});
+
+test("p-89beff: a browser without Ed25519 is told so plainly: no key, no false 'bad key file', no false invalid", async () => {
+  assert.equal(await desk.probeEd25519(), true, "Node's WebCrypto does Ed25519");
+  assert.equal(await desk.probeEd25519({ importKey: async () => { throw new Error("NotSupportedError"); } }), false);
+  assert.equal(await desk.probeEd25519(null), false);
+  const keyFile = await DeskTest.keyFile();
+  App.page.configure({ probe: async () => false });
+  try {
+    const none = STRINGS.errors.noEd25519;
+    assert.equal((await App.page.generateKey()).reason, none);
+    await App.page.chooseKeyFile(keyFile);
+    assert.equal(App.page.checkSign().reason, none);
+    const signer = await generateKey(NOW);
+    const { site } = await signedSite("https://noed.example", signer);
+    App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+    App.page.trust.add({ kid: signer.key.kid, origin: "https://noed.example", publicKey: signer.key.publicKey });
+    const verdict = await App.page.verifySite({ target: "https://noed.example/" });
+    assert.equal(verdict.verdict, "unverifiable", "a browser without Ed25519 read a trusted signature as invalid");
+    assert.equal(verdict.detail, STRINGS.errors.noEd25519Verify);
+    const lines = await desk.showLimits(App.page);
+    assert.deepEqual(lines, [none]);
+    assert.equal(document.getElementById("sign-button").disabled, true);
+  } finally {
+    App.page.configure({ probe: desk.probeEd25519 });
+    App.page.clearSigning();
+    App.page.verification = null;
+    await desk.showLimits(App.page);
+    restore();
+  }
+});
+
+test("p-2b00f9: signing signs the files the check listed, even if the chosen files change during the await", async () => {
+  await DeskTest.arrangeIrreversibleState();
+  const listed = App.page.checkSign();
+  assert.equal(listed.ok, true, listed.reason);
+  const pending = App.page.signFiles({ expectedVersion: listed.version });
+  // A change of files landing while signing awaits its key (what a second file pick would do).
+  App.page.signing.subjects = [{ path: "agent-manifest.json", content: new TextEncoder().encode("{}"), sha256: "0".repeat(64) }];
+  App.page.signing.version += 1;
+  const signed = await pending;
+  assert.equal(signed.ok, true, signed.reason);
+  assert.deepEqual(signed.files, listed.subjects.map((x) => x.path));
+  const signature = JSON.parse(await App.page.signature.offer.blob.text());
+  assert.deepEqual(signature.subjects.map((x) => [x.path, x.sha256]), listed.subjects.map((x) => [x.path, x.sha256]));
+  App.page.clearSigning();
+});
+
+test("p-b759e5: the key picker is emptied after signing, so the same key file can be picked again", async () => {
+  await DeskTest.arrangeIrreversibleState();
+  const picker = document.getElementById("sign-key");
+  picker.value = "C:\\fakepath\\plumbline.private.json";
+  App.page.render("sign");
+  assert.equal(picker.value, "C:\\fakepath\\plumbline.private.json", "a chosen key was emptied before signing");
+  const signed = await App.page.signFiles({ expectedVersion: App.page.checkSign().version });
+  assert.equal(signed.ok, true, signed.reason);
+  assert.equal(picker.value, "");
+  App.page.clearSigning();
+});
+
+test("p-5bedf3: a refused verify replaces the verdict shown before; the page and the state say it was refused", async () => {
+  const { site } = await signedSite("https://shown.example", await generateKey(NOW));
+  App.page.configure({ fetch: site.fetch });
+  try {
+    const first = await App.page.verifySite({ target: "https://shown.example/" });
+    assert.equal(first.verdict, "unverifiable");
+    const shown = () => JSON.stringify(StubDocument.describe(document.getElementById("verify-result")));
+    assert.ok(shown().includes("https://shown.example/"));
+    const refused = await callTool("verify_site", { target: "https://never-typed.example/" });
+    assert.equal(refused.ok, false);
+    assert.ok(!shown().includes("https://shown.example/"), "the old verdict stayed on screen");
+    assert.ok(shown().includes(STRINGS.verify.refusedHead) && shown().includes(STRINGS.assistant.untypedHost));
+    assert.ok(!shown().includes(STRINGS.verify.firstContactHeading));
+    assert.deepEqual(App.page.getState().lastVerification, { refused: STRINGS.assistant.untypedHost });
+    const bad = await App.page.verifySite({ target: "ftp://nope.example/" });
+    assert.equal(bad.field, "target");
+    assert.ok(shown().includes(STRINGS.errors.badTarget));
+  } finally {
+    App.page.verification = null;
+    restore();
+  }
+});
+
+test("p-42f194: a slower earlier run never replaces the newer answer on the page", async () => {
+  const site = await atlasWeb();
+  const SLOW = "https://slow.example/";
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const slowFetch = async (url) => {
+    if (url.startsWith(SLOW)) await gate;
+    return site.fetch(url);
+  };
+  App.page.configure({ fetch: slowFetch });
+  try {
+    const older = App.page.runGate({ target: SLOW });
+    const newer = await App.page.runGate({ target: ATLAS });
+    assert.equal(App.page.gate.target, newer.target);
+    release();
+    const late = await older;
+    assert.equal(late.target, SLOW, "the caller still gets its own answer");
+    assert.equal(App.page.gate.target, newer.target, "the slower, older answer replaced the newer one");
+  } finally {
+    restore();
+  }
+});
+
+let pageWired = false;
+function wireOnce() {
+  if (!pageWired) desk.wirePage();
+  pageWired = true;
+}
+
+test("b0c44295 and p-42f194: the page's forms say the verdict in their live status line when a run ends, and keep the button off meanwhile", async () => {
+  wireOnce();
+  const status = (id) => document.getElementById(id);
+  const site = await atlasWeb();
+  App.page.configure({ fetch: site.fetch });
+  try {
+    document.getElementById("gate-target").value = ATLAS;
+    document.getElementById("gate-form").dispatch("submit");
+    assert.equal(document.getElementById("gate-run").disabled, true, "the button stayed on during the run");
+    assert.equal(status("gate-status").textContent, STRINGS.gate.running);
+    const before = site.calls.length;
+    document.getElementById("gate-form").dispatch("submit");
+    assert.equal(site.calls.length, before, "a second press started a second run");
+    await settle();
+    assert.equal(document.getElementById("gate-run").disabled, false);
+    assert.equal(status("gate-status").textContent, `Check finished. Overall: ${STRINGS.states[App.page.gate.state]}.`);
+    document.getElementById("drift-target").value = CUSTOMS;
+    document.getElementById("drift-form").dispatch("submit");
+    await settle();
+    assert.equal(status("drift-status").textContent, STRINGS.drift.doneNoLock);
+    document.getElementById("verify-target").value = ATLAS;
+    document.getElementById("verify-form").dispatch("submit");
+    await settle();
+    assert.equal(status("verify-status").textContent, `Verify finished: ${STRINGS.states.unverifiable}.`);
+    // A clean signed lock, findings, and a verdict with a reason are all said in words.
+    assert.equal(desk.doneSentence("drift", { lockState: "found", lockFound: true, lockSigned: true, findings: [] }), "Drift read: nothing differs from the lock. Signed lock.");
+    assert.equal(
+      desk.doneSentence("drift", { lockState: "found", lockFound: true, lockSigned: false, findings: [{ severity: "warn" }, { severity: "block" }] }),
+      "Drift read: 2 findings, the worst Blocking. Unsigned lock: the host can rewrite it.",
+    );
+    assert.equal(desk.doneSentence("drift", { lockState: "found", lockFound: true, lockSigned: true, findings: [{ severity: "warn" }] }), "Drift read: 1 finding, Warning. Signed lock.");
+    assert.equal(desk.doneSentence("verify", { verdict: "invalid", reason: "tampered", reasonInWords: STRINGS.verify.reasons.tampered }), `Verify finished: Invalid: ${STRINGS.verify.reasons.tampered}.`);
+  } finally {
+    App.page.verification = null;
+    restore();
+  }
+});
+
+test("e2b5c4b9: trusting a publisher shows the new verdict right away, without a second Verify", async () => {
+  const signer = await generateKey(NOW);
+  const { site } = await signedSite("https://trusted.example", signer);
+  App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+  try {
+    assert.equal((await App.page.verifySite({ target: "https://trusted.example/" })).verdict, "unverifiable");
+    const calls = site.calls.length;
+    const trusted = await App.page.trustPublisher(true);
+    assert.equal(trusted.ok, true);
+    assert.equal(trusted.verdict, "verified");
+    assert.ok(site.calls.length > calls, "nothing was verified again");
+    assert.equal(App.page.verification.result.verdict, "verified");
+    const shown = JSON.stringify(StubDocument.describe(document.getElementById("verify-result")));
+    assert.ok(shown.includes(STRINGS.states.verified) && shown.includes(STRINGS.verify.trusted));
+  } finally {
+    App.page.verification = null;
+    App.page.notices.trust = null;
+    restore();
+  }
+});
+
+test("p-88842b: the trust store exports in the CLI's format and imports only what the visitor confirms", async () => {
+  const a = await generateKey(NOW);
+  const b = await generateKey(NOW);
+  App.page.configure({ storage: new MemoryStorage() });
+  try {
+    App.page.trust.add({ kid: a.key.kid, origin: "https://a.example", publicKey: a.key.publicKey });
+    App.page.trust.add({ kid: b.key.kid, origin: "https://b.example", publicKey: b.key.publicKey, revokedAt: "2026-11-10T00:00:00.000Z" });
+    App.page.trust.remove(b.key.kid, "https://b.example");
+    const exported = App.page.exportTrust();
+    assert.deepEqual(exported, { ok: true, entries: 1, leftOut: 1 });
+    const file = JSON.parse(await App.page.trustExport.offer.blob.text());
+    assert.equal(App.page.trustExport.offer.name, "plumbline.trust.json");
+    assert.deepEqual(file, { version: 1, entries: [{ kid: a.key.kid, origin: "https://a.example", publicKey: a.key.publicKey }] });
+    // Import into an empty browser: listed, not added, until the visitor confirms.
+    App.page.configure({ storage: new MemoryStorage() });
+    const c = await generateKey(NOW);
+    const incoming = {
+      version: 1,
+      entries: [
+        file.entries[0],
+        { kid: c.key.kid, origin: "https://c.example", publicKey: c.key.publicKey, adoptedVia: a.key.kid },
+        { kid: b.key.kid, origin: "https://b.example", publicKey: b.key.publicKey, revokedAt: "2026-11-10T00:00:00.000Z" },
+        { kid: "0123456789abcdef", origin: "https://liar.example", publicKey: a.key.publicKey },
+        { kid: a.key.kid, origin: "http://plain.example", publicKey: a.key.publicKey },
+      ],
+    };
+    const read = await App.page.chooseTrustImport(new File([JSON.stringify(incoming)], "plumbline.trust.json"));
+    assert.deepEqual(read, { ok: true, changes: 3, unchanged: 0, rejected: 2 });
+    assert.deepEqual(App.page.trust.list(), [], "an import added trust before the visitor confirmed");
+    const shown = JSON.stringify(StubDocument.describe(document.getElementById("trust-io-result")));
+    assert.ok(shown.includes(STRINGS.verify.import.kinds.adds) && shown.includes(STRINGS.verify.import.kinds.revokes));
+    assert.ok(shown.includes("Add these 3 to my trust list"));
+    assert.deepEqual(App.page.confirmTrustImport(), { ok: true, added: 3 });
+    assert.equal(App.page.trust.find(c.key.kid, "https://c.example").adoptedVia, a.key.kid);
+    assert.equal(App.page.trust.find(b.key.kid, "https://b.example").revokedAt, "2026-11-10T00:00:00.000Z");
+    // The same file again changes nothing; a key revoked here stays revoked whatever a file says.
+    assert.deepEqual(await App.page.chooseTrustImport(new File([JSON.stringify(incoming)], "plumbline.trust.json")), { ok: true, changes: 0, unchanged: 3, rejected: 2 });
+    App.page.cancelTrustImport();
+    const unrevoked = { version: 1, entries: [{ kid: b.key.kid, origin: "https://b2.example", publicKey: b.key.publicKey }] };
+    await App.page.chooseTrustImport(new File([JSON.stringify(unrevoked)], "t.json"));
+    assert.equal(App.page.trustImport.changes[0].kind, "staysRevoked");
+    App.page.confirmTrustImport();
+    assert.ok(App.page.trust.find(b.key.kid, "https://b2.example").revokedAt);
+    // Not a trust file, not JSON.
+    assert.equal((await App.page.chooseTrustImport(new File(["nope"], "x.json"))).reason, STRINGS.verify.import.notJson);
+    assert.equal((await App.page.chooseTrustImport(new File(["{\"version\":2,\"entries\":[]}"], "x.json"))).reason, STRINGS.verify.import.notTrustFile);
+    // The exported entries carry exactly the CLI's fields.
+    for (const e of file.entries) assert.deepEqual(Object.keys(e).sort(), ["kid", "origin", "publicKey"]);
+  } finally {
+    App.page.trustImport = null;
+    App.page.trustExport = null;
+    restore();
+  }
+});
+
+test("5297e785: a leaked key is revoked on the page: core's revokeKey, offered as a download, no key material kept or shown", async () => {
+  const keyFile = await DeskTest.keyFile();
+  const before = JSON.stringify(App.page.getState());
+  const made = await App.page.revokeWithKeyFile(keyFile, "laptop stolen");
+  assert.equal(made.ok, true, made.reason);
+  assert.equal(made.offeredOnPage, "plumbline-revocation.json");
+  const statement = JSON.parse(await App.page.revocation.offer.blob.text());
+  assert.equal(App.page.revocation.offer.name, "plumbline-revocation.json");
+  assert.equal(statement.type, "plumbline-revocation");
+  assert.equal(statement.reason, "laptop stolen");
+  const publicKey = JSON.parse(DeskTest.publicText).publicKey;
+  // It verifies under the key it revokes, exactly as a verifier applies it.
+  const applied = await applyRevocation(statement, { kid: statement.kid, origin: BASE, publicKey });
+  assert.equal(applied.verdict, "verified", applied.detail);
+  const privateKey = JSON.parse(DeskTest.privateText).privateKey;
+  const shown = JSON.stringify([App.page.getState(), StubDocument.describe(document.getElementById("revoke-result")), made]);
+  assert.ok(!DeskTest.leaksKey(shown, privateKey), "the private key reached the page state or the result");
+  assert.equal(JSON.stringify(App.page.getState()), before, "revoking changed what the assistant can read");
+  // A file that is not a key is refused in words.
+  const bad = await App.page.revokeWithKeyFile(new File(["{}"], "x.json"));
+  assert.equal(bad.reason, STRINGS.sign.refusals.badKey);
+  assert.equal((await App.page.revokeWithKeyFile(null)).reason, STRINGS.revoke.noKey);
+  // Not a tool: the assistant has no way to it.
+  const registry = await DeskTest.registry();
+  assert.ok(!registry.catalog(DeskTest.scope()).some((e) => /revok/.test(e.name)));
+  App.page.revocation = null;
+});
+
+test("p-c9f100: one address rule (fetcher.js) decides what the Desk fetches, checks and quotes", async () => {
+  for (const [value, ok] of [
+    ["https://a.example/x", true],
+    ["http://localhost:8080/", true],
+    ["http://127.0.0.1/", true],
+    ["http://a.example/", false],
+    ["ftp://a.example/", false],
+    ["http://[::1]/", false],
+    ["not a url", false],
+  ]) {
+    assert.equal(fetchableUrl(value) !== null, ok, value);
+    assert.equal(desk.checkTarget(value) !== null, ok, value);
+  }
+  const source = await siteFile("desk.js");
+  assert.ok(!/protocol [!=]== "https?:"/.test(source), "desk.js keeps its own copy of the address rule");
+  const fetcherSource = (await siteFile("fetcher.js")).replace(/export function fetchableUrl[\s\S]*?\n}\n/, "");
+  assert.ok(!/protocol [!=]== "https?:"/.test(fetcherSource), "fetcher.js checks the scheme outside fetchableUrl");
+});
+
+test("29389fb9 and 72f95e93: the Desk links the repository from the publishing notes and About; no 'link comes later'", async () => {
+  const html = await siteFile("index.html");
+  assert.equal(STRINGS.publish.repoLink, "https://github.com/xkazm04/plumbline");
+  assert.equal((html.match(/data-href="publish\.repoLink"/g) || []).length, 2);
+  assert.ok(!JSON.stringify(STRINGS).includes("added when the repository is published"));
+  assert.ok(!/repoPending/.test(html));
+});
+
+test("b393c785: every place the Desk states the publish steps writes the lock before signing", async () => {
+  const html = await siteFile("index.html");
+  assert.ok(html.indexOf('data-s="publish.lock"') < html.indexOf('data-s="publish.sign"'), "the About view shows sign before the lock");
+  const keys = Object.keys(STRINGS.publish);
+  assert.ok(keys.indexOf("lock") < keys.indexOf("sign"));
+  assert.match(STRINGS.publish.lead, /Write the lock first, then sign/);
+});
+
+test("the Desk's _headers add nosniff and a referrer policy for every path and keep the existing entries", async () => {
+  const headers = (await siteFile("_headers")).replace(/\r\n/g, "\n");
+  assert.match(headers, /\n\/\*\n {2}X-Content-Type-Options: nosniff\n {2}Referrer-Policy: no-referrer\n/);
+  assert.match(headers, /\n\/\n {2}Content-Security-Policy: frame-ancestors 'none'\n/);
+  assert.match(headers, /\/runtime\/sandbox-worker\.js\n {2}Content-Security-Policy: default-src 'none'/);
+  assert.match(headers, /\/plumbline\.lock\.json\n {2}Access-Control-Allow-Origin: \*/);
+});
+
+test("shell.js: a drift reading with no lock read plots no course (never the calm course of a clean reading)", () => {
+  assert.equal(shell.driftCourse(null), null);
+  for (const lockState of ["absent", "refused", "unreadable", "unusable"]) assert.equal(shell.driftCourse({ lockFound: false, lockState, findings: [] }), null, lockState);
+  assert.equal(shell.driftCourse({ lockFound: true, findings: [] }), "info");
+  assert.equal(shell.driftCourse({ lockFound: true, findings: [{ severity: "warn" }, { severity: "block" }, { severity: "info" }] }), "block");
+});
+
+test("p-adecb8: the Desk's untested refusal paths each refuse in words and change nothing", async () => {
+  const SITE = "https://refusals.example";
+  const signer = await generateKey(NOW);
+  const { site } = await signedSite(SITE, signer);
+  App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+  try {
+    // 1. A signature that is not JSON.
+    site.set(`${SITE}/plumbline.signature.json`, "{not json");
+    const notJson = await App.page.verifySite({ target: `${SITE}/` });
+    assert.equal(notJson.verdict, "invalid");
+    assert.equal(notJson.reason, "malformed");
+    assert.equal(notJson.detail, STRINGS.verify.sigNotJson);
+    // 2. A signature request that answers an HTTP error.
+    site.set(`${SITE}/plumbline.signature.json`, "oops", 503);
+    const httpError = await App.page.verifySite({ target: `${SITE}/` });
+    assert.equal(httpError.verdict, "unverifiable");
+    assert.equal(httpError.detail, "The signature request answered HTTP 503, so nothing was verified.");
+    // 3. A revocation file that is not JSON: reported as not applied, malformed, and nothing changes.
+    const fresh = await signedSite(SITE, signer);
+    fresh.site.set(`${SITE}/plumbline-revocation.json`, "{nope");
+    App.page.configure({ fetch: fresh.site.fetch });
+    const revNotJson = await App.page.verifySite({ target: `${SITE}/` });
+    assert.equal(revNotJson.revocation.state, "not-applied");
+    assert.equal(revNotJson.revocation.results[0].reason, "malformed");
+    assert.equal(App.page.trust.list().length, 0);
+    // 4. A published key whose kid does not belong to its key cannot be trusted.
+    const other = await generateKey(NOW);
+    App.page.verification = { result: { target: `${SITE}/`, fetchedFrom: SITE }, publishedKey: { kid: signer.key.kid, publicKey: other.key.publicKey } };
+    assert.equal((await App.page.trustPublisher(true)).reason, STRINGS.verify.trustBadKey);
+    assert.equal(App.page.trust.list().length, 0);
+    // 5. A chosen manifest that is not JSON, and 6. one that names an unsafe path, refuse signing.
+    App.page.clearSigning();
+    await App.page.chooseSiteFiles([new File(["{not json"], "agent-manifest.json")]);
+    assert.equal(App.page.signing.problem, STRINGS.sign.refusals.badManifest);
+    const unsafe = { networks: [{ name: "x", front_man: "a", hocon: "../outside.network.json" }] };
+    await App.page.chooseSiteFiles([new File([JSON.stringify(unsafe)], "agent-manifest.json")]);
+    assert.ok(App.page.signing.problem.startsWith("The chosen agent-manifest.json cannot be signed: "), App.page.signing.problem);
+    assert.deepEqual(App.page.signing.subjects, []);
+  } finally {
+    App.page.verification = null;
+    App.page.clearSigning();
     restore();
   }
 });

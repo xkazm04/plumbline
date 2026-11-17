@@ -490,3 +490,22 @@ code { font-family: var(--mono); overflow-wrap: anywhere; }
   .grad--t, .grad--b { left: .5rem; right: .5rem; } .neat { inset: .35rem; } .grad--t { top: .3rem; } .grad--b { bottom: .3rem; } .grad--l { left: .3rem; } .grad--r { right: .3rem; }
   .stage[data-level="2"] .dial { transform: none; }
 }
+
+/* ---------- the Desk's own additions (2026-11-17 backlog wave) ---------- */
+/* The trust file: export and import under the register of trusted publishers. */
+.trustfile { margin-top: 1rem; padding-top: .7rem; border-top: .08rem dotted var(--ink2); }
+.trust-import { margin: .6rem 0 0; }
+.trust-import .btnrow button { display: inline-flex; align-items: center; min-height: 2.3rem; padding: .4rem .9rem; border-radius: .3rem; border: max(1px, .09rem) solid var(--ink); background: var(--ink); color: #fff; cursor: pointer; font: 700 var(--fs-small)/1.1 var(--sans); }
+.trust-import .btnrow button + button { background: transparent; color: var(--ink); }
+.trust-import .btnrow button:disabled { opacity: .5; cursor: not-allowed; }
+.import-adds { font-weight: 700; color: var(--c-unk); }
+.import-revokes { font-weight: 700; color: var(--c-fail); }
+/* What the Desk will not do here (framed, or no Ed25519): fixed at the foot of the window, so no view's layout moves. */
+.desk-notice { position: fixed; left: 1rem; right: 1rem; bottom: 1rem; z-index: 60; max-width: 52rem; margin: 0 auto; padding: .7rem 1rem; border: max(2px, .13rem) solid var(--c-fail);
+  border-left-width: .5rem; background: #fff; color: var(--ink); font: 600 var(--fs-small)/1.45 var(--sans); box-shadow: 0 .6rem 1.6rem rgba(18, 41, 74, .3); }
+.desk-notice[hidden] { display: none; }
+/* On a phone the key's seal follows the panel; its die (#key-die) is never drawn, so the seal's -3rem pull would lay it
+   over the panel's last lines (the revocation's result). The signet makes room for the pull. */
+@media (max-width: 1179px), (max-aspect-ratio: 1/1) {
+  .signet { padding-top: 4.2rem; }
+}

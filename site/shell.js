@@ -1,7 +1,8 @@
 // The Desk's shell: "The Fix" (contest B/3). It draws the chart and the compass card, shows one focused view at a time
 // by the address hash, and draws each view's art from the page state after desk.js renders it. It runs no tool and
 // holds no rule: every button that does something is wired in desk.js, and every result comes from App.page.
-// Browser only; the Node tests never import it. site/PORT.md lists the views and what each one leaves out.
+// It starts only in a browser; the Node tests import it for its pure helpers. site/PORT.md lists the views and what
+// each one leaves out.
 //
 // Routes: #/ (the overview), #/check, #/drift, #/verify, #/key, #/sign (the five ports) and #/about. A hash that does
 // not start with "#/" (the skip link's #main) leaves the view as it is.
@@ -373,20 +374,30 @@ function drawGate(page) {
   drawFix(holder, card, report, () => (site ? verdictCart(site) : noFixCart()), false);
 }
 
+/**
+ * The course to plot for a drift reading: null (nothing plotted) when there is no reading or no lock was read (absent,
+ * refused or unusable: nothing was compared, so a calm course would claim a fix that was never taken), else the worst
+ * severity found, "info" for a clean reading.
+ */
+export function driftCourse(d) {
+  if (!d || !d.lockFound) return null;
+  return d.findings.reduce((w, f) => (SEVERITY_RANK[f.severity] > SEVERITY_RANK[w] ? f.severity : w), "info");
+}
+
 function drawDrift(page) {
   const d = page.drift;
-  const worst = d && d.findings.length ? d.findings.reduce((w, f) => (SEVERITY_RANK[f.severity] > SEVERITY_RANK[w] ? f.severity : w), "info") : d ? "info" : null;
+  const worst = driftCourse(d);
   const course = $("drift-course");
   course.dataset.state = worst || "";
   course.innerHTML = Art.course(worst);
-  $("drift-caption").textContent = d ? t("drift.caption") : t("drift.noReading");
+  $("drift-caption").textContent = !d ? t("drift.noReading") : worst === null ? t("drift.noLockCaption") : t("drift.caption");
 }
 
 function drawVerify(page) {
   const sheet = $("verify-sheet");
   const v = page.verification;
-  if (!v) {
-    sheet.replaceChildren(make("p", "sheet__h", "plumbline.signature.json"), make("p", "ledger__empty", t("verify.sheetEmpty")));
+  if (!v || v.refused) {
+    sheet.replaceChildren(make("p", "sheet__h", "plumbline.signature.json"), make("p", "ledger__empty", v ? t("verify.sheetRefused") : t("verify.sheetEmpty")));
     sheet.insertAdjacentHTML("beforeend", `<div class="sheet__seal">${Art.seal(null, "blank")}</div>`);
     return;
   }
@@ -544,6 +555,41 @@ function go(view) {
 
 // ---- the assistant panel ----
 
+// "Save and start" in the runtime's settings reloads the page (runtime/ui.js, location.reload()), and the panel starts
+// closed after a load. A note in this tab's sessionStorage, made as the button is pressed, reopens it after the reload.
+// The note holds the time it was made and counts for a minute only, so a press that did not reload (a missing key)
+// does not reopen the panel on some later, unrelated load.
+const DOCK_REOPEN_ITEM = "plumbline-desk.reopen-assistant";
+const DOCK_REOPEN_MS = 60_000;
+
+/** Notes that the panel should reopen after the coming reload. */
+export function noteDockReopen(store, now = Date.now()) {
+  try {
+    store.setItem(DOCK_REOPEN_ITEM, String(now));
+  } catch {
+    // no storage: the panel starts closed, as before
+  }
+}
+
+/** True once when a fresh note is waiting; the note is removed either way. */
+export function takeDockReopen(store, now = Date.now()) {
+  try {
+    const at = Number(store.getItem(DOCK_REOPEN_ITEM));
+    store.removeItem(DOCK_REOPEN_ITEM);
+    return Number.isFinite(at) && at > 0 && now - at >= 0 && now - at < DOCK_REOPEN_MS;
+  } catch {
+    return false;
+  }
+}
+
+function tabStore() {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
 function setDock(open) {
   const dock = $("assistant");
   const tab = $("dock-tab");
@@ -563,6 +609,16 @@ function wireShell() {
   $("dock-tab").addEventListener("click", () => setDock($("assistant").hidden));
   $("dock-close").addEventListener("click", () => setDock(false));
   $("home-compass").addEventListener("click", () => go(null));
+  // Captured before the runtime's own handler, which may reload the page before anything else runs.
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const store = tabStore();
+      if (store && target && target.closest("#ns-apply")) noteDockReopen(store);
+    },
+    true,
+  );
   window.addEventListener("hashchange", route);
   document.addEventListener("keydown", (event) => {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -599,7 +655,10 @@ function start() {
   });
   wireShell();
   route();
+  const store = tabStore();
+  if (store && takeDockReopen(store)) setDock(true);
   document.documentElement.classList.add("is-ready");
 }
 
-start();
+// Browser only: the Node tests import this module for its helpers and never start it.
+if (typeof window !== "undefined") start();

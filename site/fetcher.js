@@ -9,9 +9,28 @@
 // "network", and the gate reports that adapter `unavailable`, never `pass`. A browser follows up to 20 redirects
 // itself, so safeFetch's limit of 3 is not enforced here.
 
-import { DEFAULT_TIMEOUT_MS, MAX_BODY_BYTES, SafeFetchError } from "./lib/plumbline/net/fetch-types.js";
+import { DEFAULT_TIMEOUT_MS, MAX_BODY_BYTES, MAX_RUNTIME_FILE_BYTES, SafeFetchError } from "./lib/plumbline/net/fetch-types.js";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+/**
+ * The Desk's one address rule: what it may fetch is https, or plain http on localhost and 127.0.0.1 only (local
+ * checks). desk.js's target check and its pattern for addresses shown to the model, and this fetcher, all ask here.
+ *
+ * :param value: An address, as text.
+ * :return: The parsed URL when the Desk may fetch it, else null.
+ */
+export function fetchableUrl(value) {
+  if (typeof value !== "string") return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol === "https:") return url;
+  return url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname) ? url : null;
+}
 
 async function readCapped(response, limit, controller) {
   if (!response.body || typeof response.body.getReader !== "function") {
@@ -49,15 +68,16 @@ async function readCapped(response, limit, controller) {
  */
 export function makeBrowserFetcher(fetchImpl = (...args) => globalThis.fetch(...args)) {
   return async function browserFetch(url, options = {}) {
-    let target;
     try {
-      target = new URL(url);
+      new URL(url);
     } catch {
       throw new SafeFetchError("bad-url", "not a valid URL");
     }
-    const loopbackHttp = target.protocol === "http:" && LOOPBACK_HOSTS.has(target.hostname);
-    if (target.protocol !== "https:" && !loopbackHttp) throw new SafeFetchError("insecure-scheme", "only https is fetched");
-    const limit = Math.min(Number.isFinite(options.maxBytes) ? options.maxBytes : MAX_BODY_BYTES, MAX_BODY_BYTES);
+    const target = fetchableUrl(String(url));
+    if (target === null) throw new SafeFetchError("insecure-scheme", "only https is fetched");
+    // a runtime file (only the runtime-drift check asks) may be larger than a network definition; nothing else may
+    const ceiling = options.ceiling === "runtime" ? MAX_RUNTIME_FILE_BYTES : MAX_BODY_BYTES;
+    const limit = Math.min(Number.isFinite(options.maxBytes) ? options.maxBytes : ceiling, ceiling);
     const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
     const controller = new AbortController();
     let timedOut = false;

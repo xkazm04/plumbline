@@ -23,6 +23,7 @@ export const STRINGS = {
     gate: "Gate. One check asks three independent checkers about a site: Plumbline's port of the reference validation rules, Agent Atlas and Agent Customs. Each says pass, fail or unavailable.",
     watch: "Watch. A published lock (plumbline.lock.json) records the runtime files, the grounding sources and the peers a site depends on; drift is any change since.",
     desk: "This Desk does all of it live. Every check runs in your browser, with your browser's rules: it can read only what the site lets other origins read.",
+    repoLead: "The source, the CLI and the GitHub Action:",
   },
 
   verdicts: {
@@ -38,15 +39,16 @@ export const STRINGS = {
 
   publish: {
     heading: "Publish a signature and a lock",
-    lead: "Keep the private key off the site and off this page if you can: sign on your build machine with the CLI.",
+    lead: "Keep the private key off the site and off this page if you can: sign on your build machine with the CLI. Write the lock first, then sign: the lock is one of the signed files, so a lock written after signing breaks the signature.",
     keygen: "plumbline keygen --out ~/plumbline-keys",
-    sign: "plumbline sign --root ./site --key ~/plumbline-keys/plumbline.private.json --origin https://your.site",
     lock: "plumbline watch --root ./site --init",
+    sign: "plumbline sign --root ./site --key ~/plumbline-keys/plumbline.private.json --origin https://your.site",
     publishFiles: "Publish plumbline.signature.json, .well-known/plumbline-key.json and plumbline.lock.json next to agent-manifest.json. Serve them with Access-Control-Allow-Origin: * like the other public agent files, or no browser on another site, this Desk included, can read them.",
     lockEncouraged: "Sites are encouraged to publish their lock: it lets anyone, here or in their own CI, see drift since the publisher last looked.",
     tellKid: "Tell your visitors your key id through a channel that is not the site itself, so they can trust it on first contact.",
-    tools: "The plumbline CLI and the GitHub Action that runs the gate and the watch in CI are in the Plumbline repository.",
-    repoPending: "Repository link: added when the repository is published.",
+    tools: "The plumbline CLI and the GitHub Action that runs the gate and the watch in CI are in the Plumbline repository:",
+    repoName: "github.com/xkazm04/plumbline",
+    repoLink: "https://github.com/xkazm04/plumbline",
   },
 
   gate: {
@@ -67,6 +69,7 @@ export const STRINGS = {
       customs: "Agent Customs",
     },
     unreachable: "{name} could not be reached",
+    done: "Check finished. Overall: {state}.",
   },
 
   drift: {
@@ -102,6 +105,15 @@ export const STRINGS = {
     },
     expected: "locked",
     actual: "now",
+    done: "Drift read: {n} findings, the worst {worst}. {lock}",
+    doneOne: "Drift read: 1 finding, {worst}. {lock}",
+    doneClean: "Drift read: nothing differs from the lock. {lock}",
+    doneSigned: "Signed lock.",
+    doneUnsigned: "Unsigned lock: the host can rewrite it.",
+    doneNoLock: "Drift read: this site publishes no lock, so nothing was compared.",
+    doneRefused: "Drift not read: the browser was refused this site's lock.",
+    doneNotRead: "Drift not read: this site's lock could not be used.",
+    noLockCaption: "No lock was read, so there is no course to plot.",
   },
 
   verify: {
@@ -153,7 +165,35 @@ export const STRINGS = {
     trustButton: "Trust this publisher for this origin",
     trustNeedsCheck: "Tick the box first: trust needs the out-of-band comparison.",
     trustBadKey: "The published key id does not belong to the published key, so it cannot be trusted.",
-    trusted: "Trusted. Verify again to see the verdict under your trust store.",
+    trusted: "Trusted. The site was verified again under your trust store: the verdict above is the new one.",
+    done: "Verify finished: {verdict}.",
+    refusedHead: "Not verified: this address was refused, and nothing was read.",
+    sheetRefused: "The last address was refused, so no signature was read.",
+    exportButton: "Export plumbline.trust.json",
+    importLabel: "Import a plumbline.trust.json (you confirm what it adds)",
+    trustFileNote: "The same file the CLI reads with plumbline verify --trust, so your trust decisions work in both.",
+    export: {
+      download: "Download plumbline.trust.json ({n} entries)",
+      leftOut: "{n} forgotten revoked keys are not in the file: the CLI format has no place for a key without its origin. Revocations of keys still listed are kept.",
+    },
+    import: {
+      heading: "Import {name}?",
+      lead: "Nothing is added until you confirm. Trust only what you meant to carry over, as you would at first contact:",
+      kinds: {
+        adds: "adds trust for this origin",
+        replaces: "replaces your entry for this origin",
+        revokes: "marked revoked: takes trust away",
+        staysRevoked: "stays revoked here: revoked in this browser already",
+      },
+      confirm: "Add these {n} to my trust list",
+      cancel: "Cancel the import",
+      nothing: "This file changes nothing in your trust list.",
+      unchanged: "{n} entries are already in your trust list as they are.",
+      rejected: "{n} entries were rejected: malformed, an origin the Desk does not accept, or a key id that does not belong to its key.",
+      done: "Imported {n} entries into your trust list.",
+      notJson: "Not imported: the file is not valid JSON.",
+      notTrustFile: "Not imported: the file is not a Plumbline trust file (version 1, with a list of entries).",
+    },
     trustListHeading: "Publishers you trust in this browser",
     trustListEmpty: "You trust no publishers yet.",
     trustListNote: "Kept in this browser's storage for this page only. Only these buttons add or remove a publisher; the assistant cannot. A revocation that verifies under a key you trust marks that key revoked: it can take trust away, never grant it.",
@@ -180,10 +220,22 @@ export const STRINGS = {
       "Key loss is identity loss. There is no recovery: nobody else holds the private key. Back up plumbline.private.json offline, and keep a second copy apart from the first.",
       "Never commit the private key, and never put it in the published site directory.",
       "A leaked key lets anyone sign as you, and rotate as you. Do not rotate after a leak: revoke the key, make a new one, and re-establish trust with your verifiers by first contact, out of band. Rotation is for planned changes while the old key is safe.",
-      "Revoke a key with the CLI: plumbline revoke --root ./site --key <leaked plumbline.private.json> writes plumbline-revocation.json; publish it next to agent-manifest.json. A revocation can only take trust away. This page reads revocations when it verifies; it does not make them.",
+      "Revoke a key below, where you made it, or with the CLI: plumbline revoke --root ./site --key <leaked plumbline.private.json>. Either writes plumbline-revocation.json; publish it next to agent-manifest.json. A revocation can only take trust away.",
       "A key held in browser memory is exposed to every script running on that origin. Anything on the page can use it or export it. Keep signing keys on a build machine or a hardware-backed store, not in the page.",
       "Signatures expire. Re-sign before the expiry date.",
     ],
+  },
+
+  revoke: {
+    heading: "Revoke a leaked key",
+    lead: "Pick the private key file of the key to revoke. The page signs a revocation with it, here in your browser, and offers plumbline-revocation.json to download. The key is used once and dropped; it is not stored or sent, and the assistant cannot reach it.",
+    keyLabel: "Private key file of the key to revoke (plumbline.private.json)",
+    reasonLabel: "Reason, for people (optional)",
+    button: "Make the revocation",
+    noKey: "Choose the private key file of the key to revoke first.",
+    made: "Revocation made for key",
+    download: "Download plumbline-revocation.json",
+    next: "Publish it next to agent-manifest.json. Every verifier that reads it stops accepting anything this key signed, whatever the dates, and it cannot be taken back. Then make a new key and re-establish trust by first contact.",
   },
 
   sign: {
@@ -265,6 +317,12 @@ export const STRINGS = {
     greeting: "I can run the gate on a site, read its drift, verify its signature, make you a publisher key and, after you confirm, sign the files you picked on this page. I can also ask Agent Atlas or Agent Customs what they offer.",
     bundled: "Nothing ran. \"{confirm}\" needs its own confirmation, so ask the assistant to do that on its own.",
     untypedHost: "Type this address into the page first: the assistant cannot send the Desk to a site you did not choose.",
+    rememberKey: "Remember my AI provider key on this device",
+    rememberNote: "Unticked, the Desk keeps your key in this tab only: it removes it from this browser's saved setups when the page starts and when you leave it, whatever the settings below say. Ticked, the next Save and start keeps it in this browser.",
+    tooLong: "Not sent to {name}: the request was {n} characters, longer than the 140 the card can show, so you could not have read all of it.",
+    notPinned: "Not sent to {name}: its published network is not the one this Desk's lock pins ({why}). It may have changed since the Desk was published.",
+    pinUnread: "Not sent to {name}: the Desk could not read its own lock to check the partner ({why}).",
+    declinedByDesk: "\u2715 Declined by the Desk",
   },
 
   fix: {
@@ -335,6 +393,9 @@ export const STRINGS = {
   errors: {
     badTarget: "Give a full address that starts with https:// (http only for localhost).",
     unexpected: "Something went wrong in the page; nothing was changed.",
+    framed: "This page is inside another site's frame, so it will not trust a publisher, make or use a key, or import trust here. Open the Desk in its own tab for those.",
+    noEd25519: "This browser does not give this page Ed25519 in WebCrypto (an older browser, or a page not served over https), so the Desk cannot make keys, sign or check signatures here. Use a current Chrome, Edge, Firefox or Safari, over https.",
+    noEd25519Verify: "Not checked: this browser does not give this page Ed25519 in WebCrypto, so no signature can be checked here. That says nothing about the site.",
     storage: "The trust list could not be saved in this browser.",
   },
 

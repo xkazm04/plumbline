@@ -8,7 +8,7 @@
 // private field until it is signed with or cleared. No result of any operation contains private key material.
 
 import { t, STRINGS } from "./strings.js";
-import { makeBrowserFetcher } from "./fetcher.js";
+import { fetchableUrl, makeBrowserFetcher } from "./fetcher.js";
 import { publishedUrl, readDrift, siteBase } from "./drift.js";
 import { openReviewDialog } from "./review-dialog.js";
 import { runGateWith, ALL_ADAPTERS } from "./lib/plumbline/gate/run.js";
@@ -31,6 +31,7 @@ import {
   keyId,
   keyIdOfPrivate,
   parseManifest,
+  revokeKey,
   signSubjects,
   signedPathsOf,
   spreadRevocations,
@@ -45,6 +46,8 @@ import { EXAMPLE_RUNS } from "./examples.js";
 export const PRIVATE_KEY_FILE = "plumbline.private.json";
 export const PRIVATE_KEY_TYPE = "plumbline-private-key";
 const TRUST_STORAGE_KEY = "plumbline-desk.trust.v1";
+/** The CLI's trust file (docs/signature-format.md, "plumbline.trust.json (CLI format)"); core names no constant for it. */
+export const TRUST_FILE = "plumbline.trust.json";
 const MAX_DAYS = 3650;
 const DAY_MS = 86_400_000;
 
@@ -76,14 +79,8 @@ export function safePath(value) {
  */
 export function safeUrl(value) {
   if (typeof value !== "string" || value.length > 2000) return withheld();
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    return withheld();
-  }
-  const local = url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
-  if ((url.protocol !== "https:" && !local) || url.username || url.password || url.search || url.hash || !HOSTNAME.test(url.hostname)) return withheld();
+  const url = fetchableUrl(value);
+  if (url === null || url.username || url.password || url.search || url.hash || !HOSTNAME.test(url.hostname)) return withheld();
   if (url.href !== value && url.href !== `${value}/`) return withheld();
   const path = url.pathname.replace(/^\//, "").replace(/\/$/, "");
   return path === "" || isSafeSubjectPath(path) ? value : withheld();
@@ -123,15 +120,36 @@ function refuse(reason, field) {
 /** A target address the Desk will fetch: https, or http on localhost and 127.0.0.1 only. */
 export function checkTarget(target) {
   if (typeof target !== "string" || target.trim() === "") return null;
-  let url;
+  const url = fetchableUrl(target.trim());
+  return url === null ? null : url.href;
+}
+
+/**
+ * True when this page runs inside another page's frame. GitHub Pages cannot send frame-ancestors (site/_headers), so a
+ * framing site could lay its own buttons over the Desk's (click-jacking); in a frame the Desk refuses every action that
+ * adds trust, makes or uses a key. A frame whose top cannot even be compared counts as framed.
+ */
+export function isFramed(win = typeof window === "undefined" ? undefined : window) {
+  if (!win) return false;
   try {
-    url = new URL(target.trim());
+    return win.top !== win.self;
   } catch {
-    return null;
+    return true;
   }
-  if (url.protocol === "https:") return url.href;
-  if (url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1")) return url.href;
-  return null;
+}
+
+// RFC 8032, test 1: a valid Ed25519 public key, used only to ask the browser whether it can import one.
+const PROBE_PUBLIC_KEY = new Uint8Array("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".match(/../g).map((h) => parseInt(h, 16)));
+
+/** True when this browser's WebCrypto does Ed25519 (the Desk's keys, signatures and verdicts all need it). */
+export async function probeEd25519(subtle = globalThis.crypto && globalThis.crypto.subtle) {
+  if (!subtle || typeof subtle.importKey !== "function") return false;
+  try {
+    await subtle.importKey("raw", PROBE_PUBLIC_KEY, "Ed25519", false, ["verify"]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const isRecord = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -242,11 +260,12 @@ export class TrustBook {
    * was revoked, stays revoked.
    */
   add(entry) {
-    const revokedAt = entry.revokedAt ?? this.forKid(entry.kid).find((e) => e.revokedAt !== undefined)?.revokedAt ?? this.tombstone(entry.kid)?.revokedAt;
-    this.entries = this.entries.filter((e) => !(e.kid === entry.kid && e.origin === entry.origin));
-    this.entries.push(TrustBook.#entry({ ...entry, ...(revokedAt !== undefined ? { revokedAt } : {}) }));
-    this.#spread();
-    return this.save();
+    return this.addAll([entry]);
+  }
+
+  /** The stored shape of an entry (kid, origin, publicKey, and revokedAt and adoptedVia when set). */
+  static entryOf(e) {
+    return TrustBook.#entry(e);
   }
 
   /** Replaces the whole store with the entries a VERIFIED revocation returned (applyRevocation's result.entries). */
@@ -262,6 +281,62 @@ export class TrustBook {
     this.entries = this.entries.filter((e) => !(e.kid === kid && e.origin === origin));
     return this.save();
   }
+
+  /**
+   * The store in the CLI's trust file format (docs/signature-format.md, "plumbline.trust.json (CLI format)"):
+   * {version: 1, entries: [{kid, origin, publicKey, revokedAt?, adoptedVia?}]}. Tombstones have no place in it (an
+   * entry needs an origin and a key), so they are counted, not written.
+   */
+  exportFile() {
+    return { file: { version: 1, entries: this.entries.map(TrustBook.#entry) }, leftOut: this.list().filter((e) => e.forgotten).length };
+  }
+
+  /**
+   * Adds or replaces the entries for each (kid, origin), saved once. A key already marked revoked under any origin, or
+   * forgotten after it was revoked, stays revoked.
+   */
+  addAll(entries) {
+    for (const entry of entries) {
+      const revokedAt = entry.revokedAt ?? this.forKid(entry.kid).find((e) => e.revokedAt !== undefined)?.revokedAt ?? this.tombstone(entry.kid)?.revokedAt;
+      this.entries = this.entries.filter((e) => !(e.kid === entry.kid && e.origin === entry.origin));
+      this.entries.push(TrustBook.#entry({ ...entry, ...(revokedAt !== undefined ? { revokedAt } : {}) }));
+    }
+    this.#spread();
+    return this.save();
+  }
+}
+
+/**
+ * Reads a trust file in the CLI's format for import. Every entry is held to the Desk's stored-entry patterns (core's
+ * isKid and isPublicKey, an acceptable origin, an ISO revokedAt, a kid adoptedVia) and its kid must be derived from
+ * its own key; anything else is rejected, never repaired. Nothing is added here: the page lists the result and the
+ * visitor confirms it with a button.
+ *
+ * :return: {ok: true, entries, rejected} or {ok: false, reason}.
+ */
+export async function readTrustFile(text) {
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return refuse(t("verify.import.notJson"));
+  }
+  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.entries)) return refuse(t("verify.import.notTrustFile"));
+  const entries = [];
+  let rejected = 0;
+  for (const raw of value.entries) {
+    let derived = null;
+    if (storedEntryOk(raw)) {
+      try {
+        derived = await keyId(raw.publicKey);
+      } catch {
+        derived = null;
+      }
+    }
+    if (derived !== null && derived === raw.kid) entries.push(TrustBook.entryOf(raw));
+    else rejected += 1;
+  }
+  return { ok: true, entries, rejected };
 }
 
 function defaultStorage() {
@@ -338,14 +413,55 @@ export class DeskPage {
     this.partners = null;
     this.signing = { version: 0, busy: false, origin: "", days: 90, keyFile: null, siteFiles: [], subjects: [], ignored: [], problem: null };
     this.notices = {};
+    // In another site's frame, nothing that adds trust or makes or uses a key runs (isFramed).
+    this.framed = deps.framed === undefined ? isFramed() : deps.framed;
+    // Whether this browser does Ed25519: null until probed once (ed25519Ready), then true or false.
+    this.probe = deps.probe || probeEd25519;
+    this.ed25519 = null;
+    this.ed25519Probe = null;
+    // Each read tool's run number: a slower answer to an earlier question never replaces the newer one on the page.
+    this.runs = { gate: 0, drift: 0, verify: 0 };
+    this.trustImport = null;
+    this.trustExport = null;
+    this.revocation = null;
   }
 
-  /** Test and embedding hook: replace the fetcher, the clock or the storage. */
+  /** Test and embedding hook: replace the fetcher, the clock, the storage, the frame test or the Ed25519 probe. */
   configure(deps = {}) {
     if (deps.fetch) this.fetch = deps.fetch;
     if (deps.ownOrigin) this.ownOrigin = deps.ownOrigin;
     if (deps.now) this.now = deps.now;
     if (deps.storage !== undefined) this.trust = new TrustBook(deps.storage);
+    if (deps.framed !== undefined) this.framed = deps.framed;
+    if (deps.probe) {
+      this.probe = deps.probe;
+      this.ed25519 = null;
+      this.ed25519Probe = null;
+    }
+  }
+
+  /** Asks the browser once whether it does Ed25519; every later call returns the same answer. */
+  async ed25519Ready() {
+    if (this.ed25519Probe === null) {
+      this.ed25519Probe = Promise.resolve()
+        .then(() => this.probe())
+        .then(
+          (ok) => ok === true,
+          () => false,
+        )
+        .then((ok) => {
+          this.ed25519 = ok;
+          return ok;
+        });
+    }
+    return this.ed25519Probe;
+  }
+
+  /** The refusal for an action that adds trust or makes or uses a key, when the page is framed or lacks Ed25519. */
+  async #refuseKeyWork() {
+    if (this.framed) return refuse(t("errors.framed"));
+    if (!(await this.ed25519Ready())) return refuse(t("errors.noEd25519"));
+    return null;
   }
 
   // ---- read: the page state the assistant may see (never key material) ----
@@ -361,7 +477,7 @@ export class DeskPage {
       lastDrift: this.drift
         ? { target: this.drift.target, lockFound: this.drift.lockFound, findings: this.drift.findings.length, blocking: this.drift.findings.filter((f) => f.severity === "block").length }
         : null,
-      lastVerification: this.verification ? this.verification.result : null,
+      lastVerification: this.verification ? (this.verification.refused ? { refused: this.verification.refused.reason } : this.verification.result) : null,
       generatedKey: this.key ? { kid: this.key.kid, offeredOnPage: this.key.offers.map((o) => o.path), downloaded: this.key.downloaded } : null,
       signing: {
         version: s.version,
@@ -405,9 +521,13 @@ export class DeskPage {
     if (target === null) return refuse(t("errors.badTarget"), "target");
     const denied = this.#refuseUnchosen(target, how);
     if (denied) return denied;
+    const run = ++this.runs.gate;
     const report = await runGateWith({ target, adapters: [...ALL_ADAPTERS] }, { fetch: this.fetch, defaultTimeoutMs: DEFAULT_TIMEOUT_MS, now: this.now });
-    this.gate = report;
-    this.render("gate");
+    // The caller gets its own answer; the page keeps showing the answer to the last question asked.
+    if (run === this.runs.gate) {
+      this.gate = report;
+      this.render("gate");
+    }
     return report;
   }
 
@@ -418,6 +538,7 @@ export class DeskPage {
     if (target === null) return refuse(t("errors.badTarget"), "target");
     const denied = this.#refuseUnchosen(target, how);
     if (denied) return denied;
+    const run = ++this.runs.drift;
     const base = await siteBase(target, this.fetch);
     // D3: the signature is verified first, against the trust store as it is (nothing is written), and the lock bytes it
     // read are the ones drift compares, so a host cannot serve the signed lock to the check and another to the reading.
@@ -427,8 +548,10 @@ export class DeskPage {
     const result = await readDrift(target, this.fetch, { timeoutMs: DEFAULT_TIMEOUT_MS, base, lockFetch: check.lockFetch });
     result.lockSigned = lockSigned;
     result.lockLabel = lockSigned ? t("drift.signedLock") : t("drift.unsignedLock");
-    this.drift = result;
-    this.render("drift");
+    if (run === this.runs.drift) {
+      this.drift = result;
+      this.render("drift");
+    }
     return {
       target: result.target,
       lockUrl: safeUrl(result.lockUrl),
@@ -444,16 +567,36 @@ export class DeskPage {
   // ---- read: verify ----
 
   async verifySite(args, how = {}) {
+    const run = ++this.runs.verify;
+    // "Trusted" belongs to the verdict right after the Trust button only (trustPublisher sets it again).
+    this.notices.trust = null;
+    // The verdict on the page always belongs to the last address asked: a refusal replaces the one shown before.
+    const show = (verification) => {
+      if (run !== this.runs.verify) return;
+      this.verification = verification;
+      this.render("verify");
+    };
+    const refused = (refusal) => {
+      const asked = args && typeof args.target === "string" ? args.target.trim().slice(0, 300) : "";
+      show({ result: null, refused: { target: asked, reason: refusal.reason }, publishedKey: null });
+      return refusal;
+    };
     const target = checkTarget(args && args.target);
-    if (target === null) return refuse(t("errors.badTarget"), "target");
+    if (target === null) return refused(refuse(t("errors.badTarget"), "target"));
     const denied = this.#refuseUnchosen(target, how);
-    if (denied) return denied;
+    if (denied) return refused(denied);
+    // Without Ed25519 every signature check would fail and read as a false "invalid": say why nothing was verified.
+    if (!(await this.ed25519Ready())) {
+      const none = { target, verdict: "unverifiable", detail: t("errors.noEd25519Verify"), meaning: t("verdicts.unverifiableMeaning"), signed: false };
+      show({ result: none, publishedKey: null });
+      return none;
+    }
     const base = await siteBase(target, this.fetch);
     // The revocation is read first, so a key the site has revoked is dead for this verdict (and in the trust store),
     // whether or not the site still publishes a signature.
     const check = await this.#verifyAt(base, { persist: true });
     if (check.revocation.state === "applied") this.render("trust");
-    if (check.refusal) return refuse(check.refusal, "target");
+    if (check.refusal) return refused(refuse(check.refusal, "target"));
     const r = check.result;
     const full = {
       target,
@@ -477,8 +620,7 @@ export class DeskPage {
           }
         : {}),
     };
-    this.verification = { result: full, publishedKey: check.firstContact || null };
-    this.render("verify");
+    show({ result: full, publishedKey: check.firstContact || null });
     return full;
   }
 
@@ -676,6 +818,7 @@ export class DeskPage {
    * tool: the assistant cannot add trust.
    */
   async trustPublisher(compared) {
+    if (this.framed) return refuse(t("errors.framed"));
     const v = this.verification;
     if (!v || !v.publishedKey) return refuse(t("errors.unexpected"));
     if (compared !== true) return refuse(t("verify.trustNeedsCheck"), "compared");
@@ -688,14 +831,83 @@ export class DeskPage {
     }
     if (derived !== kid) return refuse(t("verify.trustBadKey"));
     const saved = this.trust.add({ kid, origin: v.result.fetchedFrom, publicKey });
+    this.render("trust");
+    // The verdict under the new trust store, right away: the same site verified again (a page call, as the visitor's).
+    const again = await this.verifySite({ target: v.result.target });
     this.notices.trust = saved ? t("verify.trusted") : `${t("verify.trusted")} ${t("verify.storageUnavailable")}`;
     this.render("verify");
-    this.render("trust");
-    return { ok: true, kid, origin: v.result.fetchedFrom };
+    return { ok: true, kid, origin: v.result.fetchedFrom, ...(again && again.verdict ? { verdict: again.verdict } : {}) };
   }
 
   forgetPublisher(kid, origin) {
     this.trust.remove(kid, origin);
+    this.render("trust");
+    return { ok: true };
+  }
+
+  // ---- the trust store as the CLI's plumbline.trust.json (page only; never a tool) ----
+
+  /** Offers the trust store as plumbline.trust.json, the file `plumbline verify --trust` reads. */
+  exportTrust() {
+    const { file, leftOut } = this.trust.exportFile();
+    if (this.trustExport) revoke(this.trustExport.offer);
+    this.trustExport = { offer: offer(TRUST_FILE, `${JSON.stringify(file, null, 2)}\n`), count: file.entries.length, leftOut };
+    this.render("trust");
+    return { ok: true, entries: file.entries.length, leftOut };
+  }
+
+  /**
+   * The visitor picked a trust file to import. It is read and checked, and what it would change is listed on the page;
+   * nothing is added until the visitor presses the confirm button (confirmTrustImport).
+   */
+  async chooseTrustImport(file) {
+    this.trustImport = null;
+    if (!file) {
+      this.render("trust");
+      return { ok: true };
+    }
+    let text;
+    try {
+      text = await readFileText(file);
+    } catch {
+      text = "";
+    }
+    const read = await readTrustFile(text);
+    if (!read.ok) {
+      this.trustImport = { problem: read.reason };
+      this.render("trust");
+      return read;
+    }
+    const changes = [];
+    let unchanged = 0;
+    for (const entry of read.entries) {
+      const known = this.trust.find(entry.kid, entry.origin);
+      const revokedHere = this.trust.tombstone(entry.kid) !== undefined || this.trust.forKid(entry.kid).some((e) => e.revokedAt !== undefined);
+      if (known && known.publicKey === entry.publicKey && (known.revokedAt !== undefined || entry.revokedAt === undefined) && known.adoptedVia === entry.adoptedVia) {
+        unchanged += 1;
+        continue;
+      }
+      const kind = entry.revokedAt !== undefined ? "revokes" : revokedHere ? "staysRevoked" : known ? "replaces" : "adds";
+      changes.push({ entry, kind });
+    }
+    this.trustImport = { name: file.name, changes, unchanged, rejected: read.rejected };
+    this.render("trust");
+    return { ok: true, changes: changes.length, unchanged, rejected: read.rejected };
+  }
+
+  /** The visitor confirmed the listed import: the entries are added (a revocation in them only takes trust away). */
+  confirmTrustImport() {
+    if (this.framed) return refuse(t("errors.framed"));
+    const pending = this.trustImport;
+    if (!pending || !Array.isArray(pending.changes) || pending.changes.length === 0) return refuse(t("verify.import.nothing"));
+    const saved = this.trust.addAll(pending.changes.map((c) => c.entry));
+    this.trustImport = { done: t("verify.import.done", { n: pending.changes.length }), saved };
+    this.render("trust");
+    return { ok: true, added: pending.changes.length };
+  }
+
+  cancelTrustImport() {
+    this.trustImport = null;
     this.render("trust");
     return { ok: true };
   }
@@ -705,6 +917,8 @@ export class DeskPage {
   async generateKey(how = {}) {
     // D4: the assistant never throws away a key the visitor has not downloaded; only the visitor can (Discard).
     if (how.caller === "assistant" && this.key && !this.key.downloaded) return refuse(t("key.keepUndownloaded"));
+    const blocked = await this.#refuseKeyWork();
+    if (blocked) return blocked;
     const { key, privateKey } = await generateKey(this.now());
     const privateFile = { type: PRIVATE_KEY_TYPE, version: FORMAT_VERSION, alg: ALG, kid: key.kid, privateKey };
     this.discardKey(true);
@@ -743,6 +957,57 @@ export class DeskPage {
     return { ok: true, discarded: had };
   }
 
+  // ---- revoke a leaked key (page only; never a tool) ----
+
+  /**
+   * Makes plumbline-revocation.json with core's revokeKey from a private key file the visitor picked, and offers it as
+   * a download. The private key is read here, used once and dropped: it is never stored, returned or shown, and the
+   * assistant has no way to reach it. Publishing the file is the visitor's step.
+   *
+   * :param file: The plumbline.private.json the visitor picked.
+   * :param reason: An optional note for people, kept in the statement.
+   */
+  async revokeWithKeyFile(file, reason = "") {
+    const blocked = await this.#refuseKeyWork();
+    if (blocked) return this.#revocationRefused(blocked);
+    if (!file) return this.#revocationRefused(refuse(t("revoke.noKey"), "key"));
+    let parsed;
+    try {
+      parsed = JSON.parse(await readFileText(file));
+    } catch {
+      parsed = null;
+    }
+    const shaped = isRecord(parsed) && parsed.type === PRIVATE_KEY_TYPE && parsed.version === FORMAT_VERSION && parsed.alg === ALG && isKid(parsed.kid) && typeof parsed.privateKey === "string";
+    let publicKey = null;
+    if (shaped) {
+      try {
+        publicKey = (await keyIdOfPrivate(parsed.privateKey)) === parsed.kid ? await derivePublicKey(parsed.privateKey) : null;
+      } catch {
+        publicKey = null;
+      }
+    }
+    if (publicKey === null) return this.#revocationRefused(refuse(t("sign.refusals.badKey"), "key"));
+    const note = typeof reason === "string" ? reason.trim().slice(0, 500) : "";
+    const now = this.now();
+    const statement = await revokeKey({
+      privateKey: parsed.privateKey,
+      key: { type: KEY_TYPE, version: FORMAT_VERSION, alg: ALG, kid: parsed.kid, publicKey, createdAt: now.toISOString() },
+      now,
+      ...(note ? { reason: note } : {}),
+    });
+    if (this.revocation && this.revocation.offer) revoke(this.revocation.offer);
+    this.revocation = { kid: statement.kid, revokedAt: statement.revokedAt, offer: offer(REVOCATION_FILE, `${JSON.stringify(statement, null, 2)}\n`) };
+    this.render("revoke");
+    return { ok: true, kid: statement.kid, revokedAt: statement.revokedAt, offeredOnPage: REVOCATION_FILE };
+  }
+
+  #revocationRefused(refusal) {
+    if (this.revocation && this.revocation.offer) revoke(this.revocation.offer);
+    this.revocation = { problem: refusal.reason };
+    this.render("revoke");
+    return refusal;
+  }
+
   // ---- signing: choosing files (page only) ----
 
   setSignOrigin(origin) {
@@ -769,6 +1034,11 @@ export class DeskPage {
     this.signing.busy = true;
     this.render("sign");
     try {
+      // A browser without Ed25519 cannot read any key: say that, never "not a Plumbline key file".
+      if (!(await this.ed25519Ready())) {
+        this.signing.keyFile = { name: file.name, unsupported: true };
+        return;
+      }
       let parsed;
       try {
         parsed = JSON.parse(await readFileText(file));
@@ -897,6 +1167,8 @@ export class DeskPage {
    */
   checkSign(expectedVersion) {
     const s = this.signing;
+    if (this.framed) return refuse(t("errors.framed"));
+    if (this.ed25519 === false || (s.keyFile && s.keyFile.unsupported)) return refuse(t("errors.noEd25519"), "key");
     if (s.busy) return refuse(t("sign.refusals.busy"));
     if (expectedVersion !== undefined && expectedVersion !== s.version) return refuse(t("sign.refusals.stale"), "expectedVersion");
     if (!s.keyFile) return refuse(t("sign.refusals.noKey"), "key");
@@ -920,14 +1192,17 @@ export class DeskPage {
   async signFiles(args = {}) {
     const check = this.checkSign(args.expectedVersion);
     if (!check.ok) return check;
+    // Everything signed is captured here, in the same step as the check: the files the check (and the dialog) listed,
+    // never the live list read again after an await, when a change of files could have landed.
     const privateKey = this.#signingKey;
+    const files = this.signing.subjects.map((x) => ({ path: x.path, content: x.content }));
     const now = this.now();
     const key = { type: KEY_TYPE, version: FORMAT_VERSION, alg: ALG, kid: check.kid, publicKey: await derivePublicKey(privateKey), createdAt: now.toISOString() };
     const signature = await signSubjects({
       privateKey,
       key,
       origin: check.origin,
-      files: this.signing.subjects.map((x) => ({ path: x.path, content: x.content })),
+      files,
       now,
       lifetimeDays: check.days,
     });
@@ -1126,6 +1401,13 @@ function renderVerify(page) {
     out.replaceChildren(el("p", t("verify.empty"), "empty"));
     return;
   }
+  if (v.refused) {
+    // A refused address replaces the verdict shown before: nothing was read, so nothing is claimed about any site.
+    const head = el("p", null, "overall");
+    head.append(el("strong", t("verify.refusedHead")), el("span", ` ${v.refused.target}`, "target"));
+    out.replaceChildren(head, el("p", v.refused.reason, "notice"));
+    return;
+  }
   const r = v.result;
   const nodes = [];
   const head = el("p", null, "overall");
@@ -1170,6 +1452,7 @@ function renderVerify(page) {
     const button = el("button", t("verify.trustButton"));
     button.type = "button";
     button.id = "trust-button";
+    button.disabled = page.framed;
     const status = el("p", page.notices.trustError || "", "status");
     status.setAttribute("role", "status");
     button.addEventListener("click", async () => {
@@ -1222,6 +1505,62 @@ function renderTrust(page) {
   }
   if (!page.trust.persistent) nodes.push(el("p", t("verify.storageUnavailable"), "note"));
   out.replaceChildren(...nodes);
+  renderTrustFile(page);
+}
+
+/** The export download and the import that waits for the visitor's confirmation. */
+function renderTrustFile(page) {
+  const out = byId("trust-io-result");
+  const nodes = [];
+  const x = page.trustExport;
+  if (x) {
+    nodes.push(downloadLink(x.offer, t("verify.export.download", { n: x.count })));
+    if (x.leftOut) nodes.push(el("p", t("verify.export.leftOut", { n: x.leftOut }), "note"));
+  }
+  const imp = page.trustImport;
+  if (imp && imp.problem) nodes.push(el("p", imp.problem, "notice"));
+  else if (imp && imp.done) nodes.push(el("p", imp.saved ? imp.done : `${imp.done} ${t("verify.storageUnavailable")}`, "notice"));
+  else if (imp) {
+    const box = el("section", null, "first-contact trust-import");
+    box.setAttribute("aria-labelledby", "trust-import-heading");
+    const h = el("h4", t("verify.import.heading", { name: imp.name }));
+    h.id = "trust-import-heading";
+    box.append(h);
+    if (imp.changes.length) {
+      box.append(el("p", t("verify.import.lead")));
+      const list = el("ul", null, "trust-entries");
+      for (const c of imp.changes) {
+        const item = el("li");
+        item.append(el("code", c.entry.kid), el("span", ` ${c.entry.origin} `), el("span", t(`verify.import.kinds.${c.kind}`), c.kind === "adds" || c.kind === "replaces" ? "import-adds" : "import-revokes"));
+        list.append(item);
+      }
+      box.append(list);
+    } else box.append(el("p", t("verify.import.nothing")));
+    if (imp.unchanged) box.append(el("p", t("verify.import.unchanged", { n: imp.unchanged }), "note"));
+    if (imp.rejected) box.append(el("p", t("verify.import.rejected", { n: imp.rejected }), "notice"));
+    const row = el("div", null, "btnrow");
+    if (imp.changes.length) {
+      const confirm = el("button", t("verify.import.confirm", { n: imp.changes.length }));
+      confirm.type = "button";
+      confirm.id = "trust-import-confirm";
+      confirm.disabled = page.framed;
+      confirm.addEventListener("click", () => {
+        const result = page.confirmTrustImport();
+        if (!result.ok) byId("trust-io-status").textContent = result.reason;
+      });
+      row.append(confirm);
+    }
+    const cancel = el("button", t("verify.import.cancel"));
+    cancel.type = "button";
+    cancel.id = "trust-import-cancel";
+    cancel.addEventListener("click", () => page.cancelTrustImport());
+    row.append(cancel);
+    box.append(row);
+    nodes.push(box);
+  }
+  out.replaceChildren(...nodes);
+  // Once an import is settled, the picker is emptied, so the same file can be picked again.
+  if (!imp || imp.done || imp.problem) byId("trust-import").value = "";
 }
 
 function downloadLink(item, label) {
@@ -1260,6 +1599,9 @@ function renderSign(page) {
   const out = byId("sign-result");
   const s = page.signing;
   renderLedger(page);
+  // No key held (signed with, cleared, or never chosen): the key picker is emptied too, so picking the same file again
+  // is a change the page hears, and signing twice needs no hidden step.
+  if (!s.keyFile && !s.busy) byId("sign-key").value = "";
   const nodes = [];
   if (s.busy) nodes.push(el("p", t("sign.preparing"), "status"));
   const check = page.checkSign();
@@ -1297,6 +1639,26 @@ function renderLedger(page) {
   out.replaceChildren(...nodes);
 }
 
+/** The revocation made on the page: its download, or why none was made. */
+function renderRevoke(page) {
+  const out = byId("revoke-result");
+  const r = page.revocation;
+  if (!r) {
+    out.replaceChildren();
+    return;
+  }
+  // The private key file has been used (or refused): the picker lets go of it.
+  byId("revoke-key").value = "";
+  if (r.problem) {
+    // The refusal is said once, in the status line under the button (a live region).
+    out.replaceChildren();
+    return;
+  }
+  const made = el("p", null, "notice");
+  made.append(el("span", `${t("revoke.made")} `), el("code", r.kid, "kid"));
+  out.replaceChildren(made, downloadLink(r.offer, t("revoke.download")), el("p", t("revoke.next"), "note"));
+}
+
 function renderPartners(page) {
   const out = byId("partners-result");
   const p = page.partners;
@@ -1323,6 +1685,7 @@ const VIEWS = {
   trust: renderTrust,
   key: renderKey,
   sign: renderSign,
+  revoke: renderRevoke,
   partners: renderPartners,
 };
 
@@ -1348,26 +1711,60 @@ function busy(statusId, text) {
   node.textContent = text || "";
 }
 
-/** Run a page handler: show a status while it runs, show a refusal, never leave the page broken. */
-async function handle(statusId, runningText, work) {
+/**
+ * Run a page handler: show a status while it runs, show a refusal, never leave the page broken. The status lines are
+ * live regions (role=status), so what is set here at the end is read out: the refusal, or done(result) when given.
+ */
+async function handle(statusId, runningText, work, done) {
   busy(statusId, runningText);
   try {
     const result = await work();
-    busy(statusId, result && result.ok === false ? result.reason : "");
+    busy(statusId, result && result.ok === false ? result.reason : done ? done(result) : "");
   } catch (error) {
     console.error(error);
     busy(statusId, t("errors.unexpected"));
   }
 }
 
-function wireForm(formId, inputId, statusId, runningKey, method) {
+/**
+ * The sentence the status line says when a check, a drift reading or a verify ends, so a screen reader hears the
+ * verdict, not silence. Only the page's own words and verdicts: nothing a site wrote.
+ *
+ * :param kind: "gate", "drift" or "verify".
+ * :param result: What the page method returned (not a refusal).
+ */
+export function doneSentence(kind, result) {
+  if (kind === "gate") return t("gate.done", { state: t(`states.${result.state}`) });
+  if (kind === "drift") {
+    if (result.lockState === "absent") return t("drift.doneNoLock");
+    if (result.lockState === "refused") return t("drift.doneRefused");
+    if (!result.lockFound) return t("drift.doneNotRead");
+    const lock = result.lockSigned ? t("drift.doneSigned") : t("drift.doneUnsigned");
+    if (!result.findings.length) return t("drift.doneClean", { lock });
+    const worst = result.findings.reduce((w, f) => (SEVERITY_ORDER[f.severity] > SEVERITY_ORDER[w] ? f.severity : w), "info");
+    const words = { n: result.findings.length, worst: t(`drift.severity.${worst}`), lock };
+    return result.findings.length === 1 ? t("drift.doneOne", words) : t("drift.done", words);
+  }
+  const words = result.reason ? `${t(`states.${result.verdict}`)}: ${result.reasonInWords}` : t(`states.${result.verdict}`);
+  return t("verify.done", { verdict: words });
+}
+
+const SEVERITY_ORDER = { info: 0, warn: 1, block: 2 };
+
+function wireForm(formId, inputId, buttonId, statusId, runningKey, method, kind) {
   // D1: an address the visitor types into the page's own field is one the assistant may then use.
   byId(inputId).addEventListener("change", (event) => App.page.noteVisitorTarget(event.target.value));
   byId(formId).addEventListener("submit", (event) => {
     event.preventDefault();
+    const button = byId(buttonId);
+    // One run per form at a time: a second press while one is in flight does nothing.
+    if (button.disabled) return;
     const target = byId(inputId).value;
     App.page.noteVisitorTarget(target);
-    void handle(statusId, t(runningKey), () => App.page[method]({ target }));
+    button.disabled = true;
+    void handle(statusId, t(runningKey), () => App.page[method]({ target }), (result) => doneSentence(kind, result)).finally(() => {
+      button.disabled = false;
+    });
   });
 }
 
@@ -1386,13 +1783,42 @@ async function signFromPage() {
   return page.signFiles({ expectedVersion: check.version });
 }
 
-function wire() {
+/** The buttons that add trust, or make or use a key: refused in a frame, and without Ed25519. */
+const KEY_WORK_BUTTONS = ["key-generate", "sign-button", "revoke-make"];
+
+/**
+ * Says on the page what the Desk will not do here, and disables those buttons: in another site's frame (click-
+ * jacking) nothing that adds trust or makes or uses a key; in a browser without Ed25519, no key, signature or verdict.
+ */
+export async function showLimits(page = App.page) {
+  const lines = [];
+  if (page.framed) lines.push(t("errors.framed"));
+  if (!(await page.ed25519Ready())) lines.push(t("errors.noEd25519"));
+  const blocked = lines.length > 0;
+  for (const id of KEY_WORK_BUTTONS) byId(id).disabled = blocked;
+  if (page.framed) byId("trust-import").disabled = true;
+  const notice = byId("desk-notice");
+  notice.textContent = lines.join(" ");
+  notice.hidden = !blocked;
+  if (blocked) {
+    page.render("verify");
+    page.render("sign");
+  }
+  return lines;
+}
+
+/** Wires the page's own controls to App.page. Exported for the tests, which run it on the DOM stand-in. */
+export function wirePage() {
   const page = App.page;
-  wireForm("gate-form", "gate-target", "gate-status", "gate.running", "runGate");
-  wireForm("drift-form", "drift-target", "drift-status", "drift.running", "readDrift");
-  wireForm("verify-form", "verify-target", "verify-status", "verify.running", "verifySite");
+  wireForm("gate-form", "gate-target", "gate-run", "gate-status", "gate.running", "runGate", "gate");
+  wireForm("drift-form", "drift-target", "drift-run", "drift-status", "drift.running", "readDrift", "drift");
+  wireForm("verify-form", "verify-target", "verify-run", "verify-status", "verify.running", "verifySite", "verify");
   byId("key-generate").addEventListener("click", () => void handle("key-status", "", () => page.generateKey()));
   byId("key-discard").addEventListener("click", () => page.discardKey());
+  byId("revoke-make").addEventListener("click", () => {
+    const input = byId("revoke-key");
+    void handle("revoke-status", "", () => page.revokeWithKeyFile(input.files && input.files[0], byId("revoke-reason").value));
+  });
   byId("sign-origin").addEventListener("change", (event) => page.setSignOrigin(event.target.value));
   byId("sign-days").addEventListener("change", (event) => page.setSignDays(event.target.value));
   byId("sign-key").addEventListener("change", (event) => void handle("sign-status", "", () => page.chooseKeyFile(event.target.files && event.target.files[0])));
@@ -1404,6 +1830,8 @@ function wire() {
     page.notices.sign = null;
     page.clearSigning();
   });
+  byId("trust-export").addEventListener("click", () => void handle("trust-io-status", "", () => page.exportTrust()));
+  byId("trust-import").addEventListener("change", (event) => void handle("trust-io-status", "", () => page.chooseTrustImport(event.target.files && event.target.files[0])));
   byId("partners-check").addEventListener("click", () => void handle("partners-status", "", () => page.checkPartners()));
 }
 
@@ -1412,6 +1840,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined" && typeof d
   const page = App.page;
   page.signing.origin = byId("sign-origin").value.trim();
   page.signing.days = Number(byId("sign-days").value) || 90;
-  wire();
+  wirePage();
   for (const part of Object.keys(VIEWS)) page.render(part);
+  void showLimits(page);
 }
