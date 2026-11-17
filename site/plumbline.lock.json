@@ -38,6 +38,11 @@
       "runtime/turn-status.js": "378393e6a8939c5f1cd5dc3bc659c4e6835d6fb6aeff5adf09900db9986edbc0",
       "runtime/ui.js": "3030391c9445615b4266349da6ed189290d2b06cb9fd09f164ff5d1fd56c7f51",
       "runtime/web-crypto.js": "7af171a63243d1dc9257f40c234c4a67760898505f37ffcae18474cec3d64361"
+    },
+    "via": {
+      "repo": "cognizant-ai-labs/agentic-web",
+      "path": "skills/agentify-website/runtime",
+      "commit": "7817c1f75b8d4f497c869540212be17dda94dcae"
     }
   },
   "grounding": {
@@ -55,18 +60,18 @@
         "sha256": "872a92ccc1b249d804eb51365dc33f66250e16517b1180db5748689fe77ec25a"
       }
     ],
-    "builtAt": "2026-11-17T19:18:23.334Z"
+    "builtAt": "2026-11-17T22:54:07.016Z"
   },
   "peers": {
     "https://agent-atlas-phi.vercel.app/agent_atlas": {
       "sha256": "5edbbc5eb5fc00b45cfcc0e516cb80cf5dad5decea05c0b652ee99fcc34e002a",
       "links": "f70a05ff786b9d4f94ddc62ebf707e063e01bf6ae1504b4887e6a218682ffa27",
-      "checkedAt": "2026-11-17T19:18:23.334Z"
+      "checkedAt": "2026-11-17T22:54:07.016Z"
     },
     "https://montbaga.github.io/agent-customs/agent_customs": {
       "sha256": "b7d4dee97506615168c44ba0b9dc8304394bdac50b66464e9000942d7bebaacf",
       "links": "b1cc75b90ad31cbe7c49d0787bb681cf8b0265779bb8e6f564e969dee0c3e6a2",
-      "checkedAt": "2026-11-17T19:18:23.334Z"
+      "checkedAt": "2026-11-17T22:54:07.016Z"
     }
   }
 }
