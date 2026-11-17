@@ -5,8 +5,8 @@
     "commit": "53a787c",
     "files": {
       "runtime/LICENSE.txt": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
-      "runtime/NOTICE": "5b61bc35b065432d546db951b773609960c46c4db4b01c58264d6520e3f85ae6",
-      "runtime/README.md": "17553dbb8afe91245285f668dee5b5b60592b951e3093e5bad7f994762587db1",
+      "runtime/NOTICE": "611f5a5948a0dffcd2a347c8b3e674aa3b478ec8e3ac2e73920133731017639f",
+      "runtime/README.md": "849a70b33e2565a875791c36d908be179e3b9f553fc57eb1b891ac374905f7cf",
       "runtime/action-bridge.js": "c6446e47af1ccefa3e4e9a99f0fcd142081ad31202de7289bf38714d3a4d0dbc",
       "runtime/action-transport.js": "b2d998f7778121a38da1f6307e2de68412f98cd9814622d09562d91a686f302f",
       "runtime/actions.js": "899a1eb474f09ac2521b550eea936ff621ccf42fdd2b74e0729676eeec013fca",
@@ -36,13 +36,13 @@
       "runtime/trace.js": "b2186480f683649795f76ce371241da1c53c24cfcb140f0c57487caf5c7e0f43",
       "runtime/turn-control.js": "f291b4733b3b08860b3516f6feffca433b9d7b3939993aa626e9996ebe6eabca",
       "runtime/turn-status.js": "378393e6a8939c5f1cd5dc3bc659c4e6835d6fb6aeff5adf09900db9986edbc0",
-      "runtime/ui.js": "3030391c9445615b4266349da6ed189290d2b06cb9fd09f164ff5d1fd56c7f51",
+      "runtime/ui.js": "136d5935338d7454470cf44e2c4a1a1d57714cd8990fdc545ce96fb87280c57a",
       "runtime/web-crypto.js": "7af171a63243d1dc9257f40c234c4a67760898505f37ffcae18474cec3d64361"
     },
     "via": {
       "repo": "cognizant-ai-labs/agentic-web",
       "path": "skills/agentify-website/runtime",
-      "commit": "7817c1f75b8d4f497c869540212be17dda94dcae"
+      "commit": "7ee54a3eaf6339d2d05226e844c2e9c6eee2bf1b"
     }
   },
   "grounding": {
@@ -60,18 +60,18 @@
         "sha256": "872a92ccc1b249d804eb51365dc33f66250e16517b1180db5748689fe77ec25a"
       }
     ],
-    "builtAt": "2026-11-17T22:54:07.016Z"
+    "builtAt": "2026-11-17T23:42:53.185Z"
   },
   "peers": {
     "https://agent-atlas-phi.vercel.app/agent_atlas": {
       "sha256": "5edbbc5eb5fc00b45cfcc0e516cb80cf5dad5decea05c0b652ee99fcc34e002a",
       "links": "f70a05ff786b9d4f94ddc62ebf707e063e01bf6ae1504b4887e6a218682ffa27",
-      "checkedAt": "2026-11-17T22:54:07.016Z"
+      "checkedAt": "2026-11-17T23:42:53.185Z"
     },
     "https://montbaga.github.io/agent-customs/agent_customs": {
       "sha256": "b7d4dee97506615168c44ba0b9dc8304394bdac50b66464e9000942d7bebaacf",
       "links": "b1cc75b90ad31cbe7c49d0787bb681cf8b0265779bb8e6f564e969dee0c3e6a2",
-      "checkedAt": "2026-11-17T22:54:07.016Z"
+      "checkedAt": "2026-11-17T23:42:53.185Z"
     }
   }
 }

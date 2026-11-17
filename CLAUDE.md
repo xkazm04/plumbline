@@ -19,7 +19,7 @@ maintained through the bp product blueprint (the sibling checkout `../bp`).
 - **Secrets.** Never commit a private key, an LLM key or a `.env`. `*.key`, `*.pem`, `*.private.json` and `.env*` are
   git-ignored. Run the secret scan before every push.
 - **The vendored runtime is copy-do-not-change** (`site/runtime/`, Apache-2.0, with its LICENSE.txt and a NOTICE). It is
-  the agentic-web `agentify-website` skill's runtime at commit 7817c1f, which is nsdeploy's runtime at commit 53a787c
+  the agentic-web `agentify-website` skill's runtime at commit 7ee54a3, which is nsdeploy's runtime at commit 53a787c
   WITH the skill's edits (`site/runtime/README.md` lists them); never call it unmodified nsdeploy. We write no runtime
   of our own and do not edit the copy. `THIRD_PARTY.md` lists its files and hashes; update it when the copy changes.
 - **Every fetch of a stranger's address** refuses private and loopback ranges after DNS resolution, caps the body and has

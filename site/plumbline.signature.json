@@ -4,8 +4,8 @@
   "alg": "Ed25519",
   "kid": "91971cfa8d0e630c",
   "origin": "https://plumbline.xkazm04.workers.dev",
-  "signedAt": "2026-11-17T22:54:17.779Z",
-  "expiresAt": "2027-02-15T22:54:17.779Z",
+  "signedAt": "2026-11-17T23:43:02.484Z",
+  "expiresAt": "2027-02-15T23:43:02.484Z",
   "subjects": [
     {
       "path": "agent-manifest.json",
@@ -21,7 +21,7 @@
     },
     {
       "path": "plumbline.lock.json",
-      "sha256": "1a9dd1fbae36eb8ba79c2fdee4d3bfdff734007daa06513990730f6f7f32b783"
+      "sha256": "7430c81587362506e9438a65d6f2b6a2abf9e3f69379353c8572b85ac624d10d"
     },
     {
       "path": "plumbline_desk.network.json",
@@ -32,5 +32,5 @@
       "sha256": "e86d0a9ec3ce38ee71bb38114b46e92578d6e2b5331d45b6c282b4cf0554c349"
     }
   ],
-  "sig": "NfGnEEYppUw-g6X3xKxd53fmvyBXTK6iyyOtSC1v3MOPGgavrH1UWQ6FyrTegn-bxDvtnidQiQ8ibGWqtpMpAA"
+  "sig": "a7J9RwLRfygmivVgLqwluMTyUZjuC0U6rL0CPeWq3AciB1dSlCwnbGj8Wbajx5YBoXtambqGx_qwwHRChWrxDA"
 }

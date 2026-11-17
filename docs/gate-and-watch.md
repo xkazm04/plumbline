@@ -135,11 +135,12 @@ source) is left OUT of the lock and returned as a finding, so a lock with a gap 
 ### Which upstream the runtime check asks
 
 The Desk's runtime is not a copy of nsdeploy: `site/runtime/NOTICE` says it is a copy of
-`cognizant-ai-labs/agentic-web`'s `skills/agentify-website/runtime` at commit `7817c1f`, which is itself nsdeploy's
+`cognizant-ai-labs/agentic-web`'s `skills/agentify-website/runtime` at commit `7ee54a3`, which is itself nsdeploy's
 runtime at `53a787c` with agentic-web's edits on top (its README lists them). The edits live in agentic-web, so a new
 nsdeploy commit reaches this copy only through agentic-web, and a new agentic-web commit to that folder is invisible to
 a check that asks nsdeploy. (Checked read-only against the GitHub API on 2026-11-17: the folder's newest commit as of
-`7817c1f` is `63a1b15`; on `main` it is `7ee54a3`, "Send Otari EU keys to the EU gateway", made after the copy.) So:
+`7817c1f` was `63a1b15`; on `main` it was `7ee54a3`, "Send Otari EU keys to the EU gateway", made after that copy. The
+watch reported it as info, and the copy was refreshed to `7ee54a3` on 2026-11-18.) So:
 
 - a lock whose runtime records `via` is checked against that folder: the newest commit that touched `via.path` on the
   default branch (`GET /repos/<repo>/commits?path=<path>&per_page=1`) against the newest that had touched it as of the

@@ -75,6 +75,6 @@ product blueprint: its scans and stand-ups decide what is built next.
 ## Licence
 
 Apache-2.0. `site/runtime/` is a byte-for-byte copy of the browser runtime in the agentic-web project's
-`agentify-website` skill (commit `7817c1f`), which is nsdeploy's runtime (commit `53a787c`) with the edits its
+`agentify-website` skill (commit `7ee54a3`), which is nsdeploy's runtime (commit `53a787c`) with the edits its
 `README.md` lists; Apache-2.0, see its `LICENSE.txt` and `NOTICE`. Plumbline does not modify it further. `THIRD_PARTY.md`
 lists every file with its hash.

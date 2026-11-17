@@ -9,7 +9,7 @@ ships. Listed so it can be audited: every shipped file below has its size and SH
 | | |
 | --- | --- |
 | What | The browser runtime that runs an agentic site's agent network in the visitor's tab |
-| Copied from | [cognizant-ai-labs/agentic-web](https://github.com/cognizant-ai-labs/agentic-web), `skills/agentify-website/runtime`, at commit `7817c1f75b8d4f497c869540212be17dda94dcae` (`site/runtime/NOTICE`) |
+| Copied from | [cognizant-ai-labs/agentic-web](https://github.com/cognizant-ai-labs/agentic-web), `skills/agentify-website/runtime`, at commit `7ee54a3eaf6339d2d05226e844c2e9c6eee2bf1b` (`site/runtime/NOTICE`) |
 | Which is | [nsdeploy](https://github.com/cognizant-ai-lab/nsdeploy)'s browser runtime at commit `53a787c` (2026-11-11), **with the agentic-web skill's edits**: `runner.js`, `engine.js`, `cruse.js`, `ui.js`, `action-transport.js`, `index.js` and `llm.js` are changed, and each says so near its top. `site/runtime/README.md` lists every edit and why |
 | Licence | Apache-2.0, `site/runtime/LICENSE.txt` |
 | Changed here | Nothing. Plumbline copies the skill's runtime byte for byte and does not edit it (copy-do-not-change) |
@@ -42,7 +42,7 @@ audit it, rebuild it at the upstream commit with its lockfile and compare the ha
 | --- | ---: | --- |
 | `LICENSE.txt` | 10173 | `a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9` |
 | `NOTICE` | 257 | `5b61bc35b065432d546db951b773609960c46c4db4b01c58264d6520e3f85ae6` |
-| `README.md` | 4357 | `17553dbb8afe91245285f668dee5b5b60592b951e3093e5bad7f994762587db1` |
+| `README.md` | 4506 | `849a70b33e2565a875791c36d908be179e3b9f553fc57eb1b891ac374905f7cf` |
 | `action-bridge.js` | 169 | `c6446e47af1ccefa3e4e9a99f0fcd142081ad31202de7289bf38714d3a4d0dbc` |
 | `action-transport.js` | 14018 | `b2d998f7778121a38da1f6307e2de68412f98cd9814622d09562d91a686f302f` |
 | `actions.js` | 11691 | `899a1eb474f09ac2521b550eea936ff621ccf42fdd2b74e0729676eeec013fca` |
@@ -72,7 +72,7 @@ audit it, rebuild it at the upstream commit with its lockfile and compare the ha
 | `trace.js` | 2047 | `b2186480f683649795f76ce371241da1c53c24cfcb140f0c57487caf5c7e0f43` |
 | `turn-control.js` | 4069 | `f291b4733b3b08860b3516f6feffca433b9d7b3939993aa626e9996ebe6eabca` |
 | `turn-status.js` | 2559 | `378393e6a8939c5f1cd5dc3bc659c4e6835d6fb6aeff5adf09900db9986edbc0` |
-| `ui.js` | 90288 | `3030391c9445615b4266349da6ed189290d2b06cb9fd09f164ff5d1fd56c7f51` |
+| `ui.js` | 91260 | `136d5935338d7454470cf44e2c4a1a1d57714cd8990fdc545ce96fb87280c57a` |
 | `web-crypto.js` | 3920 | `7af171a63243d1dc9257f40c234c4a67760898505f37ffcae18474cec3d64361` |
 
 ## Not shipped: fonts and other assets

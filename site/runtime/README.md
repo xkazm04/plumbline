@@ -46,7 +46,9 @@ Edited files. Each one has a line near its top saying that it was changed:
   `x-ui.enumLabels`. It groups radio buttons under a legend and links each field to its
   description for screen readers. The ⚙ AI model settings panel lists hosted Otari first,
   the template's default router, and fills in its settings for a key that starts with
-  `otk_`. The Google AI Studio model is `models/gemini-3.8-flash`, the name Google's model
+  `otk_`. A key that starts with `otk_v1_eu_` gets the EU gateway,
+  `https://eu.api.otari.ai/api/v1`, because the default gateway refuses it with HTTP 421.
+  The Google AI Studio model is `models/gemini-3.8-flash`, the name Google's model
   list uses, so the panel's model check accepts it.
 - `action-transport.js` opens the confirmation dialog with focus on its heading, so a
   stray Enter cannot confirm an action. Closing the dialog puts focus back where it was.

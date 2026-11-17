@@ -40,6 +40,18 @@ export const API_KEY_PROVIDERS = [
     keyPrefixes: ["otk_"],
     accessNote: "Billing may be required",
   },
+  // An otari.ai key belongs to one region, and the other region's gateway refuses it with
+  // HTTP 421. EU keys start with "otk_v1_eu_" and go to the EU gateway. This entry has no
+  // button, because visitors make keys for both regions on the same Otari dashboard.
+  {
+    name: "Otari EU",
+    keyUrl: "https://otari.ai/dashboard#/keys",
+    router: "https://eu.api.otari.ai/api/v1",
+    model: "alibaba/qwen3.8-flash",
+    keyPrefixes: ["otk_v1_eu_"],
+    accessNote: "Billing may be required",
+    button: false,
+  },
   {
     name: "Google AI Studio",
     keyUrl: "https://aistudio.google.com/apikey",
@@ -74,12 +86,26 @@ export const API_KEY_PROVIDERS = [
   },
 ];
 
+// The provider whose longest prefix matches the key, so an Otari EU key finds the EU
+// entry and not the general "otk_" one.
 export function providerForApiKey(apiKey) {
   const key = String(apiKey || "").trim();
+  let match = null;
+  let matchLength = 0;
   for (const provider of API_KEY_PROVIDERS) {
-    if (provider.keyPrefixes.some((prefix) => key.startsWith(prefix))) return provider;
+    for (const prefix of provider.keyPrefixes) {
+      if (key.startsWith(prefix) && prefix.length > matchLength) {
+        match = provider;
+        matchLength = prefix.length;
+      }
+    }
   }
-  return null;
+  return match;
+}
+
+// The providers shown as buttons in the settings panel.
+export function providerButtons() {
+  return API_KEY_PROVIDERS.filter((provider) => provider.button !== false);
 }
 
 const BASE_CSS = PRESENTATION_CSS + `
@@ -294,7 +320,7 @@ export function mountApp(root, { engine, trace, manifest }) {
   // Prompt v13 gives themes a dedicated settings mount. Older composed themes and
   // the fixed shell have no such slot, so their settings stay beneath the chat.
   const settingsSlot = composed ? root.querySelector('[data-ns-slot="settings"]') : null;
-  const providerLinksHtml = API_KEY_PROVIDERS.map((provider) => `
+  const providerLinksHtml = providerButtons().map((provider) => `
         <a href="${provider.keyUrl}" target="_blank" rel="noopener noreferrer" data-ns-provider="${provider.name}" data-router="${provider.router}" data-model="${provider.model}">${provider.name} <span aria-hidden="true">↗</span><small>${provider.accessNote}</small></a>`).join("");
   const settingsBodyHtml = `
     <div class="ns-settings-body">
