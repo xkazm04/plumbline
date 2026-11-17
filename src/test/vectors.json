@@ -1,0 +1,990 @@
+{
+  "about": "Plumbline known-answer vectors. Plain JSON, loadable in a browser. Generated once from the fixed seed below by a throwaway script; the tests only verify them. Ed25519 is deterministic, so signing the same input with the same seed reproduces the same bytes.",
+  "warning": "THIS IS A PUBLISHED TEST KEY. The seed and private key are public on purpose. Never add this kid to a real trust store.",
+  "canonical": [
+    {
+      "inputJson": "[0,-0,1e21,0.1,1.5e-7,-12]",
+      "canonical": "[0,0,1e+21,0.1,1.5e-7,-12]"
+    },
+    {
+      "inputJson": "{\"b\":1,\"a\":{\"d\":[3,{\"z\":null,\"y\":true}],\"c\":\"x\"}}",
+      "canonical": "{\"a\":{\"c\":\"x\",\"d\":[3,{\"y\":true,\"z\":null}]},\"b\":1}"
+    },
+    {
+      "inputJson": "{\"s\":\"café é 🚀 \\u0000 \\\"q\\\" \\\\ \\n\",\"🚀\":1,\"é\":2,\"e\":3}",
+      "canonical": "{\"e\":3,\"s\":\"café é 🚀 \\u0000 \\\"q\\\" \\\\ \\n\",\"é\":2,\"🚀\":1}"
+    },
+    {
+      "inputJson": "{\"empty\":{},\"list\":[],\"nested\":[[],{}]}",
+      "canonical": "{\"empty\":{},\"list\":[],\"nested\":[[],{}]}"
+    }
+  ],
+  "sha256": [
+    {
+      "text": "",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "text": "abc",
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    {
+      "text": "café 🚀",
+      "sha256": "22b8c9581c75829df9ef018ebff80267c35f980ae1501f77d8a93ee193bede78"
+    }
+  ],
+  "seedHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "privateKey": "MC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
+  "key": {
+    "type": "plumbline-key",
+    "version": 1,
+    "alg": "Ed25519",
+    "kid": "56475aa75463474c",
+    "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "createdAt": "2026-11-17T09:00:00.000Z"
+  },
+  "origin": "https://vectors.example",
+  "signingNow": "2026-11-17T12:00:00.000Z",
+  "lifetimeDays": 30,
+  "files": [
+    {
+      "path": "agent-manifest.json",
+      "content": {
+        "name": "Vector Site",
+        "version": "1.0.0",
+        "networks": [
+          {
+            "hocon": "networks/greeter.hocon"
+          }
+        ],
+        "summary": "café 🚀 é"
+      }
+    },
+    {
+      "path": "networks/greeter.network.json",
+      "content": {
+        "agents": [
+          {
+            "name": "greeter",
+            "tools": [
+              "say",
+              "wave"
+            ]
+          }
+        ],
+        "entry": "greeter"
+      }
+    },
+    {
+      "path": "links.json",
+      "content": {
+        "links": [
+          {
+            "rel": "docs",
+            "href": "https://vectors.example/docs"
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "path": "notes/readme.txt",
+      "content": "Plain text, hashed as UTF-8 bytes.\nSecond line ü\n"
+    }
+  ],
+  "signedBytes": "{\"alg\":\"Ed25519\",\"expiresAt\":\"2026-12-17T12:00:00.000Z\",\"kid\":\"56475aa75463474c\",\"origin\":\"https://vectors.example\",\"signedAt\":\"2026-11-17T12:00:00.000Z\",\"subjects\":[{\"path\":\"agent-manifest.json\",\"sha256\":\"b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47\"},{\"path\":\"links.json\",\"sha256\":\"891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe\"},{\"path\":\"networks/greeter.network.json\",\"sha256\":\"5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7\"},{\"path\":\"notes/readme.txt\",\"sha256\":\"5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b\"}],\"type\":\"plumbline-signature\",\"version\":1}",
+  "signature": {
+    "type": "plumbline-signature",
+    "version": 1,
+    "alg": "Ed25519",
+    "kid": "56475aa75463474c",
+    "origin": "https://vectors.example",
+    "signedAt": "2026-11-17T12:00:00.000Z",
+    "expiresAt": "2026-12-17T12:00:00.000Z",
+    "subjects": [
+      {
+        "path": "agent-manifest.json",
+        "sha256": "b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47"
+      },
+      {
+        "path": "links.json",
+        "sha256": "891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe"
+      },
+      {
+        "path": "networks/greeter.network.json",
+        "sha256": "5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7"
+      },
+      {
+        "path": "notes/readme.txt",
+        "sha256": "5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b"
+      }
+    ],
+    "sig": "QOMgKWJ_sZL5VrtfyVIqEX2jjByCRhF8zHqxGoBI2o7shxK_WhxjWyv2JTzZN1PEPCOqtCCoZpZmC-bx1Y1rBQ"
+  },
+  "trust": [
+    {
+      "kid": "56475aa75463474c",
+      "origin": "https://vectors.example",
+      "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+    }
+  ],
+  "cases": [
+    {
+      "name": "trusted signer, untouched files",
+      "now": "2026-11-17T13:00:00.000Z",
+      "signature": {
+        "type": "plumbline-signature",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "origin": "https://vectors.example",
+        "signedAt": "2026-11-17T12:00:00.000Z",
+        "expiresAt": "2026-12-17T12:00:00.000Z",
+        "subjects": [
+          {
+            "path": "agent-manifest.json",
+            "sha256": "b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47"
+          },
+          {
+            "path": "links.json",
+            "sha256": "891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe"
+          },
+          {
+            "path": "networks/greeter.network.json",
+            "sha256": "5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7"
+          },
+          {
+            "path": "notes/readme.txt",
+            "sha256": "5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b"
+          }
+        ],
+        "sig": "QOMgKWJ_sZL5VrtfyVIqEX2jjByCRhF8zHqxGoBI2o7shxK_WhxjWyv2JTzZN1PEPCOqtCCoZpZmC-bx1Y1rBQ"
+      },
+      "files": [
+        {
+          "path": "agent-manifest.json",
+          "content": {
+            "name": "Vector Site",
+            "version": "1.0.0",
+            "networks": [
+              {
+                "hocon": "networks/greeter.hocon"
+              }
+            ],
+            "summary": "café 🚀 é"
+          }
+        },
+        {
+          "path": "networks/greeter.network.json",
+          "content": {
+            "agents": [
+              {
+                "name": "greeter",
+                "tools": [
+                  "say",
+                  "wave"
+                ]
+              }
+            ],
+            "entry": "greeter"
+          }
+        },
+        {
+          "path": "links.json",
+          "content": {
+            "links": [
+              {
+                "rel": "docs",
+                "href": "https://vectors.example/docs"
+              }
+            ],
+            "count": 1
+          }
+        },
+        {
+          "path": "notes/readme.txt",
+          "content": "Plain text, hashed as UTF-8 bytes.\nSecond line ü\n"
+        }
+      ],
+      "trust": [
+        {
+          "kid": "56475aa75463474c",
+          "origin": "https://vectors.example",
+          "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      ],
+      "publishedKey": {
+        "type": "plumbline-key",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "createdAt": "2026-11-17T09:00:00.000Z"
+      },
+      "expect": {
+        "verdict": "verified"
+      }
+    },
+    {
+      "name": "one millisecond before expiry",
+      "now": "2026-12-17T11:59:59.999Z",
+      "signature": {
+        "type": "plumbline-signature",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "origin": "https://vectors.example",
+        "signedAt": "2026-11-17T12:00:00.000Z",
+        "expiresAt": "2026-12-17T12:00:00.000Z",
+        "subjects": [
+          {
+            "path": "agent-manifest.json",
+            "sha256": "b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47"
+          },
+          {
+            "path": "links.json",
+            "sha256": "891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe"
+          },
+          {
+            "path": "networks/greeter.network.json",
+            "sha256": "5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7"
+          },
+          {
+            "path": "notes/readme.txt",
+            "sha256": "5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b"
+          }
+        ],
+        "sig": "QOMgKWJ_sZL5VrtfyVIqEX2jjByCRhF8zHqxGoBI2o7shxK_WhxjWyv2JTzZN1PEPCOqtCCoZpZmC-bx1Y1rBQ"
+      },
+      "files": [
+        {
+          "path": "agent-manifest.json",
+          "content": {
+            "name": "Vector Site",
+            "version": "1.0.0",
+            "networks": [
+              {
+                "hocon": "networks/greeter.hocon"
+              }
+            ],
+            "summary": "café 🚀 é"
+          }
+        },
+        {
+          "path": "networks/greeter.network.json",
+          "content": {
+            "agents": [
+              {
+                "name": "greeter",
+                "tools": [
+                  "say",
+                  "wave"
+                ]
+              }
+            ],
+            "entry": "greeter"
+          }
+        },
+        {
+          "path": "links.json",
+          "content": {
+            "links": [
+              {
+                "rel": "docs",
+                "href": "https://vectors.example/docs"
+              }
+            ],
+            "count": 1
+          }
+        },
+        {
+          "path": "notes/readme.txt",
+          "content": "Plain text, hashed as UTF-8 bytes.\nSecond line ü\n"
+        }
+      ],
+      "trust": [
+        {
+          "kid": "56475aa75463474c",
+          "origin": "https://vectors.example",
+          "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      ],
+      "publishedKey": {
+        "type": "plumbline-key",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "createdAt": "2026-11-17T09:00:00.000Z"
+      },
+      "expect": {
+        "verdict": "verified"
+      }
+    },
+    {
+      "name": "exactly at expiry",
+      "now": "2026-12-17T12:00:00.000Z",
+      "signature": {
+        "type": "plumbline-signature",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "origin": "https://vectors.example",
+        "signedAt": "2026-11-17T12:00:00.000Z",
+        "expiresAt": "2026-12-17T12:00:00.000Z",
+        "subjects": [
+          {
+            "path": "agent-manifest.json",
+            "sha256": "b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47"
+          },
+          {
+            "path": "links.json",
+            "sha256": "891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe"
+          },
+          {
+            "path": "networks/greeter.network.json",
+            "sha256": "5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7"
+          },
+          {
+            "path": "notes/readme.txt",
+            "sha256": "5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b"
+          }
+        ],
+        "sig": "QOMgKWJ_sZL5VrtfyVIqEX2jjByCRhF8zHqxGoBI2o7shxK_WhxjWyv2JTzZN1PEPCOqtCCoZpZmC-bx1Y1rBQ"
+      },
+      "files": [
+        {
+          "path": "agent-manifest.json",
+          "content": {
+            "name": "Vector Site",
+            "version": "1.0.0",
+            "networks": [
+              {
+                "hocon": "networks/greeter.hocon"
+              }
+            ],
+            "summary": "café 🚀 é"
+          }
+        },
+        {
+          "path": "networks/greeter.network.json",
+          "content": {
+            "agents": [
+              {
+                "name": "greeter",
+                "tools": [
+                  "say",
+                  "wave"
+                ]
+              }
+            ],
+            "entry": "greeter"
+          }
+        },
+        {
+          "path": "links.json",
+          "content": {
+            "links": [
+              {
+                "rel": "docs",
+                "href": "https://vectors.example/docs"
+              }
+            ],
+            "count": 1
+          }
+        },
+        {
+          "path": "notes/readme.txt",
+          "content": "Plain text, hashed as UTF-8 bytes.\nSecond line ü\n"
+        }
+      ],
+      "trust": [
+        {
+          "kid": "56475aa75463474c",
+          "origin": "https://vectors.example",
+          "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      ],
+      "publishedKey": {
+        "type": "plumbline-key",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "createdAt": "2026-11-17T09:00:00.000Z"
+      },
+      "expect": {
+        "verdict": "invalid",
+        "reason": "expired"
+      }
+    },
+    {
+      "name": "a signed file gained a member",
+      "now": "2026-11-17T13:00:00.000Z",
+      "signature": {
+        "type": "plumbline-signature",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "origin": "https://vectors.example",
+        "signedAt": "2026-11-17T12:00:00.000Z",
+        "expiresAt": "2026-12-17T12:00:00.000Z",
+        "subjects": [
+          {
+            "path": "agent-manifest.json",
+            "sha256": "b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47"
+          },
+          {
+            "path": "links.json",
+            "sha256": "891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe"
+          },
+          {
+            "path": "networks/greeter.network.json",
+            "sha256": "5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7"
+          },
+          {
+            "path": "notes/readme.txt",
+            "sha256": "5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b"
+          }
+        ],
+        "sig": "QOMgKWJ_sZL5VrtfyVIqEX2jjByCRhF8zHqxGoBI2o7shxK_WhxjWyv2JTzZN1PEPCOqtCCoZpZmC-bx1Y1rBQ"
+      },
+      "files": [
+        {
+          "path": "agent-manifest.json",
+          "content": {
+            "name": "Vector Site",
+            "version": "1.0.0",
+            "networks": [
+              {
+                "hocon": "networks/greeter.hocon"
+              }
+            ],
+            "summary": "café 🚀 é"
+          }
+        },
+        {
+          "path": "networks/greeter.network.json",
+          "content": {
+            "agents": [
+              {
+                "name": "greeter",
+                "tools": [
+                  "say",
+                  "wave",
+                  "shout"
+                ]
+              }
+            ],
+            "entry": "greeter"
+          }
+        },
+        {
+          "path": "links.json",
+          "content": {
+            "links": [
+              {
+                "rel": "docs",
+                "href": "https://vectors.example/docs"
+              }
+            ],
+            "count": 1
+          }
+        },
+        {
+          "path": "notes/readme.txt",
+          "content": "Plain text, hashed as UTF-8 bytes.\nSecond line ü\n"
+        }
+      ],
+      "trust": [
+        {
+          "kid": "56475aa75463474c",
+          "origin": "https://vectors.example",
+          "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      ],
+      "publishedKey": {
+        "type": "plumbline-key",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "createdAt": "2026-11-17T09:00:00.000Z"
+      },
+      "expect": {
+        "verdict": "invalid",
+        "reason": "tampered"
+      }
+    },
+    {
+      "name": "a signed file is missing",
+      "now": "2026-11-17T13:00:00.000Z",
+      "signature": {
+        "type": "plumbline-signature",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "origin": "https://vectors.example",
+        "signedAt": "2026-11-17T12:00:00.000Z",
+        "expiresAt": "2026-12-17T12:00:00.000Z",
+        "subjects": [
+          {
+            "path": "agent-manifest.json",
+            "sha256": "b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47"
+          },
+          {
+            "path": "links.json",
+            "sha256": "891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe"
+          },
+          {
+            "path": "networks/greeter.network.json",
+            "sha256": "5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7"
+          },
+          {
+            "path": "notes/readme.txt",
+            "sha256": "5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b"
+          }
+        ],
+        "sig": "QOMgKWJ_sZL5VrtfyVIqEX2jjByCRhF8zHqxGoBI2o7shxK_WhxjWyv2JTzZN1PEPCOqtCCoZpZmC-bx1Y1rBQ"
+      },
+      "files": [
+        {
+          "path": "networks/greeter.network.json",
+          "content": {
+            "agents": [
+              {
+                "name": "greeter",
+                "tools": [
+                  "say",
+                  "wave"
+                ]
+              }
+            ],
+            "entry": "greeter"
+          }
+        },
+        {
+          "path": "links.json",
+          "content": {
+            "links": [
+              {
+                "rel": "docs",
+                "href": "https://vectors.example/docs"
+              }
+            ],
+            "count": 1
+          }
+        },
+        {
+          "path": "notes/readme.txt",
+          "content": "Plain text, hashed as UTF-8 bytes.\nSecond line ü\n"
+        }
+      ],
+      "trust": [
+        {
+          "kid": "56475aa75463474c",
+          "origin": "https://vectors.example",
+          "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      ],
+      "publishedKey": {
+        "type": "plumbline-key",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "createdAt": "2026-11-17T09:00:00.000Z"
+      },
+      "expect": {
+        "verdict": "invalid",
+        "reason": "tampered"
+      }
+    },
+    {
+      "name": "an unsigned extra file is ignored",
+      "now": "2026-11-17T13:00:00.000Z",
+      "signature": {
+        "type": "plumbline-signature",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "origin": "https://vectors.example",
+        "signedAt": "2026-11-17T12:00:00.000Z",
+        "expiresAt": "2026-12-17T12:00:00.000Z",
+        "subjects": [
+          {
+            "path": "agent-manifest.json",
+            "sha256": "b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47"
+          },
+          {
+            "path": "links.json",
+            "sha256": "891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe"
+          },
+          {
+            "path": "networks/greeter.network.json",
+            "sha256": "5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7"
+          },
+          {
+            "path": "notes/readme.txt",
+            "sha256": "5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b"
+          }
+        ],
+        "sig": "QOMgKWJ_sZL5VrtfyVIqEX2jjByCRhF8zHqxGoBI2o7shxK_WhxjWyv2JTzZN1PEPCOqtCCoZpZmC-bx1Y1rBQ"
+      },
+      "files": [
+        {
+          "path": "agent-manifest.json",
+          "content": {
+            "name": "Vector Site",
+            "version": "1.0.0",
+            "networks": [
+              {
+                "hocon": "networks/greeter.hocon"
+              }
+            ],
+            "summary": "café 🚀 é"
+          }
+        },
+        {
+          "path": "networks/greeter.network.json",
+          "content": {
+            "agents": [
+              {
+                "name": "greeter",
+                "tools": [
+                  "say",
+                  "wave"
+                ]
+              }
+            ],
+            "entry": "greeter"
+          }
+        },
+        {
+          "path": "links.json",
+          "content": {
+            "links": [
+              {
+                "rel": "docs",
+                "href": "https://vectors.example/docs"
+              }
+            ],
+            "count": 1
+          }
+        },
+        {
+          "path": "notes/readme.txt",
+          "content": "Plain text, hashed as UTF-8 bytes.\nSecond line ü\n"
+        },
+        {
+          "path": "extra.json",
+          "content": {
+            "x": 1
+          }
+        }
+      ],
+      "trust": [
+        {
+          "kid": "56475aa75463474c",
+          "origin": "https://vectors.example",
+          "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      ],
+      "publishedKey": {
+        "type": "plumbline-key",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "createdAt": "2026-11-17T09:00:00.000Z"
+      },
+      "expect": {
+        "verdict": "verified"
+      }
+    },
+    {
+      "name": "expiresAt extended after signing",
+      "now": "2026-11-17T13:00:00.000Z",
+      "signature": {
+        "type": "plumbline-signature",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "origin": "https://vectors.example",
+        "signedAt": "2026-11-17T12:00:00.000Z",
+        "expiresAt": "2030-01-01T00:00:00.000Z",
+        "subjects": [
+          {
+            "path": "agent-manifest.json",
+            "sha256": "b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47"
+          },
+          {
+            "path": "links.json",
+            "sha256": "891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe"
+          },
+          {
+            "path": "networks/greeter.network.json",
+            "sha256": "5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7"
+          },
+          {
+            "path": "notes/readme.txt",
+            "sha256": "5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b"
+          }
+        ],
+        "sig": "QOMgKWJ_sZL5VrtfyVIqEX2jjByCRhF8zHqxGoBI2o7shxK_WhxjWyv2JTzZN1PEPCOqtCCoZpZmC-bx1Y1rBQ"
+      },
+      "files": [
+        {
+          "path": "agent-manifest.json",
+          "content": {
+            "name": "Vector Site",
+            "version": "1.0.0",
+            "networks": [
+              {
+                "hocon": "networks/greeter.hocon"
+              }
+            ],
+            "summary": "café 🚀 é"
+          }
+        },
+        {
+          "path": "networks/greeter.network.json",
+          "content": {
+            "agents": [
+              {
+                "name": "greeter",
+                "tools": [
+                  "say",
+                  "wave"
+                ]
+              }
+            ],
+            "entry": "greeter"
+          }
+        },
+        {
+          "path": "links.json",
+          "content": {
+            "links": [
+              {
+                "rel": "docs",
+                "href": "https://vectors.example/docs"
+              }
+            ],
+            "count": 1
+          }
+        },
+        {
+          "path": "notes/readme.txt",
+          "content": "Plain text, hashed as UTF-8 bytes.\nSecond line ü\n"
+        }
+      ],
+      "trust": [
+        {
+          "kid": "56475aa75463474c",
+          "origin": "https://vectors.example",
+          "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+        }
+      ],
+      "publishedKey": {
+        "type": "plumbline-key",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "createdAt": "2026-11-17T09:00:00.000Z"
+      },
+      "expect": {
+        "verdict": "invalid",
+        "reason": "bad-signature"
+      }
+    },
+    {
+      "name": "signer unknown to the verifier, math holds under the published key",
+      "now": "2026-11-17T13:00:00.000Z",
+      "signature": {
+        "type": "plumbline-signature",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "origin": "https://vectors.example",
+        "signedAt": "2026-11-17T12:00:00.000Z",
+        "expiresAt": "2026-12-17T12:00:00.000Z",
+        "subjects": [
+          {
+            "path": "agent-manifest.json",
+            "sha256": "b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47"
+          },
+          {
+            "path": "links.json",
+            "sha256": "891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe"
+          },
+          {
+            "path": "networks/greeter.network.json",
+            "sha256": "5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7"
+          },
+          {
+            "path": "notes/readme.txt",
+            "sha256": "5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b"
+          }
+        ],
+        "sig": "QOMgKWJ_sZL5VrtfyVIqEX2jjByCRhF8zHqxGoBI2o7shxK_WhxjWyv2JTzZN1PEPCOqtCCoZpZmC-bx1Y1rBQ"
+      },
+      "files": [
+        {
+          "path": "agent-manifest.json",
+          "content": {
+            "name": "Vector Site",
+            "version": "1.0.0",
+            "networks": [
+              {
+                "hocon": "networks/greeter.hocon"
+              }
+            ],
+            "summary": "café 🚀 é"
+          }
+        },
+        {
+          "path": "networks/greeter.network.json",
+          "content": {
+            "agents": [
+              {
+                "name": "greeter",
+                "tools": [
+                  "say",
+                  "wave"
+                ]
+              }
+            ],
+            "entry": "greeter"
+          }
+        },
+        {
+          "path": "links.json",
+          "content": {
+            "links": [
+              {
+                "rel": "docs",
+                "href": "https://vectors.example/docs"
+              }
+            ],
+            "count": 1
+          }
+        },
+        {
+          "path": "notes/readme.txt",
+          "content": "Plain text, hashed as UTF-8 bytes.\nSecond line ü\n"
+        }
+      ],
+      "trust": [],
+      "publishedKey": {
+        "type": "plumbline-key",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "createdAt": "2026-11-17T09:00:00.000Z"
+      },
+      "expect": {
+        "verdict": "unverifiable"
+      }
+    },
+    {
+      "name": "trust entry whose kid is not derived from its key",
+      "now": "2026-11-17T13:00:00.000Z",
+      "signature": {
+        "type": "plumbline-signature",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "origin": "https://vectors.example",
+        "signedAt": "2026-11-17T12:00:00.000Z",
+        "expiresAt": "2026-12-17T12:00:00.000Z",
+        "subjects": [
+          {
+            "path": "agent-manifest.json",
+            "sha256": "b3eb93ea13f36f7fa1ab13bb13fdc98bf35595f18fc0181efceb8a859716eb47"
+          },
+          {
+            "path": "links.json",
+            "sha256": "891cfac259f306f60006783d2c64509ed7fd76724265109e4d9dec6fd51cbffe"
+          },
+          {
+            "path": "networks/greeter.network.json",
+            "sha256": "5f41ca32e4992d48f12c22f1c26a25599e08ed40b44f734f0d8fdc614dabcdc7"
+          },
+          {
+            "path": "notes/readme.txt",
+            "sha256": "5b296acff3deabfda37cde979e41c97c3364ceaa312e3b7e49102058a676721b"
+          }
+        ],
+        "sig": "QOMgKWJ_sZL5VrtfyVIqEX2jjByCRhF8zHqxGoBI2o7shxK_WhxjWyv2JTzZN1PEPCOqtCCoZpZmC-bx1Y1rBQ"
+      },
+      "files": [
+        {
+          "path": "agent-manifest.json",
+          "content": {
+            "name": "Vector Site",
+            "version": "1.0.0",
+            "networks": [
+              {
+                "hocon": "networks/greeter.hocon"
+              }
+            ],
+            "summary": "café 🚀 é"
+          }
+        },
+        {
+          "path": "networks/greeter.network.json",
+          "content": {
+            "agents": [
+              {
+                "name": "greeter",
+                "tools": [
+                  "say",
+                  "wave"
+                ]
+              }
+            ],
+            "entry": "greeter"
+          }
+        },
+        {
+          "path": "links.json",
+          "content": {
+            "links": [
+              {
+                "rel": "docs",
+                "href": "https://vectors.example/docs"
+              }
+            ],
+            "count": 1
+          }
+        },
+        {
+          "path": "notes/readme.txt",
+          "content": "Plain text, hashed as UTF-8 bytes.\nSecond line ü\n"
+        }
+      ],
+      "trust": [
+        {
+          "kid": "56475aa75463474c",
+          "origin": "https://vectors.example",
+          "publicKey": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc"
+        }
+      ],
+      "publishedKey": {
+        "type": "plumbline-key",
+        "version": 1,
+        "alg": "Ed25519",
+        "kid": "56475aa75463474c",
+        "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "createdAt": "2026-11-17T09:00:00.000Z"
+      },
+      "expect": {
+        "verdict": "invalid",
+        "reason": "kid-mismatch"
+      }
+    }
+  ]
+}
