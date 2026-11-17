@@ -2,11 +2,10 @@
 
 import { canonicalJson } from "./canonical.js";
 import { keyId, keyIdOfPrivate, signText, verifyText } from "./keys.js";
-import { KID_PATTERN, isBase64Url, isIsoUtc, isPublicKey, resolveTrusted, revokedResult } from "./verify.js";
+import { KID_PATTERN, invalid, isBase64Url, isIsoUtc, isPublicKey, resolveTrusted, revokedResult } from "./verify.js";
 import {
   FORMAT_VERSION,
   ROTATION_TYPE,
-  type InvalidReason,
   type PlumblineKey,
   type PlumblineRotation,
   type TrustEntry,
@@ -39,16 +38,6 @@ export async function rotateKey(options: RotateOptions): Promise<PlumblineRotati
     signedAt: (options.now ?? new Date()).toISOString(),
   };
   return { ...unsigned, sig: await signText(oldPrivateKey, canonicalJson(unsigned)) };
-}
-
-function invalid(reason: InvalidReason, detail: string, kid?: string, origin?: string): VerifyResult {
-  return {
-    verdict: "invalid",
-    reason,
-    ...(kid !== undefined ? { kid } : {}),
-    ...(origin !== undefined ? { origin } : {}),
-    detail,
-  };
 }
 
 function shapeProblem(r: unknown): string | undefined {

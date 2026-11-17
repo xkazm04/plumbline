@@ -64,7 +64,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function invalid(reason: InvalidReason, detail: string, kid?: string, origin?: string): VerifyResult {
+/** The one constructor of an `invalid` result, shared by signatures, rotations and revocations. */
+export function invalid(reason: InvalidReason, detail: string, kid?: string, origin?: string): VerifyResult {
   return {
     verdict: "invalid",
     reason,

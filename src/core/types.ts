@@ -87,6 +87,22 @@ export interface PlumblineKey {
   createdAt: string;
 }
 
+/** The CLI's private key file name. It belongs in the publisher's private custody, never in the site. */
+export const PRIVATE_KEY_FILE = "plumbline.private.json" as const;
+export const PRIVATE_KEY_TYPE = "plumbline-private-key" as const;
+
+/**
+ * `plumbline.private.json`, the CLI's private key file (the Desk reads and writes the same format). `privateKey` is
+ * base64url PKCS#8. Never published, never committed (`*.private.json` is git-ignored).
+ */
+export interface PrivateKeyFile {
+  type: typeof PRIVATE_KEY_TYPE;
+  version: typeof FORMAT_VERSION;
+  alg: typeof ALG;
+  kid: string;
+  privateKey: string;
+}
+
 /** `plumbline-rotation.json`: the old key names its successor. Key loss is identity loss, so rotation is designed in. */
 export interface PlumblineRotation {
   type: typeof ROTATION_TYPE;
@@ -122,11 +138,28 @@ export interface PlumblineRevocation {
  * exact bytes. `peers[url].links` is the hash of the peer's `links.json` at the same base, or `"absent"` when the peer
  * published none; a lock written before 2026-11-17 has no `links` member.
  */
+/**
+ * The repository the vendored runtime was copied from when it is not nsdeploy itself: `repo` is `owner/name`, `path`
+ * the folder in it, `commit` the commit the copy was taken at (the Desk's runtime is cognizant-ai-labs/agentic-web's
+ * `skills/agentify-website/runtime`, nsdeploy's runtime with edits; site/runtime/NOTICE). The watch asks this upstream.
+ */
+export interface RuntimeVia {
+  repo: string;
+  path: string;
+  commit: string;
+}
+
+/** A peer that could not be captured when the lock was written: it stays in the lock, and every watch reports it. */
+export interface PendingPeer {
+  since: string;
+}
+
 export interface PlumblineLock {
   version: typeof FORMAT_VERSION;
-  runtime: { source: "nsdeploy"; commit: string; files: Record<string, string> };
+  runtime: { source: "nsdeploy"; commit: string; files: Record<string, string>; via?: RuntimeVia };
   grounding: { sources: { ref: string; sha256: string }[]; builtAt: string };
   peers: Record<string, PeerRecord>;
+  pendingPeers?: Record<string, PendingPeer>;
 }
 
 export interface PeerRecord {
@@ -197,6 +230,18 @@ export interface DriftFinding {
   actual?: string;
   summary: string;
 }
+/**
+ * Where the lock stands for one report. `found`: read and checked. `absent`: none (a missing file, or a site that
+ * answers 404 or 410). `refused`: the browser was refused (the Desk only). `unreadable`: it could not be read.
+ * `unusable`: not JSON, or not the lock's shape. Anything but `found` means no drift was checked, which is never a clean
+ * report: it is a lock state with its own sentence, not a drift finding.
+ */
+export const LOCK_STATES = ["found", "absent", "refused", "unreadable", "unusable"] as const;
+export type LockState = (typeof LOCK_STATES)[number];
+
 export interface DriftReport {
   findings: DriftFinding[];
+  lockState?: LockState;
+  /** Present when lockState is not `found`: why no drift was checked. */
+  lockSummary?: string;
 }

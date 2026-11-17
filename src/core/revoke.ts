@@ -6,12 +6,11 @@
 
 import { canonicalJson } from "./canonical.js";
 import { keyId, keyIdOfPrivate, signText, verifyText } from "./keys.js";
-import { KID_PATTERN, isBase64Url, isIsoUtc, isPublicKey } from "./verify.js";
+import { KID_PATTERN, invalid, isBase64Url, isIsoUtc, isKid, isPublicKey } from "./verify.js";
 import {
   ALG,
   FORMAT_VERSION,
   REVOCATION_TYPE,
-  type InvalidReason,
   type PlumblineKey,
   type PlumblineRevocation,
   type TrustEntry,
@@ -45,16 +44,6 @@ export async function revokeKey(options: RevokeOptions): Promise<PlumblineRevoca
     ...(reason !== undefined ? { reason } : {}),
   };
   return { ...unsigned, sig: await signText(privateKey, canonicalJson(unsigned)) };
-}
-
-function invalid(reason: InvalidReason, detail: string, kid?: string, origin?: string): VerifyResult {
-  return {
-    verdict: "invalid",
-    reason,
-    ...(kid !== undefined ? { kid } : {}),
-    ...(origin !== undefined ? { origin } : {}),
-    detail,
-  };
 }
 
 function shapeProblem(r: unknown): string | undefined {
@@ -173,4 +162,62 @@ export async function applyRevocation(
     entry: mark(entry),
     ...(entries !== undefined ? { entries } : {}),
   };
+}
+
+/** What applyRevocationText did with a revocation file's text. */
+export interface RevocationOutcome {
+  /** True when the revocation verified under a trusted key and `entries` carries it. */
+  applied: boolean;
+  /** The revoked kid, only when it is a well-formed kid (anything else is never quoted). */
+  kid?: string;
+  /** One result per trust entry for the revoked kid; one result when no entry matched or the text is not JSON. */
+  results: VerifyResult[];
+  /**
+   * The trust entries afterwards, in the order given: with the revocation applied and spread (every origin, every
+   * adoptedVia chain) when `applied`, otherwise the entries as given. Index i is the caller's entry i.
+   */
+  entries: TrustEntry[];
+}
+
+/**
+ * Applies the text of a `plumbline-revocation.json` (as read or fetched) to a verifier's trust entries: parses it,
+ * checks it with applyRevocation against EVERY entry the verifier holds for its kid (a revocation names no origin), and
+ * returns the entries with it spread. Only a verified revocation changes anything, and only by taking trust away. The
+ * one rule the CLI and the Desk share; the caller decides whether to keep the result in memory or write it back. Pure.
+ */
+export async function applyRevocationText(text: string, entries: readonly TrustEntry[]): Promise<RevocationOutcome> {
+  let statement: unknown;
+  try {
+    statement = JSON.parse(text);
+  } catch {
+    return {
+      applied: false,
+      results: [{ verdict: "invalid", reason: "malformed", detail: "The revocation file is not valid JSON." }],
+      entries: [...entries],
+    };
+  }
+  const raw = (statement as { kid?: unknown } | null)?.kid;
+  const kid = isKid(raw) ? raw : undefined;
+  const revocation = statement as PlumblineRevocation;
+  const matching = kid === undefined ? [] : entries.filter((e) => e.kid === kid);
+  if (matching.length === 0) {
+    const { entry: _none, entries: _all, ...result } = await applyRevocation(revocation, undefined);
+    void _none;
+    void _all;
+    return { applied: false, ...(kid !== undefined ? { kid } : {}), results: [result], entries: [...entries] };
+  }
+  const results: VerifyResult[] = [];
+  let working: TrustEntry[] = [...entries];
+  let applied = false;
+  for (const entry of matching) {
+    const current = working.find((e) => e.kid === entry.kid && e.origin === entry.origin) ?? entry;
+    const { entry: _one, entries: next, ...result } = await applyRevocation(revocation, current, working);
+    void _one;
+    results.push(result);
+    if (result.verdict === "verified" && next) {
+      working = next;
+      applied = true;
+    }
+  }
+  return { applied, ...(kid !== undefined ? { kid } : {}), results, entries: working };
 }

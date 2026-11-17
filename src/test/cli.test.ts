@@ -215,14 +215,18 @@ test("rotate writes plumbline-rotation.json that a verifier holding the old key 
   assert.equal(same.code, 2);
 });
 
-test("gate without a target is a usage error, init is not implemented (exit 2), an unknown command is a usage error", () => {
+test("gate without a target is a usage error; init and any other unknown command are usage errors (exit 2)", () => {
   const gate = run("gate");
   assert.equal(gate.code, 2);
   assert.match(gate.err, /usage: plumbline gate/);
+  // init was listed and never built: it is gone from the usage line and is an unknown command like any other
   const init = run("init");
   assert.equal(init.code, 2);
-  assert.match(init.err, /not implemented/);
+  assert.match(init.err, /unknown command: init/);
+  assert.doesNotMatch(init.err, /[<|]init[|>]/, "the usage line does not offer init");
+  assert.match(init.err, /^usage: plumbline <keygen\|sign\|verify\|rotate\|revoke\|trust\|adopt\|gate\|watch>/m);
   assert.equal(run("nonsense").code, 2);
+  assert.equal(run("toString").code, 2, "only own command names dispatch");
   assert.equal(run().code, 2);
 });
 
@@ -232,7 +236,7 @@ test("--json on an error prints a JSON error object and exits 2", () => {
   assert.match(JSON.parse(r.out).error, /missing --out/);
 });
 
-test("revoke writes plumbline-revocation.json; verify applies it in memory and refuses the revoked key's signature", () => {
+test("revoke writes plumbline-revocation.json; verify applies it, records it and refuses the revoked key's signature", () => {
   const keyDir = path.join(tmp, "keys-revoke");
   const site = path.join(tmp, "site-revoke");
   writeSite(site);
@@ -258,7 +262,8 @@ test("revoke writes plumbline-revocation.json; verify applies it in memory and r
   assert.deepEqual([asJson.results[0].verdict, asJson.results[0].reason], ["invalid", "revoked"]);
   assert.equal(asJson.revocation.applied, true);
   assert.equal(asJson.revocation.results[0].verdict, "verified");
-  assert.equal(readFileSync(trust, "utf8"), trustBefore, "the trust file on disk is never written");
+  // since 2026-11-17 an accepted revocation is recorded in the trust file (cli-trust.test.ts covers it in full)
+  assert.notEqual(readFileSync(trust, "utf8"), trustBefore, "the accepted revocation is written to the trust file");
 });
 
 test("verify refuses a revocation file signed by another key and verifies as before, saying so", () => {
@@ -418,4 +423,53 @@ test("the trust file's kid, publicKey and adoptedVia are held to their exact pat
     assert.match(r.err, /a trust store entry is malformed/);
     assert.ok(!r.err.includes("SECRET"));
   }
+});
+
+test("verify's refusal paths: no signature file (2), a signature that is not JSON (1), a revocation that is not JSON, a file that is not a trust store (2)", () => {
+  const { site, trust } = signedSite("refusals");
+  const sigFile = path.join(site, "plumbline.signature.json");
+  const signature = readFileSync(sigFile, "utf8");
+
+  rmSync(sigFile);
+  const missing = run("verify", "--root", site, "--trust", trust);
+  assert.equal(missing.code, 2);
+  assert.match(missing.err, /plumbline\.signature\.json not found in /);
+
+  writeFileSync(sigFile, "{ SECRET not json");
+  const garbled = run("verify", "--root", site, "--trust", trust, "--json");
+  assert.equal(garbled.code, 1);
+  const result = JSON.parse(garbled.out).results[0];
+  assert.deepEqual([result.verdict, result.reason, result.detail], ["invalid", "malformed", "The signature file is not valid JSON."]);
+  assert.ok(!garbled.out.includes("SECRET"), "the inspected text is never quoted");
+  writeFileSync(sigFile, signature);
+
+  writeFileSync(path.join(site, "plumbline-revocation.json"), "{ SECRET not json");
+  const badRevocation = run("verify", "--root", site, "--trust", trust, "--json");
+  assert.equal(badRevocation.code, 0, "a revocation that is not JSON changes nothing");
+  const report = JSON.parse(badRevocation.out).revocation;
+  assert.equal(report.applied, false);
+  assert.deepEqual([report.results[0].verdict, report.results[0].reason, report.results[0].detail], ["invalid", "malformed", "The revocation file is not valid JSON."]);
+  assert.ok(!badRevocation.out.includes("SECRET"));
+  rmSync(path.join(site, "plumbline-revocation.json"));
+
+  for (const notAStore of [[], { version: 2, entries: [] }, { version: 1 }, { version: 1, entries: {} }, "SECRET"]) {
+    writeFileSync(trust, JSON.stringify(notAStore));
+    const r = run("verify", "--root", site, "--trust", trust);
+    assert.equal(r.code, 2, JSON.stringify(notAStore));
+    assert.match(r.err, /not a Plumbline trust store/);
+    assert.ok(!r.err.includes("SECRET"));
+  }
+});
+
+test("sign exits 2 when agent-manifest.json is not JSON, and writes no signature", () => {
+  const keyDir = path.join(tmp, "keys-manifest-not-json");
+  assert.equal(run("keygen", "--out", keyDir).code, 0);
+  const site = path.join(tmp, "site-manifest-not-json");
+  mkdirSync(site, { recursive: true });
+  writeFileSync(path.join(site, "agent-manifest.json"), "{ SECRET not json");
+  const r = run("sign", "--root", site, "--key", path.join(keyDir, "plumbline.private.json"), "--origin", ORIGIN);
+  assert.equal(r.code, 2);
+  assert.match(r.err, /agent-manifest\.json is not valid JSON/);
+  assert.ok(!r.err.includes("SECRET"));
+  assert.throws(() => readFileSync(path.join(site, "plumbline.signature.json")), /ENOENT/);
 });

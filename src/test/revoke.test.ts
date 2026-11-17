@@ -168,3 +168,58 @@ test("expectedOrigin: a signature for another origin is unverifiable, an invalid
   const tampered = await verifySignature(signature, changed, trust, { now: T0, expectedOrigin: "https://mirror.example" });
   assert.deepEqual([tampered.verdict, tampered.reason], ["invalid", "tampered"]);
 });
+
+test("applyRevocationText: a verified revocation reaches every entry for the kid and every adoptedVia chain, in order", async () => {
+  const { applyRevocationText } = await import("../core/index.js");
+  const k = await generateKey(T0);
+  const bystander = await generateKey(T0);
+  const successor = await generateKey(T0);
+  const entries: TrustEntry[] = [
+    entryOf(bystander),
+    entryOf(k),
+    entryOf(k, "https://mirror.example"),
+    { ...entryOf(successor, "https://next.example"), adoptedVia: k.key.kid },
+  ];
+  const text = JSON.stringify(await revokeKey({ privateKey: k.privateKey, key: k.key, now: LATER }));
+  const outcome = await applyRevocationText(text, entries);
+  assert.equal(outcome.applied, true);
+  assert.equal(outcome.kid, k.key.kid);
+  assert.deepEqual(outcome.results.map((r) => r.verdict), ["verified", "verified"]);
+  assert.deepEqual(outcome.entries.map((e) => e.revokedAt), [undefined, LATER.toISOString(), LATER.toISOString(), LATER.toISOString()]);
+  assert.equal(entries[1]?.revokedAt, undefined, "the caller's entries are not changed in place");
+});
+
+test("applyRevocationText: not JSON, an unknown kid, a forged statement and a kid outside its pattern change nothing", async () => {
+  const { applyRevocationText } = await import("../core/index.js");
+  const k = await generateKey(T0);
+  const thief = await generateKey(T0);
+  const entries = [entryOf(k)];
+
+  const garbled = await applyRevocationText("{ SECRET", entries);
+  assert.equal(garbled.applied, false);
+  assert.deepEqual(garbled.results, [{ verdict: "invalid", reason: "malformed", detail: "The revocation file is not valid JSON." }]);
+  assert.deepEqual(garbled.entries, entries);
+
+  const stranger = await applyRevocationText(JSON.stringify(await revokeKey({ privateKey: thief.privateKey, key: thief.key })), entries);
+  assert.deepEqual([stranger.applied, stranger.results[0]?.verdict], [false, "unverifiable"]);
+
+  const forged = { ...(await revokeKey({ privateKey: thief.privateKey, key: thief.key })), kid: k.key.kid };
+  const refused = await applyRevocationText(JSON.stringify(forged), entries);
+  assert.deepEqual([refused.applied, refused.results[0]?.reason], [false, "bad-signature"]);
+  assert.deepEqual(refused.entries, entries);
+
+  const odd = await applyRevocationText(JSON.stringify({ kid: "SECRET-NOT-A-KID" }), entries);
+  assert.equal(odd.applied, false);
+  assert.equal(odd.kid, undefined);
+  assert.ok(!JSON.stringify(odd).includes("SECRET"), "a kid outside its pattern is never quoted");
+});
+
+test("isPrivateKeyFile: the exact private key file shape, nothing else", async () => {
+  const { isPrivateKeyFile, PRIVATE_KEY_TYPE } = await import("../core/index.js");
+  const k = await generateKey(T0);
+  const file = { type: PRIVATE_KEY_TYPE, version: 1, alg: "Ed25519", kid: k.key.kid, privateKey: k.privateKey };
+  assert.equal(isPrivateKeyFile(file), true);
+  for (const bad of [null, [], "x", { ...file, type: "plumbline-key" }, { ...file, version: 2 }, { ...file, alg: "RSA" }, { ...file, kid: 1 }, { ...file, privateKey: undefined }]) {
+    assert.equal(isPrivateKeyFile(bad), false, JSON.stringify(bad));
+  }
+});

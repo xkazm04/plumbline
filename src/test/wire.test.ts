@@ -8,12 +8,15 @@ import {
   GATE_STATES,
   INVALID_REASONS,
   KEY_FILE,
+  LOCK_STATES,
   KEY_TYPE,
   KID_PATTERN,
   LINKS_FILE,
   LOCK_FILE,
   MANIFEST_FILE,
   PEER_LINKS_ABSENT,
+  PRIVATE_KEY_FILE,
+  PRIVATE_KEY_TYPE,
   PUBLIC_KEY_PATTERN,
   SHA256_PATTERN,
   SUBJECT_PATH_PATTERN,
@@ -44,6 +47,16 @@ test("published file names", () => {
   assert.equal(LOCK_FILE, "plumbline.lock.json");
   assert.equal(MANIFEST_FILE, "agent-manifest.json");
   assert.equal(LINKS_FILE, "links.json");
+});
+
+test("the private key file: its name and type string (the CLI writes it, the Desk reads it; never published)", async () => {
+  assert.equal(PRIVATE_KEY_FILE, "plumbline.private.json");
+  assert.equal(PRIVATE_KEY_TYPE, "plumbline-private-key");
+  const { generateKey, isPrivateKeyFile } = await import("../core/index.js");
+  const k = await generateKey(new Date("2026-11-17T12:00:00.000Z"));
+  const file = { type: PRIVATE_KEY_TYPE, version: 1, alg: "Ed25519", kid: k.key.kid, privateKey: k.privateKey };
+  assert.equal(isPrivateKeyFile(file), true);
+  assert.deepEqual(Object.keys(file).sort(), ["alg", "kid", "privateKey", "type", "version"]);
 });
 
 test("the exact patterns every inbound kid, public key, digest and subject path is held to", () => {
@@ -83,6 +96,7 @@ test("enum strings are exact and three-state where the standard demands it", () 
   assert.deepEqual([...GATE_STATES], ["pass", "fail", "unavailable"]);
   assert.deepEqual([...DRIFT_KINDS], ["grounding", "runtime", "peer"]);
   assert.deepEqual([...SEVERITIES], ["info", "warn", "block"]);
+  assert.deepEqual([...LOCK_STATES], ["found", "absent", "refused", "unreadable", "unusable"]);
 });
 
 test("plumbline-revocation.json carries exactly these fields; `reason` only when given", async () => {

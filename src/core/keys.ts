@@ -1,7 +1,7 @@
 // Keys: identity derivation and Ed25519 primitives over WebCrypto. Pure: no node:* imports.
 
 import { base64UrlToBytes, bytesToBase64Url, sha256Hex, webCrypto } from "./canonical.js";
-import { ALG, FORMAT_VERSION, KEY_TYPE, type PlumblineKey } from "./types.js";
+import { ALG, FORMAT_VERSION, KEY_TYPE, PRIVATE_KEY_TYPE, type PlumblineKey, type PrivateKeyFile } from "./types.js";
 
 export const RAW_PUBLIC_KEY_BYTES = 32;
 
@@ -71,3 +71,20 @@ export async function verifyText(publicKey: string, text: string, sig: string): 
   }
 }
 
+
+/**
+ * True when a parsed value has the exact shape of a private key file (`plumbline.private.json`): the type, version and
+ * algorithm strings, a string kid and a string key. It does not check that the kid belongs to the key; keyIdOfPrivate
+ * does that, and signing refuses a mismatch. The one shape test the CLI and the Desk share. Pure.
+ */
+export function isPrivateKeyFile(value: unknown): value is PrivateKeyFile {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const o = value as Record<string, unknown>;
+  return (
+    o.type === PRIVATE_KEY_TYPE &&
+    o.version === FORMAT_VERSION &&
+    o.alg === ALG &&
+    typeof o.kid === "string" &&
+    typeof o.privateKey === "string"
+  );
+}
