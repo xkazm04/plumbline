@@ -1,5 +1,5 @@
-# Runs the published Action from this repository against a public agentic site, so the adopter's path
-# (npx github:xkazm04/plumbline#<pinned sha> on a runner with no SSH key) is proven where adopters run it.
+# Runs the Action from this repository the way an adopter does (it builds itself from its own checkout), against a
+# public agentic site (gate) and against this repository's Desk (watch), so the adopter's path is proven on a runner.
 name: Action smoke
 
 on:
@@ -32,3 +32,25 @@ jobs:
           STATE: ${{ steps.gate.outputs.state }}
         run: |
           echo "gate state: $STATE"
+
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: watch
+        uses: ./action
+        with:
+          command: watch
+          root: site
+      - name: Report
+        shell: bash
+        env:
+          FINDINGS: ${{ steps.watch.outputs.findings }}
+        run: |
+          echo "warn or block findings: $FINDINGS"
