@@ -30,4 +30,5 @@ jobs:
         shell: bash
         env:
           STATE: ${{ steps.gate.outputs.state }}
-        run: echo "gate state: $STATE"
+        run: |
+          echo "gate state: $STATE"
