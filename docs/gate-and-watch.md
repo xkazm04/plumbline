@@ -75,21 +75,35 @@ networks Customs lists get receipts (its `tools/receipt-sites.json`), so most ta
 
 ## The watch
 
-`plumbline watch [--root <dir>] [--init] [--source <ref>]... [--timeout <ms>] [--json]`. It is a dry run: it reports, and with
-`--init` and no lock yet it writes `plumbline.lock.json`. With a lock present, `--init` does not overwrite it. Opening an issue
-is the workflow template's job (`action/templates/plumbline-watch.yml`), never the library's. Exit 0 when no finding is `warn` or
-`block` (`info` alone is clean), 1 otherwise, 2 for a usage or I/O error. No lock and no `--init` is one finding: grounding,
-`warn`, `plumbline.lock.json`, "no lock". A lock that is unreadable or has the wrong shape is one `warn` finding and nothing else
-is checked.
+`plumbline watch [--root <dir>] [--init | --relock] [--source <ref>]... [--timeout <ms>] [--json]`. It is a dry run: it
+reports, and with `--init` and no lock yet it writes `plumbline.lock.json`. With a lock present, `--init` does not
+overwrite it; `--relock` does (below). Opening an issue is the workflow template's job (`action/templates/plumbline-watch.yml`),
+never the library's. Exit 0 when no finding is `warn` or `block` (`info` alone is clean), 1 otherwise, 2 for a usage or
+I/O error.
+
+**The lock's state is not a finding.** Every report carries `lockState`: `found` (the lock was read and checked),
+`absent` (no lock), `unreadable` (it could not be read, or it is reached through a link that leaves the root) or
+`unusable` (not JSON, or not the lock's shape). For any state but `found`, `lockSummary` says why no drift was checked
+(for `absent` it starts "no lock") and `findings` holds only the signature-expiry check below. Nothing was checked, so
+the exit is 1, never a clean 0. The Desk's drift reader reports the same states by the same rule (it adds `refused`, for
+a lock the browser was refused), so a drift count is a count of drift.
 
 | Detector | What it re-checks | Finding and severity |
 | --- | --- | --- |
 | `grounding` | each `grounding.sources[].ref` (a path under the root, or an https URL through `safeFetch`), hashed again | changed: `warn`. Unreadable, missing or outside the root: `warn`, saying so |
 | `runtime` (a) | each file in `runtime.files`, under the root | changed or missing: `block` (the vendored runtime is copy-do-not-change) |
-| `runtime` (b) | newest commit of `cognizant-ai-lab/nsdeploy` from the GitHub API, unauthenticated | differs from `runtime.commit`: `info` "Upstream is ahead" with both short SHAs. Cannot ask (timeout, rate limit, HTTP error, odd answer): `info` "Could not check upstream". Never `block` |
+| `runtime` (b) | the runtime's upstream, from the GitHub API, unauthenticated (see "Which upstream the runtime check asks") | upstream moved on: `info` "Upstream is ahead" with both short SHAs. Cannot ask (timeout, rate limit, HTTP error, odd answer): `info` "Could not check upstream". Never `block` |
 | `peer` | each `peers[url]`: the network definition, hashed again | changed in any byte: `block` (a peer's definition runs in the visitor's browser, so a changed one is changed code). Unreachable: `warn` |
 | `peer` links | each `peers[url].links`: the peer's `links.json` at the same site base (the runtime fetches it for every peer network it loads and lays it over that network's links) | appeared (locked `absent`, now served), changed, or gone (404/410 now): `block`. Cannot be read (timeout, HTTP 5xx): `warn`. A lock written before 2026-11-17 has no `links` for the peer: `warn`, "re-lock to track it", never a silent pass |
 | `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`. Signed when locked, no usable signature now: `warn`. Unsigned when locked, signed now: `info`. A `kid` that is not exactly 16 lowercase hex characters is never recorded or quoted; it counts as no usable signature |
+| `peer` pending | each `pendingPeers[url]`: a peer that could not be captured when the lock was written | `warn` on every watch, reachable or not, until `--relock` captures it |
+| coverage | what the site names now (the discovery `--init` uses, below) against what the lock holds | a root agent file or a manifest-named network file not in `grounding.sources`: `warn` (grounding). A peer a network or `links.json` names that is neither in `peers` nor pending: `warn` (peer). A network file that is not JSON, so its peers cannot be read: `warn` (peer). An unsafe `hocon`: `warn`, as at init |
+| signature expiry | the site's own `plumbline.signature.json` at the root, its `expiresAt` | expired: `block` (verifiers answer `invalid expired`). Expiring within 14 days: `warn`, with the date and the days left. No signature file: no finding (signing is the publisher's choice). A file with no readable `expiresAt`: `warn`. Kind `grounding`, ref `plumbline.signature.json` (the wire has three drift kinds; the signed files are the grounding). Checked whatever the lock's state |
+
+**Reading under the root.** Every local file the watch reads (lock references, the lock itself, the manifest, network
+files, the signature) must stay under the root twice: lexically, and, after every symlink and junction is resolved
+(`realpath`), under the root's real path. A committed link that points out of the site is refused as "outside the site
+root" and is never read or hashed.
 
 Hashing: every hash the watch writes or compares is SHA-256 of the **exact bytes**, read from disk or fetched (`hashBytes`
 in `src/net/canonical.ts`). Nothing is normalised: no JSON canonicalisation, no CRLF folding, no BOM stripping. So
@@ -101,32 +115,77 @@ checked out with CRLF, and should add that line. Locks written before 2026-11-17
 JSON hashes no longer match: write a fresh lock (below). The signer check compares the kid only; verifying a signature
 needs a trust store and is `src/core`'s job.
 
-`--init` captures: every file under `runtime/` (else `site/runtime/`) and the nsdeploy commit its README or NOTICE names
-(`nsdeploy commit \`53a787c\``, else `unknown`); `agent-manifest.json`, `links.json` and every `*.network.json` at the root,
-every network file the manifest names in `networks[].hocon` (at exactly that path, by the rule `sign` uses, so a `hocon`
-that is an absolute URL, leaves the root or has an unsafe character is a `warn` finding naming the entry and is never
-read), plus any `--source`, as grounding; and as peers the keys of `link_labels`, the `http(s)` non-MCP entries of an agent's `tools`, and the
-`http(s)` values in `links.json`, each with the hash of its network definition and the state of its `links.json`.
-Something that cannot be captured (an unreachable peer, a peer whose `links.json` answers neither 2xx nor 404/410, a
-missing source) is left OUT of the lock and returned as a finding, so a lock with a gap is never mistaken for a complete
-one.
+`--init` captures (`src/watch/capture.ts`, `src/watch/discover.ts`):
+
+- **runtime**: every file under `runtime/` (else `site/runtime/`); the nsdeploy commit its README or NOTICE names
+  (``nsdeploy commit `53a787c` ``, else `unknown`); and `via` when the NOTICE or README says the copy was taken from
+  another repository's folder, in the form ``<owner>/<repo> `<path>` at commit <sha>`` (as `site/runtime/NOTICE` does).
+- **grounding**: `agent-manifest.json`, `links.json` and every `*.network.json` at the root, every network file the
+  manifest names in `networks[].hocon` (at exactly that path, by the rule `sign` uses, so a `hocon` that is an absolute
+  URL, leaves the root or has an unsafe character is a `warn` finding naming the entry and is never read), plus any
+  `--source`.
+- **peers**: read from **every** network file above, root `*.network.json` and manifest-named alike: the keys of
+  `link_labels` and the `http(s)` non-MCP entries of an agent's `tools`; plus the `http(s)` values in `links.json`. Each
+  is recorded with the hash of its network definition, the state of its `links.json` and its signer kid.
+
+A peer that cannot be captured (unreachable, or its `links.json` answers neither 2xx nor 404/410) is recorded in
+`pendingPeers` with the time and reported now and on every watch. Anything else that cannot be captured (a missing
+source) is left OUT of the lock and returned as a finding, so a lock with a gap is never mistaken for a complete one.
+
+### Which upstream the runtime check asks
+
+The Desk's runtime is not a copy of nsdeploy: `site/runtime/NOTICE` says it is a copy of
+`cognizant-ai-labs/agentic-web`'s `skills/agentify-website/runtime` at commit `7817c1f`, which is itself nsdeploy's
+runtime at `53a787c` with agentic-web's edits on top (its README lists them). The edits live in agentic-web, so a new
+nsdeploy commit reaches this copy only through agentic-web, and a new agentic-web commit to that folder is invisible to
+a check that asks nsdeploy. (Checked read-only against the GitHub API on 2026-11-17: the folder's newest commit as of
+`7817c1f` is `63a1b15`; on `main` it is `7ee54a3`, "Send Otari EU keys to the EU gateway", made after the copy.) So:
+
+- a lock whose runtime records `via` is checked against that folder: the newest commit that touched `via.path` on the
+  default branch (`GET /repos/<repo>/commits?path=<path>&per_page=1`) against the newest that had touched it as of the
+  copied commit (`GET /repos/<repo>/commits?sha=<via.commit>&path=<path>&per_page=1`). Equal means the folder has not
+  changed since the copy, whatever else the repository did; different is `info` "Upstream is ahead". Two requests of
+  about 4 KB each.
+- a lock with no `via` (a site that vendors nsdeploy's runtime directly, or a lock written before 2026-11-18) is checked
+  against nsdeploy's newest commit, as before.
+
+`via` is checked before it becomes part of an address: `repo` is `owner/name` in GitHub's characters, `path` a safe
+relative path, `commit` 7 to 40 hex characters; anything else makes the lock `unusable`.
+
+### Accepting drift: `--relock`
+
+`plumbline watch --root <dir> --relock [--json]`, after a person reviewed the drift and accepts it. It captures the
+current state exactly as `--init` does, plus every grounding ref the previous lock held (so a `--source` given at init is
+kept; one that is gone now is a finding and leaves the lock), writes the lock in place (beside it, then renamed over it,
+so a failed write leaves the old one), and prints what changed: `added`, `removed` and `changed` refs, each labelled
+`grounding`, `runtime`, `peer`, `pending`, `runtime commit` or `runtime via`. It ends with the reminder that the lock is a
+signed file. With `--json` it prints `{ relocked, previous, changes: { added, removed, changed }, findings, reminder }`.
+Exit 0 when it wrote the lock. `--init` and `--relock` together are a usage error.
 
 ### The lock (`plumbline.lock.json`)
 
 ```json
 {
   "version": 1,
-  "runtime": { "source": "nsdeploy", "commit": "53a787c", "files": { "runtime/engine.js": "<sha256>" } },
+  "runtime": {
+    "source": "nsdeploy",
+    "commit": "53a787c",
+    "via": { "repo": "cognizant-ai-labs/agentic-web", "path": "skills/agentify-website/runtime", "commit": "7817c1f75b8d4f497c869540212be17dda94dcae" },
+    "files": { "runtime/engine.js": "<sha256>" }
+  },
   "grounding": { "sources": [{ "ref": "agent-manifest.json", "sha256": "<sha256>" }], "builtAt": "<ISO UTC>" },
   "peers": {
     "https://peer.example/partner": { "sha256": "<sha256>", "links": "<sha256> or absent", "kid": "<kid>", "checkedAt": "<ISO UTC>" }
-  }
+  },
+  "pendingPeers": { "https://later.example/partner": { "since": "<ISO UTC>" } }
 }
 ```
 
 Every `<sha256>` is the lowercase hex SHA-256 of exact bytes. `peers[url].links` is the hash of the peer's `links.json`
 at its site base, or the literal string `absent` when the peer answered 404 or 410, so a `links.json` that appears later
-is drift. `kid` is present only when the peer published a signature. Absent optional fields are omitted, never `null`.
+is drift. `kid` is present only when the peer published a signature. `runtime.via` is present only when the runtime
+names the repository folder it was copied from, and `pendingPeers` only when a peer could not be captured. Absent
+optional fields are omitted, never `null`.
 
 **The lock is a published, signed file.** When a site serves `plumbline.lock.json`, `plumbline sign` signs it (the Desk
 reads it, and an unsigned baseline would be anyone's word), and a lock that is present but not signed makes the
@@ -134,9 +193,21 @@ signature `invalid tampered` (`docs/signature-format.md`). So the publisher's or
 
 1. `plumbline watch --init` writes the lock;
 2. `plumbline sign` signs the site, the lock included;
-3. later, when the watch reports drift you accept: review it, move the old lock aside, run `watch --init` again into a
-   fresh lock, and **sign again**. Re-signing after accepting drift is part of the workflow: a lock changed after signing
-   makes the signature `invalid tampered` until you do.
+3. later, when the watch reports drift you accept: review it, run `plumbline watch --relock`, read what it says changed,
+   and **sign again**. Re-signing after accepting drift is part of the workflow: a lock changed after signing makes the
+   signature `invalid tampered` until you do.
+
+### The Desk's drift reader (`site/drift.js`)
+
+The Desk re-checks a site's PUBLISHED lock in the browser. What every read means (the lock's shape rule, each finding
+and its severity, the peer signer rule, pending peers) is `src/watch/decide.ts`, an I/O-free module the CLI's watch
+loads too, so the two cannot disagree; a test gives both the same lock and the same bytes and compares the findings.
+What the Desk does differently is I/O only: lock references resolve against the lock's URL, and the upstream, coverage
+and signature-expiry checks are the CLI's. And the lock is a stranger's document, so its peer addresses are
+destinations a stranger chose: one that is not `https`, carries credentials, a query or a fragment, or names
+`localhost`, a single-label host, a private or loopback IPv4 literal or any IPv6 literal is never contacted, and is a
+`warn` whose sentence does not quote it (the page's fetcher allows `http` to `localhost`, so a lock could otherwise aim
+the visitor's browser at their own machine).
 
 ## `safeFetch` (`src/net/safe-fetch.ts`)
 
@@ -159,14 +230,15 @@ Every fetch of an address we do not own goes through this one function. Its rule
    is 9,370). 41,156 x 10 = 411,560, rounded up to 512 KiB. A caller may lower the ceiling, never raise it. No `accept-encoding` is sent, so no decompression bomb.
 6. **One absolute timeout** (default 10 s) covers resolution, connect, redirects and the whole body; a body that drips forever trips it.
 
-Failures carry their own code: `blocked-address`, `insecure-scheme`, `dns-failed`, `too-many-redirects`, `body-too-large`,
+Failures carry their own code, and one table words them for the gate, the watch and the Desk (`describeFetchError` in
+`src/net/fetch-types.ts`, which has no Node import, so the browser build carries it): `blocked-address`, `insecure-scheme`, `dns-failed`, `too-many-redirects`, `body-too-large`,
 `timeout`, `network`, `bad-url`. A caller turns any of them into `unavailable` (gate) or a `warn` or `info` finding (watch), never an exception that stops the run.
 
 ## What a clean report does NOT mean
 
 - **A gate `pass` is not a security review.** The validator port checks structure, not what the instructions say. Atlas checks public files against a spec profile ("not that a site's agents are safe to trust"). A Customs receipt is a stamp on one inspection on one date; the live network was not rechecked.
 - **`unavailable` is not `pass`.** A gate where every adapter was `unavailable` exits 1 under either `--fail-on`. Fail the build on any `unavailable` (`--fail-on unavailable`) if a partly checked site must not ship.
-- **A clean watch means the locked things match the lock.** It does not cover anything not in the lock: a new grounding file, a new peer, a runtime file added next to the locked ones. Re-run `--init` into a fresh lock and diff it to find those.
+- **A clean watch means the locked things match the lock, and the site names nothing the lock misses.** The coverage check sees a new root agent file, a new manifest-named network and a new peer. It does not see a runtime file added next to the locked ones, or a new file of the kind only `--source` locks; the added refs `--relock` lists show those.
 - **It does not verify signatures.** The peer check compares signer kids; the signature itself is verified by the verifier in `src/core` against a trust store.
 - **It sees only public files and only what the fetch could reach.** A peer that serves different bytes to different visitors, or only to browsers, is not seen. A peer on a private address is never contacted.
 - **The upstream check is informational.** "Upstream is ahead" means the newest commit differs, not that the vendored copy is vulnerable; the vendored runtime also carries local edits listed in its README.
@@ -174,6 +246,5 @@ Failures carry their own code: `blocked-address`, `insecure-scheme`, `dns-failed
 
 ## Known deviations and temporary pieces
 
-- `src/net/canonical.ts` re-exports core's `canonicalJson` and `sha256Hex` (core is the one authority for them) and adds the document fingerprints, which are plain SHA-256 of exact bytes; the parity test against `src/core` stays.
 - The Agent Customs public key is pinned in source (first seen 2026-11-17, key id `-DC99sDa-qJjBp2N`); if Customs rotates it, the customs adapter is `unavailable` until the pin is updated.
 - The gate sends the target address to Agent Atlas' public API, as the adapter's job.

@@ -36,14 +36,8 @@ test("bytes that are not UTF-8 are hashed as they are", async () => {
   assert.equal(await hashBytes(bytes), await sha256Hex(bytes));
 });
 
-test("parity with core's canonicalJson and sha256Hex once WP1 lands", async (t) => {
-  let theirs: string;
-  try {
-    theirs = core.canonicalJson({ b: [1, { y: undefined, x: "é" }], a: null });
-  } catch {
-    t.skip("core is not implemented yet (WP1); this runs once it lands");
-    return;
-  }
-  assert.equal(theirs, canonicalJson({ b: [1, { y: undefined, x: "é" }], a: null }));
+test("net re-exports core's canonicalJson and sha256Hex: one authority for the bytes", async () => {
+  assert.equal(canonicalJson, core.canonicalJson);
+  assert.equal(core.canonicalJson({ b: [1, { y: undefined, x: "é" }], a: null }), canonicalJson({ b: [1, { y: undefined, x: "é" }], a: null }));
   assert.equal(await core.sha256Hex("abc"), await sha256Hex("abc"));
 });

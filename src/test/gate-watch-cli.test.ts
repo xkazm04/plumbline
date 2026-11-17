@@ -3,7 +3,7 @@
 // targets are private addresses (refused before connecting) or the loopback test server.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -132,4 +132,74 @@ test("watch: an empty folder exits 1 with 'no lock'; --init exits 0; a second ru
   assert.ok(findings.every((f) => f.severity === "info"), JSON.stringify(findings));
   // the upstream check could not ask GitHub (no network in tests), which is info, never a failure
   assert.ok(findings.some((f) => /Could not check upstream/.test(f.summary)), JSON.stringify(findings));
+});
+
+test("gate refuses an unknown adapter, a bad --fail-on, a bad --timeout and a second target, each with exit 2 and the usage line", () => {
+  const cases: [string[], RegExp][] = [
+    [["gate", "https://site.example/", "--adapters", "validator,oracle"], /unknown adapter in --adapters \(known: validator, atlas, customs\)/],
+    [["gate", "https://site.example/", "--adapters", ""], /unknown adapter in --adapters/],
+    [["gate", "https://site.example/", "--fail-on", "warn"], /--fail-on takes fail or unavailable/],
+    [["gate", "https://site.example/", "--fail-on"], /--fail-on takes fail or unavailable/],
+    [["gate", "https://site.example/", "--timeout", "-5"], /--timeout takes a positive number of milliseconds/],
+    [["gate", "https://site.example/", "--timeout", "soon"], /--timeout takes a positive number of milliseconds/],
+    [["gate", "https://site.example/", "https://other.example/"], /unexpected argument/],
+    [["gate", "https://site.example/", "--verbose"], /unknown option --verbose/],
+  ];
+  for (const [args, message] of cases) {
+    const r = runSync(tmp, ...args);
+    assert.equal(r.code, 2, args.join(" "));
+    assert.match(r.err, message, args.join(" "));
+    assert.match(r.err, /usage: plumbline gate/, args.join(" "));
+    assert.equal(r.out, "", "nothing is checked on a usage error");
+  }
+});
+
+test("watch --init --source locks the extra source as grounding, beside what the root names", () => {
+  const root = mkdtempSync(path.join(tmp, "watch-src-"));
+  writeFileSync(path.join(root, "agent-manifest.json"), '{ "networks": [] }\n');
+  mkdirSync(path.join(root, "data"));
+  writeFileSync(path.join(root, "data", "rooms.json"), '{ "rooms": [1, 2] }\n');
+  const init = runSync(root, "watch", "--root", root, "--init", "--source", "data/rooms.json", "--source", "data/missing.json", "--json");
+  // the missing source is a warn finding at init, and is left out of the lock
+  assert.equal(init.code, 1, init.out + init.err);
+  const lock = JSON.parse(readFileSync(path.join(root, "plumbline.lock.json"), "utf8")) as { grounding: { sources: { ref: string }[] } };
+  assert.deepEqual(lock.grounding.sources.map((s) => s.ref), ["agent-manifest.json", "data/rooms.json"]);
+  const r = runSync(root, "watch", "--root", root, "--source");
+  assert.equal(r.code, 2);
+  assert.match(r.err, /--source takes a path or an https URL/);
+});
+
+test("watch --relock rewrites the lock, prints what changed and the re-sign reminder, and exits 0; --init with --relock is a usage error", () => {
+  const root = mkdtempSync(path.join(tmp, "watch-relock-"));
+  writeFileSync(path.join(root, "agent-manifest.json"), '{ "networks": [] }\n');
+  writeFileSync(path.join(root, "links.json"), '{ "version": 1, "networks": {} }\n');
+  assert.equal(runSync(root, "watch", "--root", root, "--init").code, 0);
+  writeFileSync(path.join(root, "links.json"), '{ "version": 1, "networks": { "x": {} } }\n');
+  assert.equal(runSync(root, "watch", "--root", root, "--timeout", "2000").code, 1, "the change is drift until it is accepted");
+
+  const text = runSync(root, "watch", "--root", root, "--relock", "--timeout", "2000");
+  assert.equal(text.code, 0, text.out + text.err);
+  assert.match(text.out, /^relock: wrote plumbline\.lock\.json \(the previous lock was found\)$/m);
+  assert.match(text.out, /^changed grounding links\.json$/m);
+  assert.match(text.out, /plumbline\.lock\.json is a signed file: sign the site again/);
+  assert.equal(runSync(root, "watch", "--root", root, "--timeout", "2000").code, 0, "clean after the re-lock");
+
+  const json = runSync(root, "watch", "--root", root, "--relock", "--json", "--timeout", "2000");
+  assert.equal(json.code, 0);
+  const parsed = JSON.parse(json.out) as { relocked: boolean; previous: string; changes: { added: string[]; removed: string[]; changed: string[] }; reminder: string };
+  assert.deepEqual([parsed.relocked, parsed.previous, parsed.changes], [true, "found", { added: [], removed: [], changed: [] }]);
+  assert.match(parsed.reminder, /signed file/);
+
+  const both = runSync(root, "watch", "--root", root, "--init", "--relock");
+  assert.equal(both.code, 2);
+  assert.match(both.err, /--init and --relock do not go together/);
+});
+
+test("watch --json with no lock reports lockState absent and no findings, and still exits 1", () => {
+  const root = mkdtempSync(path.join(tmp, "watch-nolock-"));
+  const r = runSync(root, "watch", "--root", root, "--json");
+  assert.equal(r.code, 1);
+  const parsed = JSON.parse(r.out) as { lockState: string; lockSummary: string; findings: unknown[] };
+  assert.deepEqual([parsed.lockState, parsed.findings], ["absent", []]);
+  assert.match(parsed.lockSummary, /^no lock: /);
 });

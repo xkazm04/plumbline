@@ -3,7 +3,7 @@
 
 import type { GateFinding, GateState } from "../core/types.js";
 import { locateTarget, type Fetcher, type Located } from "../net/locate.js";
-import { SafeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
+import { describeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
 
 export const ATLAS_BASE = "https://agent-atlas-phi.vercel.app";
 export const CUSTOMS_BASE = "https://montbaga.github.io/agent-customs/";
@@ -31,30 +31,8 @@ export function finding(adapter: string, state: GateState, summary: string): Gat
   return { adapter, state, summary };
 }
 
-/** One sentence naming why a fetch failed. Ours, never the remote's words. */
-export function describeFetchError(error: unknown): string {
-  if (error instanceof SafeFetchError) {
-    switch (error.code) {
-      case "timeout":
-        return "the request timed out";
-      case "body-too-large":
-        return "the response was larger than the byte ceiling";
-      case "blocked-address":
-        return "the address resolves to a private or loopback range, which Plumbline refuses to contact";
-      case "insecure-scheme":
-        return "the address is not https";
-      case "too-many-redirects":
-        return "the address redirected too many times";
-      case "dns-failed":
-        return "the name did not resolve";
-      case "bad-url":
-        return "the address is not a valid URL";
-      case "network":
-        return "the connection failed";
-    }
-  }
-  return "the request failed";
-}
+/** One sentence naming why a fetch failed: the table every caller shares (src/net/fetch-types.ts). */
+export { describeFetchError };
 
 const RANK: Record<GateState, number> = { pass: 0, unavailable: 1, fail: 2 };
 

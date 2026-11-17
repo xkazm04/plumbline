@@ -8,10 +8,12 @@ import { baseRoutes, PEER, PEER2, watch } from "./watch-helpers.js";
 
 const readLock = (root: string): PlumblineLock => JSON.parse(readFileSync(join(root, LOCK_FILE), "utf8"));
 
-test("watch: no lock and no init reports exactly one grounding warning 'no lock'", async () => {
+test("watch: no lock and no init is the lock state 'absent' with its sentence, not a drift finding", async () => {
   const root = copySite();
-  const { findings, calls } = await watch(root, baseRoutes());
-  assert.deepEqual(findings, [{ kind: "grounding", severity: "warn", ref: "plumbline.lock.json", summary: "no lock" }]);
+  const { report, findings, calls } = await watch(root, baseRoutes());
+  assert.equal(report.lockState, "absent");
+  assert.match(report.lockSummary ?? "", /^no lock: .*no drift was checked/);
+  assert.deepEqual(findings, [], "a missing lock is not counted as grounding drift");
   assert.deepEqual(calls, [], "nothing is fetched and nothing is written");
   assert.throws(() => readLock(root));
 });
@@ -84,16 +86,16 @@ test("watch --init on a folder with no runtime or sources locks what exists and 
   assert.deepEqual(readLock(empty).runtime, { source: "nsdeploy", commit: "unknown", files: {} });
 });
 
-test("watch: a lock that is not valid is one warning, not a crash or a silent pass", async () => {
+test("watch: a lock that is not valid is the lock state 'unusable', not a crash, a silent pass or a drift finding", async () => {
   const root = copySite();
   writeFileSync(join(root, LOCK_FILE), "{ nope");
   const a = await watch(root, baseRoutes());
-  assert.equal(a.findings.length, 1);
-  assert.equal(a.findings[0]?.severity, "warn");
+  assert.deepEqual([a.report.lockState, a.findings], ["unusable", []]);
+  assert.match(a.report.lockSummary ?? "", /not valid JSON/);
   writeFileSync(join(root, LOCK_FILE), JSON.stringify({ version: 1, runtime: { source: "nsdeploy", commit: "x", files: { a: "not-a-hash" } }, grounding: { sources: [], builtAt: "t" }, peers: {} }));
   const b = await watch(root, baseRoutes());
-  assert.equal(b.findings.length, 1);
-  assert.match(b.findings[0]!.summary, /cannot be used/);
+  assert.deepEqual([b.report.lockState, b.findings], ["unusable", []]);
+  assert.match(b.report.lockSummary ?? "", /cannot be used/);
 });
 
 test("every finding uses only the kinds and severities in the wire contract", async () => {

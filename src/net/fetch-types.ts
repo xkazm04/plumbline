@@ -15,6 +15,15 @@
  */
 export const MAX_BODY_BYTES = 524_288;
 
+/**
+ * The ceiling for one file of a published runtime, read ONLY by the Desk's runtime-drift check and only when the caller
+ * says so (`ceiling: "runtime"`). Derivation: the largest file of the vendored reference runtime is
+ * runtime/generated/agent-runner.bundle.js at 1,573,971 bytes (measured 2026-11-17, THIRD_PARTY.md); with headroom for
+ * an upstream that grows it, 4 MiB = 4,194,304 bytes. Without this the Desk reported that bundle as `block` on every
+ * reading of its own drift, because 512 KiB is a network definition's ceiling, not a runtime file's.
+ */
+export const MAX_RUNTIME_FILE_BYTES = 4_194_304;
+
 /** Redirects followed before giving up. The brief's limit is 3. */
 export const MAX_REDIRECTS = 3;
 
@@ -76,4 +85,40 @@ export interface SafeFetchResponse {
   bytes: Uint8Array;
   /** The body decoded as UTF-8. */
   text(): string;
+}
+
+/**
+ * One sentence naming why a fetch failed, for the gate, the watch and the Desk alike. Ours, never the remote's words.
+ * An error is read by its `name` and `code` as well as by class, so a SafeFetchError from another copy of this module
+ * (the browser build, a test) is worded the same.
+ *
+ * :param fallback: the sentence for anything that is not a SafeFetchError.
+ */
+export function describeFetchError(error: unknown, fallback = "the request failed"): string {
+  const code =
+    error instanceof SafeFetchError
+      ? error.code
+      : typeof error === "object" && error !== null && (error as { name?: unknown }).name === "SafeFetchError"
+        ? (error as { code?: unknown }).code
+        : undefined;
+  switch (code) {
+    case "timeout":
+      return "the request timed out";
+    case "body-too-large":
+      return "the response was larger than the byte ceiling";
+    case "blocked-address":
+      return "the address resolves to a private or loopback range, which Plumbline refuses to contact";
+    case "insecure-scheme":
+      return "the address is not https";
+    case "too-many-redirects":
+      return "the address redirected too many times";
+    case "dns-failed":
+      return "the name did not resolve";
+    case "bad-url":
+      return "the address is not a valid URL";
+    case "network":
+      return "the connection failed";
+    default:
+      return fallback;
+  }
 }

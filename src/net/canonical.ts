@@ -1,5 +1,5 @@
-// The hashes the gate and the watch use. core is the one authority for canonical bytes and SHA-256 (WP1); this module
-// adds the document fingerprints on top. The parity test in src/test/net-canonical.test.ts stays.
+// The hashes the gate and the watch use. core is the one authority for canonical bytes and SHA-256; this module
+// re-exports them and adds the document fingerprints on top (src/test/net-canonical.test.ts holds the re-export).
 //
 // Every fingerprint is SHA-256 of the EXACT bytes, with no JSON canonicalisation, no CRLF folding and no BOM
 // stripping. A re-serialised file IS a different file to the reference runtime: it parses network files with its own
