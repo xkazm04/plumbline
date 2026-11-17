@@ -37,7 +37,7 @@ jobs:
       # The Action builds plumbline from its own checkout: pinning it by commit SHA pins the code that runs.
       - name: Run plumbline watch
         id: watch
-        uses: xkazm04/plumbline/action@1718bff64c63a245a248b054fc64aebaaee3e0da
+        uses: xkazm04/plumbline/action@dcb92c590f998366df2feef300d17781da9d1064
         with:
           command: watch
           root: "."

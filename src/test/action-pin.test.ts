@@ -39,6 +39,10 @@ test("the watch template uses this repository's Action pinned to a full commit S
   const pinned = git("show", `${sha}:action/action.yml`);
   assert.match(pinned, /cd "\$GITHUB_ACTION_PATH\/\.\."/, "the pinned commit's Action builds itself");
   assert.match(pinned, /\n {2}command:\n/, "the pinned commit's Action has the command input the template uses");
+  // every Action output the template reads must exist in the pinned commit's action.yml, or the step reads ""
+  const read = [...template.matchAll(/steps\.watch\.outputs\.([a-z-]+)/g)].map((m) => m[1]!);
+  assert.ok(read.length > 0, "the template reads the Action's outputs");
+  for (const name of read) assert.match(pinned, new RegExp(`\\n {2}${name}:\\n`), `the pinned Action declares the output ${name}`);
   const pkg = JSON.parse(git("show", `${sha}:package.json`)) as { private?: boolean; scripts?: Record<string, string> };
   assert.equal(pkg.private, true, "never publishable to npm under a name we do not own");
   assert.ok(pkg.scripts?.build);
