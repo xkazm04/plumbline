@@ -1,0 +1,256 @@
+{
+  "version": 2,
+  "project": {
+    "slug": "plumbline",
+    "name": "Plumbline"
+  },
+  "groups": [
+    {
+      "name": "Publisher signatures",
+      "domain": "feature"
+    },
+    {
+      "name": "Checking and watching",
+      "domain": "feature"
+    },
+    {
+      "name": "The Desk",
+      "domain": "feature"
+    },
+    {
+      "name": "Reference runtime",
+      "domain": "integration"
+    }
+  ],
+  "contexts": [
+    {
+      "name": "signing-core",
+      "group": "Publisher signatures",
+      "category": "lib",
+      "description": "Canonical bytes, Ed25519 keys, signing, three-state verification and key rotation; pure, runs in Node and the browser.",
+      "file_paths": [
+        "docs/signature-format.md",
+        "src/core/canonical.ts",
+        "src/core/index.ts",
+        "src/core/keys.ts",
+        "src/core/rotate.ts",
+        "src/core/sign.ts",
+        "src/core/types.ts",
+        "src/core/verify.ts",
+        "src/test/canonical.test.ts",
+        "src/test/rotate.test.ts",
+        "src/test/vectors.json",
+        "src/test/vectors.test.ts",
+        "src/test/verify.test.ts",
+        "src/test/wire.test.ts"
+      ],
+      "entry_points": [
+        "src/core/index.ts"
+      ]
+    },
+    {
+      "name": "signing-cli",
+      "group": "Publisher signatures",
+      "category": "api",
+      "description": "The plumbline command: keygen, sign, verify, rotate, and the gate and watch commands; file I/O and exit codes.",
+      "file_paths": [
+        "src/cli/args.ts",
+        "src/cli/commands.ts",
+        "src/cli/files.ts",
+        "src/cli/gate-command.ts",
+        "src/cli/index.ts",
+        "src/cli/watch-command.ts",
+        "src/test/cli.test.ts"
+      ],
+      "entry_points": [
+        "src/cli/index.ts"
+      ]
+    },
+    {
+      "name": "safe-fetch",
+      "group": "Checking and watching",
+      "category": "lib",
+      "description": "The one guarded fetch for stranger-controlled addresses: pinned DNS, private ranges refused, body ceiling, timeout; plus its pure types and the document fingerprints.",
+      "file_paths": [
+        "src/net/canonical.ts",
+        "src/net/fetch-types.ts",
+        "src/net/locate.ts",
+        "src/net/safe-fetch.ts",
+        "src/test/net-canonical.test.ts",
+        "src/test/net-helpers.ts",
+        "src/test/net-safe-fetch.test.ts"
+      ],
+      "entry_points": [
+        "src/net/safe-fetch.ts"
+      ]
+    },
+    {
+      "name": "gate",
+      "group": "Checking and watching",
+      "category": "lib",
+      "description": "The three-state gate: validator port, Agent Atlas check API, Agent Customs signed receipts; a pure runner for the browser and a Node wrapper.",
+      "file_paths": [
+        "src/gate/adapter-atlas.ts",
+        "src/gate/adapter-customs.ts",
+        "src/gate/adapter-validator.ts",
+        "src/gate/context.ts",
+        "src/gate/index.ts",
+        "src/gate/run.ts",
+        "src/gate/validator.ts",
+        "src/test/fixtures/wp2/atlas-check-conformant.json",
+        "src/test/fixtures/wp2/atlas-check-no-manifest.json",
+        "src/test/fixtures/wp2/atlas-check-not-conformant.json",
+        "src/test/fixtures/wp2/atlas-site-manifest.json",
+        "src/test/fixtures/wp2/atlas-site-network.json",
+        "src/test/fixtures/wp2/customs-index.json",
+        "src/test/fixtures/wp2/customs-key.json",
+        "src/test/fixtures/wp2/customs-receipt-cleared.json",
+        "src/test/fixtures/wp2/customs-receipt-denied.json",
+        "src/test/gate-atlas.test.ts",
+        "src/test/gate-customs.test.ts",
+        "src/test/gate-run.test.ts",
+        "src/test/gate-validator.test.ts"
+      ],
+      "entry_points": [
+        "src/gate/index.ts"
+      ]
+    },
+    {
+      "name": "watch",
+      "group": "Checking and watching",
+      "category": "lib",
+      "description": "Grounding, runtime and peer drift against plumbline.lock.json.",
+      "file_paths": [
+        "src/test/fixtures/wp2/github-nsdeploy-commits.json",
+        "src/test/fixtures/wp2/site/agent-manifest.json",
+        "src/test/fixtures/wp2/site/data/rooms.json",
+        "src/test/fixtures/wp2/site/fixture_guesthouse.network.json",
+        "src/test/fixtures/wp2/site/links.json",
+        "src/test/fixtures/wp2/site/runtime/README.md",
+        "src/test/fixtures/wp2/site/runtime/engine.js",
+        "src/test/fixtures/wp2/site/runtime/generated/graph.gen.mjs",
+        "src/test/fixtures/wp2/site/runtime/ui.js",
+        "src/test/watch-grounding.test.ts",
+        "src/test/watch-helpers.ts",
+        "src/test/watch-init.test.ts",
+        "src/test/watch-peer.test.ts",
+        "src/test/watch-runtime.test.ts",
+        "src/watch/capture.ts",
+        "src/watch/detectors.ts",
+        "src/watch/index.ts",
+        "src/watch/lock.ts"
+      ],
+      "entry_points": [
+        "src/watch/index.ts"
+      ]
+    },
+    {
+      "name": "ci-action",
+      "group": "Checking and watching",
+      "category": "config",
+      "description": "The composite GitHub Action that gates a site and the scheduled workflow template that keeps one drift issue.",
+      "file_paths": [
+        "action/README.md",
+        "action/action.yml",
+        "action/templates/plumbline-watch.yml"
+      ],
+      "entry_points": [
+        "action/action.yml"
+      ]
+    },
+    {
+      "name": "desk-ui",
+      "group": "The Desk",
+      "category": "ui",
+      "description": "The Desk page: gate, drift, verify, key generation and signing, each from a page button and as a site action for the agent; strings, styles, the build of the browser modules, its tests and submission text.",
+      "file_paths": [
+        "scripts/build-site.mjs",
+        "site/README.md",
+        "site/assistant.css",
+        "site/desk.js",
+        "site/devpost.md",
+        "site/drift.js",
+        "site/fetcher.js",
+        "site/index.html",
+        "site/review-dialog.js",
+        "site/site-actions.js",
+        "site/site.js",
+        "site/strings.js",
+        "site/tests/desk.test.mjs",
+        "site/tests/scripted_model.mjs",
+        "site/tests/stub_dialog.mjs",
+        "site/tests/stub_document.mjs",
+        "site/tests/stub_element.mjs",
+        "site/tests/stub_option.mjs"
+      ],
+      "entry_points": [
+        "site/index.html"
+      ]
+    },
+    {
+      "name": "desk-network",
+      "group": "The Desk",
+      "category": "data",
+      "description": "The agentic-web artifacts: agent-manifest.json, the plumbline_desk network (HOCON source and generated JSON), peer links, discovery files and the action bridge.",
+      "file_paths": [
+        "site/.well-known/nsdeploy-agent.json",
+        "site/.well-known/nsdeploy.json",
+        "site/agent-manifest.json",
+        "site/agent-mcp.json",
+        "site/bridge/action-bridge.html",
+        "site/bridge/agent-manifest.json",
+        "site/links.json",
+        "site/plumbline_desk.hocon",
+        "site/plumbline_desk.network.json"
+      ],
+      "entry_points": [
+        "site/agent-manifest.json"
+      ]
+    },
+    {
+      "name": "vendored-runtime",
+      "group": "Reference runtime",
+      "category": "lib",
+      "description": "The reference browser runtime copied byte-for-byte from agentic-web (nsdeploy 53a787c); copy-do-not-change, watched for drift.",
+      "file_paths": [
+        "site/runtime/LICENSE.txt",
+        "site/runtime/NOTICE",
+        "site/runtime/README.md",
+        "site/runtime/action-bridge.js",
+        "site/runtime/action-transport.js",
+        "site/runtime/actions.js",
+        "site/runtime/byok.js",
+        "site/runtime/cruse-render.js",
+        "site/runtime/cruse.js",
+        "site/runtime/discovered-actions.js",
+        "site/runtime/engine.js",
+        "site/runtime/execution-stream.js",
+        "site/runtime/form-actions.js",
+        "site/runtime/generated/agent-runner.bundle.js",
+        "site/runtime/generated/graph.gen.mjs",
+        "site/runtime/generated/sly_data.gen.mjs",
+        "site/runtime/generated/validation.gen.mjs",
+        "site/runtime/hocon.js",
+        "site/runtime/index.js",
+        "site/runtime/kernel.js",
+        "site/runtime/langchain-runner.mjs",
+        "site/runtime/llm.js",
+        "site/runtime/mcp.js",
+        "site/runtime/model.js",
+        "site/runtime/provider-error.js",
+        "site/runtime/remote.js",
+        "site/runtime/runner.js",
+        "site/runtime/sandbox-worker.js",
+        "site/runtime/sandbox.js",
+        "site/runtime/trace.js",
+        "site/runtime/turn-control.js",
+        "site/runtime/turn-status.js",
+        "site/runtime/ui.js",
+        "site/runtime/web-crypto.js"
+      ],
+      "entry_points": [
+        "site/runtime/index.js"
+      ]
+    }
+  ]
+}
