@@ -1150,3 +1150,18 @@ test("UAT-30: the issue step assigns the named person on create and on edit; a r
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---- UAT-35: renewal reads the finding's code, not an English word in its sentence ----
+
+test("UAT-35: renewNeeded decides on the expiry codes, whatever the sentence says; a report before codes still reads its sentence", async () => {
+  const { renewNeeded } = await import("./report.mjs");
+  const sig = "plumbline.signature.json";
+  // the documented codes decide, whatever the words
+  assert.equal(renewNeeded({ findings: [{ severity: "warn", kind: "grounding", code: "signature-expiring", ref: sig, summary: "The seal lapses in 3 days." }] }), true);
+  assert.equal(renewNeeded({ findings: [{ severity: "block", kind: "grounding", code: "signature-expired", ref: sig, summary: "Lapsed." }] }), true);
+  // another code on the signature file is not a renewal, even if its words say expire
+  assert.equal(renewNeeded({ findings: [{ severity: "block", kind: "grounding", code: "signature-not-covering", ref: sig, summary: "Files changed; the old signature will expire anyway." }] }), false);
+  assert.equal(renewNeeded({ findings: [{ severity: "warn", kind: "grounding", code: "signature-unreadable", ref: sig, summary: "It could not be read to see when it expires." }] }), false);
+  // a report written before codes (UAT-17) is read as before
+  assert.equal(renewNeeded({ findings: [{ severity: "warn", kind: "grounding", ref: sig, summary: "The site's signature expires on 2026-12-01, in 5 days; sign the site again before then." }] }), true);
+});

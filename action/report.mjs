@@ -648,10 +648,22 @@ export const PR_BRANCHES = { relock: "plumbline/relock", renew: "plumbline/renew
 export const PR_TITLES = { relock: "Plumbline: accept the drift (relock)", renew: "Plumbline: renew the signature" };
 const SIGNATURE_REF = "plumbline.signature.json";
 
-/** True when the watch report says the site's own signature expires within the warning window or has expired. */
+/** The codes of the site's own signature near or past its expiry (src/core/types.ts DRIFT_CODES, UAT-17). */
+const EXPIRY_CODES = new Set(["signature-expiring", "signature-expired"]);
+
+/**
+ * True when the watch report says the site's own signature expires within the warning window or has expired. UAT-35:
+ * decided by the finding's code; only a report written before codes (it has none) is read from its sentence.
+ */
 export function renewNeeded(report) {
   const findings = Array.isArray(report?.findings) ? report.findings : [];
-  return findings.some((f) => f && f.ref === SIGNATURE_REF && (f.severity === "warn" || f.severity === "block") && /expire/.test(String(f.summary ?? "")));
+  return findings.some(
+    (f) =>
+      f &&
+      f.ref === SIGNATURE_REF &&
+      (f.severity === "warn" || f.severity === "block") &&
+      (typeof f.code === "string" ? EXPIRY_CODES.has(f.code) : /expire/.test(String(f.summary ?? ""))),
+  );
 }
 
 /** The kid a `sign --json` output names, only in its exact pattern; null when the site was not signed in this run. */
