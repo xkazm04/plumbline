@@ -232,6 +232,14 @@ export interface GroundingSource {
    * files themselves, and in every lock written before.
    */
   anchors?: string[];
+  /**
+   * Since 2026-11-18 (MAR-RC-1): where on the page each anchor's fact is. Keyed by an anchor (a member of `anchors`),
+   * the sorted SHA-256 of "<literal>\n<place>" for each place the network's fact is stated in: a place is the nearest
+   * heading and, in a table row, the row's first cell (src/watch/anchors.ts). A watch then tells a value that moved (still
+   * on the page, but not where it was) from one still in place, and an anchor with no entry is reported as not checked
+   * for where it is. Omitted when no anchor's place could be told, and in every lock written before.
+   */
+  places?: Record<string, string[]>;
 }
 
 export interface PeerRecord {

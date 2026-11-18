@@ -18,7 +18,7 @@
 import { join } from "node:path";
 import { FORMAT_VERSION, LINKS_FILE, MANIFEST_FILE, type DriftFinding, type GroundingSource } from "../core/types.js";
 import { sha256Hex } from "../core/canonical.js";
-import { describeKinds, networkLiterals, pageFacts, pageLiteralHashes, type FactCoverage } from "./anchors.js";
+import { anchorPlace, anchorPlaces, describeKinds, networkClauses, networkLiterals, pageFacts, pageLiteralHashes, pagePlacesNow, statedElsewhere, type FactCoverage } from "./anchors.js";
 import type { Lock, PendingPeer, RuntimeVia } from "./decide.js";
 import { hashLocal, readRef, type DetectorEnv } from "./detectors.js";
 import { discover } from "./discover.js";
@@ -121,9 +121,12 @@ export async function captureLock(
   const literals = new Set<string>();
   // what the networks state, in both normalisations, hashed (for the stale-fact check of a relock, below)
   const statedNow = new Map<string, string>();
+  // the networks' texts, for where on a page each fact is (anchors.ts anchorPlaces, MAR-RC-1)
+  const networkTexts: string[] = [];
   for (const ref of found.networks) {
     try {
       const text = new TextDecoder("utf-8").decode(await readUnderRoot(root, ref));
+      networkTexts.push(text);
       for (const l of networkLiterals(text)) literals.add(l);
       for (const l of networkLiterals(text, { legacy: true })) statedNow.set(await sha256Hex(l), l);
     } catch {
@@ -135,6 +138,7 @@ export async function captureLock(
   const network = [...literals].sort();
   const coverage: FactCoverage = { network, pages: [] };
   const pagesNow = new Map<string, Set<string>>();
+  const pageBytes = new Map<string, Uint8Array>();
   for (const ref of refs) {
     let read;
     try {
@@ -154,9 +158,14 @@ export async function captureLock(
       sources.push({ ref, sha256: read.sha256 });
       continue;
     }
-    coverage.pages.push({ ref, ...facts });
+    // where on the page each watched fact is (MAR-RC-1); a fact whose place cannot be told is named at init and relock
+    const { places, unplaced } = await anchorPlaces(networkTexts, read.bytes, facts.watched);
+    coverage.pages.push({ ref, ...facts, ...(unplaced.length > 0 ? { unplaced } : {}) });
     const now = await pageLiteralHashes(read.bytes);
-    if (!("problem" in now)) pagesNow.set(ref, now);
+    if (!("problem" in now)) {
+      pagesNow.set(ref, now);
+      pageBytes.set(ref, read.bytes);
+    }
     // a page that states none of the facts the network states is locked by its bytes only: say so at capture (UAT-1:
     // "warn at zero"). A network that states no fact the watch reads has nothing to anchor; the coverage lines say so.
     if (facts.watched.length === 0 && network.length > 0) {
@@ -168,18 +177,30 @@ export async function captureLock(
       });
     }
     const anchors = [...new Set(await Promise.all(facts.watched.map((l) => sha256Hex(l))))].sort();
-    sources.push({ ref, sha256: read.sha256, ...(anchors.length > 0 ? { anchors } : {}) });
+    sources.push({ ref, sha256: read.sha256, ...(anchors.length > 0 ? { anchors } : {}), ...(Object.keys(places).length > 0 ? { places } : {}) });
   }
   // A relock never silences a stale fact (UAT-2): a page that no longer states a fact the lock watched on it, while the
-  // network still states that fact and no page in the new lock states it, keeps its earlier record, so every watch
-  // still reports it ("the network still states it ..."), and the relock says so. Correcting the network (or the page),
-  // or --drop, is how it leaves.
-  const statedOnSomePage = new Set([...pagesNow.values()].flatMap((set) => [...set]));
+  // network still states that fact and no other page in the new lock states it, keeps its earlier record, so every watch
+  // still reports it ("the network still states it ..."), and the relock says so. A fact still on the page but no longer
+  // where the lock recorded it (MAR-RC-1) is stale too while the network still states it where the page does not.
+  // Correcting the network (or the page), or --drop, is how it leaves.
+  const clausesNow = networkClauses(networkTexts);
   for (const [i, source] of sources.entries()) {
     const before = options.previous?.grounding.sources.find((p) => p.ref === source.ref);
     const now = pagesNow.get(source.ref);
-    if (before === undefined || now === undefined || before.sha256 === source.sha256 || (before.anchors ?? []).length === 0) continue;
-    const stale = (before.anchors ?? []).filter((h) => !now.has(h) && statedNow.has(h) && !statedOnSomePage.has(h));
+    const bytes = pageBytes.get(source.ref);
+    if (before === undefined || now === undefined || bytes === undefined || before.sha256 === source.sha256 || (before.anchors ?? []).length === 0) continue;
+    const onOtherPages = new Set([...pagesNow.entries()].filter(([ref]) => ref !== source.ref).flatMap(([, set]) => [...set]));
+    const placesNow = await pagePlacesNow(bytes);
+    let moved = 0;
+    const stale = (before.anchors ?? []).filter((h) => {
+      if (!statedNow.has(h) || onOtherPages.has(h)) return false;
+      const where = anchorPlace(h, before.places?.[h], now, placesNow);
+      if (where === "gone") return true;
+      if (where !== "moved" || "problem" in placesNow || !statedElsewhere(statedNow.get(h) ?? "", clausesNow, placesNow)) return false;
+      moved += 1;
+      return true;
+    });
     if (stale.length === 0) continue;
     sources[i] = before;
     const kinds = describeKinds(stale.map((h) => statedNow.get(h) ?? "money:"));
@@ -187,7 +208,7 @@ export async function captureLock(
       kind: "grounding",
       severity: "warn",
       ref: source.ref,
-      summary: `Not accepted: the network still states ${stale.length} fact${stale.length === 1 ? "" : "s"} this page no longer states (${kinds}), and no other locked page states ${stale.length === 1 ? "it" : "them"}, so the agent may answer with an old fact. The lock keeps its earlier record of this page, so every watch still reports it: correct the network (or the page), then re-lock, or take the page out with --drop.`,
+      summary: `Not accepted: the network still states ${stale.length} fact${stale.length === 1 ? "" : "s"} this page no longer states${moved > 0 ? " where the lock recorded it" : ""} (${kinds}), and no other locked page states ${stale.length === 1 ? "it" : "them"}, so the agent may answer with an old fact. The lock keeps its earlier record of this page, so every watch still reports it: correct the network (or the page), then re-lock, or take the page out with --drop.`,
     });
   }
 

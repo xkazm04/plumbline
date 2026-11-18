@@ -69,7 +69,14 @@ export function lockProblem(value: unknown): string | null {
   }
   if (
     !grounding.sources.every(
-      (s) => isObject(s) && typeof s.ref === "string" && isHex(s.sha256) && (s.anchors === undefined || (Array.isArray(s.anchors) && s.anchors.every(isHex))),
+      (s) =>
+        isObject(s) &&
+        typeof s.ref === "string" &&
+        isHex(s.sha256) &&
+        (s.anchors === undefined || (Array.isArray(s.anchors) && s.anchors.every(isHex))) &&
+        (s.places === undefined ||
+          (isObject(s.places) &&
+            Object.entries(s.places).every(([k, v]) => isHex(k) && Array.isArray(s.anchors) && s.anchors.includes(k) && Array.isArray(v) && v.length > 0 && v.every(isHex)))),
     )
   ) {
     return "the lock's grounding sources are malformed";
@@ -113,7 +120,18 @@ export type Observed = { ok: true; sha256: string; bytes?: Uint8Array } | { ok: 
  * networks could be read now, how many of the ones gone the networks still state (`stillStated`, with their kinds in
  * words, "1 price"); or the sentence ("it ...") for why it could not be reduced to text.
  */
-export type AnchorCheck = { total: number; present: number; stillStated?: { count: number; kinds: string } } | { total: number; problem: string };
+export type AnchorCheck =
+  | {
+      total: number;
+      /** On the page where the lock recorded it (or, for an anchor with no recorded place, see `unplaced`). */
+      present: number;
+      /** On the page, but in none of the places the lock recorded for it (MAR-RC-1): another row's or section's value. */
+      moved?: number;
+      /** On the page, with no place recorded (an old lock, or a place that could not be told): where it is is not checked. */
+      unplaced?: number;
+      stillStated?: { count: number; kinds: string };
+    }
+  | { total: number; problem: string };
 
 /** What a changed grounding source is: a network definition, another agent file (manifest, links.json), or a page. */
 export type SourceRole = "network" | "agent" | "page";
@@ -149,16 +167,24 @@ export function groundingFinding(source: { ref: string; sha256: string }, seen: 
       anchors.total === 1
         ? `${changed}; the 1 fact the lock watches on it (a fact the network states) is still on it, so what changed is something the lock does not watch.`
         : `${changed}; all ${facts(anchors.total)} the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.`;
+  } else if (anchors.present + (anchors.unplaced ?? 0) === anchors.total) {
+    // MAR-RC-1: a fact on the page whose place the lock does not record is never "still on it" (it may have moved)
+    const u = anchors.unplaced ?? 0;
+    const which = u === anchors.total ? (u === 1 ? "the 1 fact the lock watches on it (a fact the network states)" : `all ${facts(u)} the lock watches on it (facts the network states)`) : `${u} of ${facts(anchors.total)} the lock watches on it (facts the network states)`;
+    summary = `${changed}; ${which} ${u === 1 ? "is" : "are"} on it, but the lock does not record where on it the network's ${u === 1 ? "fact is" : "facts are"} (stated in more than one place, or a lock written before places were recorded), so whether ${u === 1 ? "it" : "they"} moved is not checked: ${RELOCK}.`;
   } else {
-    const gone = anchors.total - anchors.present;
+    const moved = anchors.moved ?? 0;
+    const gone = anchors.total - anchors.present - (anchors.unplaced ?? 0);
     const them = gone === 1 ? "it" : "them";
-    const head = `${changed}; ${gone} of ${facts(anchors.total)} the lock watches on it (facts the network states) ${gone === 1 ? "is" : "are"} no longer on it`;
+    // a value still on the page elsewhere (a twin room at the same price, "Doubles from €89") is no longer where it was
+    const where = moved === 0 ? "" : ` where the lock recorded ${them} (${moved === gone ? (gone === 1 ? "it still appears" : "they still appear") : `${moved} still ${moved === 1 ? "appears" : "appear"}`} elsewhere on the page, as another row's or section's value)`;
+    const head = `${changed}; ${gone} of ${facts(anchors.total)} the lock watches on it (facts the network states) ${gone === 1 ? "is" : "are"} no longer on it${where}`;
     const still = anchors.stillStated;
     summary =
       still === undefined
         ? `${head}, so the network may now state an old fact.`
         : still.count === 0
-          ? `${head}, and the network no longer states ${them} either, so no stale fact is left: ${RELOCK}.`
+          ? `${head}, and the network no longer states ${them} ${moved === 0 ? "" : "there "}either, so no stale fact is left: ${RELOCK}.`
           : still.count === gone
             ? `${head}, and the network still states ${them} (${still.kinds}), so the agent may now answer with an old fact.`
             : `${head}; the network still states ${still.count} of them (${still.kinds}), so the agent may now answer with an old fact.`;

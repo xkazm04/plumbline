@@ -6,7 +6,8 @@
 // import, so the CLI's watch and the Desk's drift reader (through watch/published.js) count the same;
 // scripts/build-site.mjs copies it.
 //
-// What an anchor is and is not: the PRESENCE of a literal in two texts, compared after normalisation. It is not truth:
+// What an anchor is and is not: the PRESENCE of a literal in two texts, compared after normalisation, and (since
+// MAR-RC-1) in the place on the page the network's fact is stated in (see "where on a page a fact is"). It is not truth:
 // a page can state a price in a sentence that says it no longer applies, and a fact written in words ("nine in the
 // morning") is not seen. A literal is never stored or quoted in a finding: the lock holds SHA-256 of each normalised
 // literal, and a finding holds counts and the kind of fact ("1 price"). Only the publisher's own terminal, at init and
@@ -212,6 +213,12 @@ const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"'
 /** Elements whose content is not text a visitor reads. An unclosed one hides the rest of the page (as a browser does). */
 const RAW = new Set(["script", "style", "template", "noscript"]);
 /**
+ * Elements whose content the page shows as no longer applying: struck through (`<del>`, `<s>`, `<strike>`). A price in
+ * one is not a price the page states (MAR-RC-1: "<del>€89</del> €79 this winter" states €79), so it is dropped as RAW
+ * content is.
+ */
+const STRUCK = new Set(["del", "s", "strike"]);
+/**
  * Elements that separate their content from what is beside them: a table cell, a paragraph, a list item, a line break.
  * Their tags become " | ", which no pattern reads across, so a number in one cell never joins a price in the next
  * ("Sleeps 2 | €89", "€89 | 120"). Every other tag (a span, a link, emphasis) is a space, so markup inside a sentence
@@ -220,80 +227,196 @@ const RAW = new Set(["script", "style", "template", "noscript"]);
 const SEPARATING = new Set(
   "address article aside blockquote br button caption dd details div dl dt fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr label legend li main nav ol option p pre section select summary table tbody td tfoot th thead tr ul".split(" "),
 );
+const HEADING = /^h[1-6]$/;
 
-/**
- * A page's text: script, style, template and noscript contents and comments dropped, a cell or block tag " | ", every
- * other tag a space, the common entities decoded, and the target of a `tel:` or `mailto:` link written out beside its
- * text (a visitor who taps "Call us" dials that number, so the page states it). A small scanner, not a parser (no
- * dependency): other attributes are not read, and malformed markup may leave stray characters, which can only hide an
- * anchor (counted as gone), never invent one the page does not state.
- */
-export function reduceToText(html: string): string {
-  const lower = html.toLowerCase();
-  const out: string[] = [];
-  let i = 0;
-  while (i < html.length) {
-    const lt = html.indexOf("<", i);
-    if (lt < 0) {
-      out.push(html.slice(i));
-      break;
-    }
-    out.push(html.slice(i, lt));
-    if (lower.startsWith("<!--", lt)) {
-      const end = html.indexOf("-->", lt + 4);
-      out.push(" ");
-      if (end < 0) break;
-      i = end + 3;
-      continue;
-    }
-    const gt = html.indexOf(">", lt + 1);
-    if (gt < 0) {
-      // no tag closes after this point: the rest is text
-      out.push(html.slice(lt));
-      break;
-    }
-    const tag = html.slice(lt, gt + 1);
-    const name = /^<(\/?)([a-z][a-z0-9]*)/i.exec(tag);
-    const element = name?.[2]?.toLowerCase() ?? "";
-    if (RAW.has(element) && name?.[1] === "") {
-      out.push(" ");
-      const close = lower.indexOf(`</${element}`, gt + 1);
-      const closeEnd = close < 0 ? -1 : html.indexOf(">", close);
-      if (closeEnd < 0) break;
-      i = closeEnd + 1;
-      continue;
-    }
-    out.push(SEPARATING.has(element) ? " | " : " ");
-    const link = /\bhref\s*=\s*["']?\s*(?:tel|mailto):([^"'\s>?#]{1,256})/i.exec(tag);
-    if (link?.[1] !== undefined) {
-      let target = link[1];
-      try {
-        target = decodeURIComponent(target);
-      } catch {
-        // a malformed escape stays as written
-      }
-      out.push(` ${target} `);
-    }
-    i = gt + 1;
-  }
-  return out.join("").replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{1,31});/gi, (whole, code: string) => {
+const decodeEntities = (text: string): string =>
+  text.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{1,31});/gi, (whole, code: string) => {
     if (code[0] === "#") {
       const n = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
       return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : " ";
     }
     return ENTITIES[code.toLowerCase()] ?? whole;
   });
+
+/** Where `</element` closes it after `from` (the name matched whole: `</s>` is not `</span>`), or -1. */
+function closingTag(lower: string, element: string, from: number): number {
+  for (let at = lower.indexOf(`</${element}`, from); at >= 0; at = lower.indexOf(`</${element}`, at + 1)) {
+    const next = lower[at + 2 + element.length];
+    if (next === undefined || next === ">" || next === "/" || /\s/.test(next)) return at;
+  }
+  return -1;
+}
+
+/** The target of a `tel:` or `mailto:` link in a tag, decoded, or undefined. */
+function linkTarget(tag: string): string | undefined {
+  const link = /\bhref\s*=\s*["']?\s*(?:tel|mailto):([^"'\s>?#]{1,256})/i.exec(tag);
+  if (link?.[1] === undefined) return undefined;
+  try {
+    return decodeURIComponent(link[1]);
+  } catch {
+    return link[1]; // a malformed escape stays as written
+  }
+}
+
+/**
+ * The one tag scanner reduceToText and pageSegments share: text between tags, each tag by its element name, and
+ * `hidden` for a comment or the content of a RAW or STRUCK element (skipped whole; an unclosed one hides the rest).
+ */
+function scanHtml(html: string, on: { text(t: string): void; tag(element: string, closing: boolean, tag: string): void; hidden(): void }): void {
+  const lower = html.toLowerCase();
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf("<", i);
+    if (lt < 0) {
+      on.text(html.slice(i));
+      return;
+    }
+    on.text(html.slice(i, lt));
+    if (lower.startsWith("<!--", lt)) {
+      const end = html.indexOf("-->", lt + 4);
+      on.hidden();
+      if (end < 0) return;
+      i = end + 3;
+      continue;
+    }
+    const gt = html.indexOf(">", lt + 1);
+    if (gt < 0) {
+      // no tag closes after this point: the rest is text
+      on.text(html.slice(lt));
+      return;
+    }
+    const tag = html.slice(lt, gt + 1);
+    const name = /^<(\/?)([a-z][a-z0-9]*)/i.exec(tag);
+    const element = name?.[2]?.toLowerCase() ?? "";
+    if ((RAW.has(element) || STRUCK.has(element)) && name?.[1] === "") {
+      on.hidden();
+      const close = closingTag(lower, element, gt + 1);
+      const closeEnd = close < 0 ? -1 : html.indexOf(">", close);
+      if (closeEnd < 0) return;
+      i = closeEnd + 1;
+      continue;
+    }
+    on.tag(element, name?.[1] === "/", tag);
+    i = gt + 1;
+  }
+}
+
+/**
+ * A page's text: script, style, template and noscript contents, struck-through text and comments dropped, a cell or
+ * block tag " | ", every other tag a space, the common entities decoded, and the target of a `tel:` or `mailto:` link
+ * written out beside its text (a visitor who taps "Call us" dials that number, so the page states it). A small
+ * scanner, not a parser (no dependency): other attributes are not read, and malformed markup may leave stray
+ * characters, which can only hide an anchor (counted as gone), never invent one the page does not state.
+ */
+export function reduceToText(html: string): string {
+  const out: string[] = [];
+  scanHtml(html, {
+    text: (t) => out.push(t),
+    hidden: () => out.push(" "),
+    tag: (element, _closing, tag) => {
+      out.push(SEPARATING.has(element) ? " | " : " ");
+      const target = linkTarget(tag);
+      if (target !== undefined) out.push(` ${target} `);
+    },
+  });
+  return decodeEntities(out.join(""));
+}
+
+/** A place's words as the page writes them, compared in one form: decoded, lowercased, spaces collapsed, at most 120. */
+const placeWords = (text: string): string => decodeEntities(text).toLowerCase().replace(/[\s  ]+/g, " ").trim().slice(0, 120);
+
+/**
+ * One run of a page's text between separating tags, with its place (MAR-RC-1): the nearest heading before it, and when
+ * it is in a table row, the row's label (its first cell's text). A price in "Double room | 2 | €89" has the place
+ * (heading, "double room"); "Doubles from €89" in the introduction has the place (heading) with no row.
+ */
+export interface Segment {
+  text: string;
+  heading: string;
+  row?: string;
+}
+
+/** A page cut into segments with their places (the same scan as reduceToText, so the same text). */
+export function pageSegments(html: string): Segment[] {
+  const segments: Segment[] = [];
+  let buf: string[] = [];
+  let heading = "";
+  let headingBuf: string[] | null = null;
+  let inRow = false;
+  let cell = -1;
+  let labelBuf: string[] | null = null;
+  let row: string | undefined;
+  const flush = (): void => {
+    const text = buf.join("");
+    buf = [];
+    if (text.trim() !== "") segments.push({ text: decodeEntities(text), heading, ...(inRow ? { row: row ?? "" } : {}) });
+  };
+  const takeLabel = (): void => {
+    if (labelBuf !== null) row = placeWords(labelBuf.join(""));
+    labelBuf = null;
+  };
+  scanHtml(html, {
+    text: (t) => {
+      buf.push(t);
+      headingBuf?.push(t);
+      labelBuf?.push(t);
+    },
+    hidden: () => buf.push(" "),
+    tag: (element, closing, tag) => {
+      if (HEADING.test(element)) {
+        if (closing && headingBuf !== null) {
+          heading = placeWords(headingBuf.join(""));
+          headingBuf = null;
+        }
+        flush();
+        if (!closing) headingBuf = [];
+        return;
+      }
+      if (element === "tr") {
+        flush();
+        inRow = !closing;
+        row = undefined;
+        cell = -1;
+        labelBuf = null;
+        return;
+      }
+      if ((element === "td" || element === "th") && inRow) {
+        if (closing) {
+          if (cell === 0) takeLabel();
+          flush();
+          return;
+        }
+        takeLabel();
+        flush();
+        cell += 1;
+        if (cell === 0) labelBuf = [];
+        return;
+      }
+      if (SEPARATING.has(element)) flush();
+      else buf.push(" ");
+      const target = linkTarget(tag);
+      if (target !== undefined) buf.push(` ${target} `);
+    },
+  });
+  flush();
+  return segments;
+}
+
+/** A page's bytes as UTF-8 markup, or the sentence ("it ...") for why they cannot be reduced. */
+function pageMarkup(bytes: Uint8Array): { html: string } | { problem: string } {
+  if (bytes.length > MAX_REDUCED_BYTES) return { problem: `is larger than the ${MAX_REDUCED_BYTES} bytes a page is reduced from` };
+  if (bytes.includes(0)) return { problem: "is binary, not text" };
+  try {
+    return { html: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+  } catch {
+    return { problem: "is not UTF-8 text" };
+  }
 }
 
 /** A page's bytes as reducible text, or the sentence ("it ...") for why they cannot be reduced. */
 export function pageText(bytes: Uint8Array): { text: string } | { problem: string } {
-  if (bytes.length > MAX_REDUCED_BYTES) return { problem: `is larger than the ${MAX_REDUCED_BYTES} bytes a page is reduced from` };
-  if (bytes.includes(0)) return { problem: "is binary, not text" };
-  try {
-    return { text: reduceToText(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) };
-  } catch {
-    return { problem: "is not UTF-8 text" };
-  }
+  const markup = pageMarkup(bytes);
+  return "problem" in markup ? markup : { text: reduceToText(markup.html) };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -325,6 +448,128 @@ function networkInstructions(networkText: string): string[] | null {
 export function networkLiterals(networkText: string, options: { legacy?: boolean } = {}): string[] {
   const texts = networkInstructions(networkText) ?? [];
   return [...new Set(texts.flatMap((t) => extractLiterals(t, options)))].sort();
+}
+
+// ---- where on a page a fact is (MAR-RC-1) ----
+//
+// An anchor alone is a value's PRESENCE anywhere on the page, so a double room raised from €89 while a twin room, a
+// struck-through offer or "Doubles from €89" still shows €89 read as "still on it". So the lock also records, per
+// anchor, the PLACES the network's fact is stated in on the page: a place is the nearest heading and, in a table row,
+// the row's label (its first cell). The place that holds the network's fact is the one whose label the network's own
+// words use ("The double room costs €89" and the row "Double room"); with no such place and one place only, that place;
+// with no such place and several, none: where the network's fact is on the page cannot be told, and a watch says that
+// it was not checked, never that the fact is still on it. Only hashes are written: SHA-256 of "<literal>\n<place>".
+
+/** One place a literal has on a page: its key (hashed into the lock, never written in clear) and its label. */
+interface Place {
+  key: string;
+  label: string;
+}
+
+/** Every literal a page states (as capture normalises it) with the places it is stated in, or why it cannot be read. */
+export function placedLiterals(page: Uint8Array): Map<string, Place[]> | { problem: string } {
+  const markup = pageMarkup(page);
+  if ("problem" in markup) return markup;
+  const out = new Map<string, Place[]>();
+  for (const seg of pageSegments(markup.html)) {
+    const place: Place = seg.row === undefined ? { key: `section ${seg.heading}`, label: seg.heading } : { key: `row ${seg.heading}\n${seg.row}`, label: seg.row };
+    for (const literal of extractLiterals(seg.text)) {
+      const list = out.get(literal) ?? [];
+      if (!list.some((p) => p.key === place.key)) list.push(place);
+      out.set(literal, list);
+    }
+  }
+  return out;
+}
+
+/**
+ * The clauses of networks' instructions that state each literal, lowercased, so a page place can be matched with the
+ * words the network says the fact with. A clause ends at a comma, semicolon, colon, question or exclamation mark, or a
+ * full stop, each followed by a space or the end ("€12.50" and "15:00" do not end one).
+ */
+export function networkClauses(networkTexts: readonly string[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const networkText of networkTexts) {
+    for (const text of networkInstructions(networkText) ?? []) {
+      for (const clause of text.toLowerCase().replace(/[\s  ]+/g, " ").split(/[,;:!?](?=\s)|\.(?=\s|$)/)) {
+        for (const literal of extractLiterals(clause)) out.set(literal, [...(out.get(literal) ?? []), clause]);
+      }
+    }
+  }
+  return out;
+}
+
+/** A page place names the network's fact when its label (a row's first cell, or the heading) is in a clause stating it. */
+const names = (label: string, clause: string): boolean => label.length >= 3 && clause.includes(label);
+
+/** The places the lock records for one fact: those the network's words name; else its only place; else none. */
+function chosenPlaces(places: readonly Place[], clauses: readonly string[]): Place[] {
+  const named = places.filter((p) => clauses.some((c) => names(p.label, c)));
+  return named.length > 0 ? named : places.length === 1 ? [...places] : [];
+}
+
+const placeHash = (literal: string, key: string): Promise<string> => sha256Hex(`${literal}\n${key}`);
+
+/**
+ * A page's `places` for its lock record (GroundingSource.places): per anchor (SHA-256 of a watched literal), the sorted
+ * SHA-256 of each place the network's fact is stated in on the page. An anchor whose place cannot be told is left out,
+ * and is listed in `unplaced` (the literals, for the publisher's own terminal at init and relock).
+ */
+export async function anchorPlaces(networkTexts: readonly string[], page: Uint8Array, watched: readonly string[]): Promise<{ places: Record<string, string[]>; unplaced: string[] }> {
+  const placed = placedLiterals(page);
+  if ("problem" in placed) return { places: {}, unplaced: [...watched] };
+  const clauses = networkClauses(networkTexts);
+  const places: Record<string, string[]> = {};
+  const unplaced: string[] = [];
+  for (const literal of watched) {
+    const chosen = chosenPlaces(placed.get(literal) ?? [], clauses.get(literal) ?? []);
+    if (chosen.length === 0) {
+      unplaced.push(literal);
+      continue;
+    }
+    places[await sha256Hex(literal)] = [...new Set(await Promise.all(chosen.map((p) => placeHash(literal, p.key))))].sort();
+  }
+  return { places, unplaced };
+}
+
+/** What a page states now, for checking recorded places: every literal's place hashes, and each literal's place labels. */
+export interface PlacesNow {
+  hashes: Set<string>;
+  labels: Map<string, string[]>;
+}
+
+export async function pagePlacesNow(page: Uint8Array): Promise<PlacesNow | { problem: string }> {
+  const placed = placedLiterals(page);
+  if ("problem" in placed) return placed;
+  const hashes = new Set<string>();
+  const labels = new Map<string, string[]>();
+  for (const [literal, places] of placed) {
+    for (const p of places) hashes.add(await placeHash(literal, p.key));
+    labels.set(literal, places.map((p) => p.label));
+  }
+  return { hashes, labels };
+}
+
+/**
+ * Whether the networks still state a fact somewhere the page does not: a clause stating it whose words name no place the
+ * page states it in now. A moved fact is stale only then ("the double room costs €89" while €89 is now the twin room's
+ * only); one whose every clause names a place it is in now is not (the network was corrected to match the page).
+ */
+export function statedElsewhere(literal: string, clauses: Map<string, string[]>, now: PlacesNow): boolean {
+  const labels = now.labels.get(literal) ?? [];
+  return (clauses.get(literal) ?? []).some((c) => !labels.some((l) => names(l, c)));
+}
+
+/**
+ * Where one anchor is now: `gone` (not on the page), `present` (in every place the lock recorded for it), `moved` (on
+ * the page, but not in a place the lock recorded), or `unplaced` (on the page, and the lock records no place for it: a
+ * lock written before places, or a fact whose place could not be told, so whether it moved is not checked).
+ */
+export type AnchorPlace = "present" | "moved" | "unplaced" | "gone";
+export function anchorPlace(anchor: string, recorded: readonly string[] | undefined, literalsNow: ReadonlySet<string>, now: PlacesNow | { problem: string }): AnchorPlace {
+  if (!literalsNow.has(anchor)) return "gone";
+  if (recorded === undefined || recorded.length === 0 || "problem" in now) return "unplaced";
+  return recorded.every((h) => now.hashes.has(h)) ? "present" : "moved";
 }
 
 // ---- the kinds of fact, for counts in findings and the publisher's own terminal ----
@@ -416,13 +661,18 @@ const isAgentFileName = (ref: string): boolean => {
 };
 
 /**
- * What the networks among the lock's grounding sources state NOW, from this run's reads of them, or undefined when that
- * cannot be told: no source read now is a network definition, or a source that may be one could not be read. A source
- * with anchors is a page, never a network.
+ * What the networks among the lock's grounding sources state NOW, from this run's reads of them: each literal's hash (in
+ * both normalisations) with its kind and literal, and the clauses that state each literal (for a moved fact, MAR-RC-1).
+ * Undefined when that cannot be told: no source read now is a network definition, or a source that may be one could
+ * not be read. A source with anchors is a page, never a network.
  */
-export async function networkStatesNow(sources: readonly GroundingSource[], seen: readonly Observed[]): Promise<NetworkStatement | undefined> {
-  const out: NetworkStatement = new Map();
-  let found = false;
+export async function networkReadNow(
+  sources: readonly GroundingSource[],
+  seen: readonly Observed[],
+): Promise<{ stated: NetworkStatement; literals: Map<string, string>; clauses: Map<string, string[]> } | undefined> {
+  const stated: NetworkStatement = new Map();
+  const literals = new Map<string, string>();
+  const texts: string[] = [];
   for (const [i, source] of sources.entries()) {
     if ((source.anchors ?? []).length > 0) continue;
     const s = seen[i];
@@ -432,12 +682,22 @@ export async function networkStatesNow(sources: readonly GroundingSource[], seen
       continue;
     }
     if (s.bytes === undefined) continue;
-    const texts = networkInstructions(new TextDecoder("utf-8").decode(s.bytes));
-    if (texts === null) continue;
-    found = true;
-    for (const literal of new Set(texts.flatMap((t) => extractLiterals(t, { legacy: true })))) out.set(await sha256Hex(literal), literalKind(literal));
+    const text = new TextDecoder("utf-8").decode(s.bytes);
+    const instructions = networkInstructions(text);
+    if (instructions === null) continue;
+    texts.push(text);
+    for (const literal of new Set(instructions.flatMap((t) => extractLiterals(t, { legacy: true })))) {
+      const h = await sha256Hex(literal);
+      stated.set(h, literalKind(literal));
+      literals.set(h, literal);
+    }
   }
-  return found ? out : undefined;
+  return texts.length > 0 ? { stated, literals, clauses: networkClauses(texts) } : undefined;
+}
+
+/** What the networks among the lock's grounding sources state now (networkReadNow), by hash and kind. */
+export async function networkStatesNow(sources: readonly GroundingSource[], seen: readonly Observed[]): Promise<NetworkStatement | undefined> {
+  return (await networkReadNow(sources, seen))?.stated;
 }
 
 /** What a changed grounding source is, for its sentence: a network definition, another agent file, or a page. */
@@ -455,7 +715,7 @@ export function sourceRole(source: GroundingSource, bytes: Uint8Array | undefine
  */
 export async function groundingFindingsWithAnchors(sources: readonly GroundingSource[], seen: readonly (Observed | undefined)[]): Promise<DriftFinding[]> {
   const observed = seen.map((s): Observed => s ?? { ok: false, missing: false, sentence: "could not be read" });
-  const stated = await networkStatesNow(sources, observed);
+  const network = await networkReadNow(sources, observed);
   const out: DriftFinding[] = [];
   for (const [i, source] of sources.entries()) {
     const s = observed[i]!;
@@ -467,12 +727,35 @@ export async function groundingFindingsWithAnchors(sources: readonly GroundingSo
       const now = await pageHashes(s.bytes);
       if ("problem" in now) finding = groundingFinding(source, s, { total: anchors.length, problem: now.problem }, "page");
       else {
-        const gone = anchors.filter((h) => !now.has(h));
-        const still = stated === undefined ? undefined : gone.filter((h) => stated.has(h));
+        // each anchor against the places the lock recorded for it (MAR-RC-1): a value still on the page elsewhere is
+        // moved, not present; one whose place the lock does not record is not checked, never "still on it"
+        const placesNow = await pagePlacesNow(s.bytes);
+        let present = 0;
+        let unplaced = 0;
+        const moved: string[] = [];
+        const gone: string[] = [];
+        for (const h of anchors) {
+          const where = anchorPlace(h, source.places?.[h], now, placesNow);
+          if (where === "present") present += 1;
+          else if (where === "unplaced") unplaced += 1;
+          else if (where === "moved") moved.push(h);
+          else gone.push(h);
+        }
+        // a gone fact the networks still state is stale; a moved one only when the networks still state it where the
+        // page no longer does
+        const still =
+          network === undefined
+            ? undefined
+            : [
+                ...gone.filter((h) => network.stated.has(h)),
+                ...moved.filter((h) => network.stated.has(h) && !("problem" in placesNow) && statedElsewhere(network.literals.get(h) ?? "", network.clauses, placesNow)),
+              ];
         const check: AnchorCheck = {
           total: anchors.length,
-          present: anchors.length - gone.length,
-          ...(still !== undefined ? { stillStated: { count: still.length, kinds: describeKinds(still.map((h) => stated!.get(h)!)) } } : {}),
+          present,
+          ...(moved.length > 0 ? { moved: moved.length } : {}),
+          ...(unplaced > 0 ? { unplaced } : {}),
+          ...(still !== undefined ? { stillStated: { count: still.length, kinds: describeKinds(still.map((h) => network!.stated.get(h)!)) } } : {}),
         };
         finding = groundingFinding(source, s, check, "page");
       }
@@ -487,7 +770,8 @@ export async function groundingFindingsWithAnchors(sources: readonly GroundingSo
 /** The facts the networks state, and per page given with --source, which of them it states (watched) and which not. */
 export interface FactCoverage {
   network: string[];
-  pages: { ref: string; watched: string[]; notOnPage: string[]; problem?: string }[];
+  /** `unplaced`: watched facts whose place on the page cannot be told (MAR-RC-1), so a watch does not check whether they moved. */
+  pages: { ref: string; watched: string[]; notOnPage: string[]; unplaced?: string[]; problem?: string }[];
 }
 
 /** The facts the networks state that no page watches. */
@@ -511,6 +795,10 @@ export function factCoverageLines(coverage: FactCoverage): string[] {
       continue;
     }
     lines.push(`facts ${page.ref}: watches ${page.watched.length} (${describeKinds(page.watched)}); not on it: ${listed(page.notOnPage)}`);
+    // a fact stated in several places, none named the way the network names it: where it is cannot be told (MAR-RC-1)
+    if ((page.unplaced ?? []).length > 0) {
+      lines.push(`facts ${page.ref}: where on it not told: ${listed(page.unplaced ?? [])}; each is on the page in more than one place and none is named as the network names it, so a watch does not check whether it moved`);
+    }
   }
   if (coverage.network.length > 0) {
     const unwatched = unwatchedFacts(coverage);
@@ -526,12 +814,18 @@ export function factCoverageLines(coverage: FactCoverage): string[] {
 /** The same, in counts by kind, for --json (no literal). */
 export function factCoverageCounts(coverage: FactCoverage): {
   network: Partial<Record<AnchorKind, number>>;
-  pages: { ref: string; watched: Partial<Record<AnchorKind, number>>; notOnPage: Partial<Record<AnchorKind, number>>; problem?: string }[];
+  pages: { ref: string; watched: Partial<Record<AnchorKind, number>>; notOnPage: Partial<Record<AnchorKind, number>>; unplaced?: Partial<Record<AnchorKind, number>>; problem?: string }[];
   unwatched: Partial<Record<AnchorKind, number>>;
 } {
   return {
     network: kindCounts(coverage.network),
-    pages: coverage.pages.map((p) => ({ ref: p.ref, watched: kindCounts(p.watched), notOnPage: kindCounts(p.notOnPage), ...(p.problem !== undefined ? { problem: p.problem } : {}) })),
+    pages: coverage.pages.map((p) => ({
+      ref: p.ref,
+      watched: kindCounts(p.watched),
+      notOnPage: kindCounts(p.notOnPage),
+      ...((p.unplaced ?? []).length > 0 ? { unplaced: kindCounts(p.unplaced ?? []) } : {}),
+      ...(p.problem !== undefined ? { problem: p.problem } : {}),
+    })),
     unwatched: kindCounts(unwatchedFacts(coverage)),
   };
 }

@@ -111,6 +111,20 @@ test("a lock's grounding source (since 2026-11-18): ref, sha256 and anchors, the
   assert.deepEqual(none, { anchors: [] }, "capture then omits the member");
 });
 
+test("a lock's grounding source (since 2026-11-18): places, keyed by an anchor, each a sorted list of SHA-256, omitted when none could be told", async () => {
+  const { anchorPlaces, networkLiterals } = await import("../watch/anchors.js");
+  const net = JSON.stringify({ tools: [{ name: "a", instructions: "The double room costs €89." }] });
+  const page = new TextEncoder().encode("<table><tr><td>Double room</td><td>€89</td></tr><tr><td>Twin room</td><td>€89</td></tr></table>");
+  const { places } = await anchorPlaces([net], page, networkLiterals(net));
+  const entries = Object.entries(places);
+  assert.equal(entries.length, 1);
+  const [key, list] = entries[0]!;
+  assert.match(key, /^[0-9a-f]{64}$/);
+  assert.ok(list.length === 1 && /^[0-9a-f]{64}$/.test(list[0]!), "the double room's place only: the twin room is not named by the network");
+  const none = await anchorPlaces([JSON.stringify({ tools: [{ name: "a", instructions: "Coffee is €4." }] })], new TextEncoder().encode("<h2>A</h2><p>€4</p><h2>B</h2><p>€4</p>"), ["money:eur 4"]);
+  assert.deepEqual(none, { places: {}, unplaced: ["money:eur 4"] }, "capture then omits the member");
+});
+
 test("the lock's external member (since 2026-11-18): kinds a2a-card and mcp-tools, a record of kind, sha256, parts? and checkedAt", async () => {
   const { EXTERNAL_KINDS } = await import("../core/types.js");
   const { isExternalRecord } = await import("../watch/external.js");

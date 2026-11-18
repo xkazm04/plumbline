@@ -350,3 +350,106 @@ test("UAT-2: the watch reports a site signature that no longer covers its files 
   // malformed subjects are not compared; a path outside the pattern is never read
   assert.equal(await signatureCoverageFinding([{ path: "../x", sha256: "a".repeat(64) }, { path: "a b", sha256: "b".repeat(64) }], async () => null), null);
 });
+
+// ---- MAR-RC-1: an anchor is a value in its place, not anywhere on the page ----
+
+const TWIN_NET = (double: string) => ({
+  link_labels: {},
+  tools: [{ name: "front", instructions: `The double room costs ${double} per night, the twin room €89 per night and the single room €69. Check-in is from 15:00.` }],
+});
+const PRICES = (rows: [string, string][], intro = "Six rooms.") =>
+  `<html><body><h1>Rooms and prices</h1><p>${intro}</p><table><tr><th>Room</th><th>Price</th></tr>${rows.map(([room, price]) => `<tr><td>${room}</td><td>${price} per night</td></tr>`).join("")}</table><h2>Arriving</h2><p>Check-in is from 15:00.</p></body></html>\n`;
+
+async function placedSite(network: object, html: string): Promise<string> {
+  const root = copySite();
+  writeFileSync(join(root, "fixture_guesthouse.network.json"), JSON.stringify(network));
+  writeFileSync(join(root, "links.json"), '{ "version": 1, "networks": {} }\n');
+  writeFileSync(join(root, "rooms.html"), html);
+  await watch(root, baseRoutes(), { init: true, extraSources: ["rooms.html"] });
+  return root;
+}
+const roomsLine = async (root: string): Promise<string> => (await watch(root, baseRoutes())).findings.find((f) => f.ref === "rooms.html")?.summary ?? "";
+
+test("MAR-RC-1 (M1): a twin room at the same price does not hide the double room's raise; the relock does not accept it; a corrected network does", async () => {
+  const { runRelock } = await import("../watch/index.js");
+  const root = await placedSite(TWIN_NET("€89"), PRICES([["Double room", "€89"], ["Twin room", "€89"], ["Single room", "€69"]]));
+  const lock = JSON.parse(readFileSync(join(root, LOCK_FILE), "utf8")) as PlumblineLock;
+  const page = lock.grounding.sources.find((s) => s.ref === "rooms.html");
+  assert.ok(page?.places && Object.keys(page.places).length === 3, JSON.stringify(page));
+  assert.ok(Object.keys(page.places).every((k) => page.anchors?.includes(k)));
+  assert.ok(Object.values(page.places).flat().every((h) => /^[0-9a-f]{64}$/.test(h)), "places are hashes only");
+
+  writeFileSync(join(root, "rooms.html"), PRICES([["Double room", "€95"], ["Twin room", "€89"], ["Single room", "€69"]]));
+  const raised = await roomsLine(root);
+  assert.match(
+    raised,
+    /; 1 of 3 facts the lock watches on it \(facts the network states\) is no longer on it where the lock recorded it \(it still appears elsewhere on the page, as another row's or section's value\), and the network still states it \(1 price\), so the agent may now answer with an old fact\.$/,
+  );
+  assert.doesNotMatch(raised, /something the lock does not watch/);
+  const relocked = await runRelock({ root }, { fetch: scripted(baseRoutes()).fetch, now: () => NOW });
+  assert.match(relocked.findings.find((f) => f.ref === "rooms.html")?.summary ?? "", /^Not accepted: the network still states 1 fact this page no longer states where the lock recorded it \(1 price\)/);
+  assert.deepEqual(relocked.changes.changed, []);
+
+  // the network corrected to the page: the twin room's €89 is where the network says it is, so nothing is stale
+  writeFileSync(join(root, "fixture_guesthouse.network.json"), JSON.stringify(TWIN_NET("€95")));
+  assert.match(await roomsLine(root), /no longer on it where the lock recorded it \(it still appears elsewhere on the page, as another row's or section's value\), and the network no longer states it there either, so no stale fact is left: review the change, then re-lock/);
+  const fixed = await runRelock({ root }, { fetch: scripted(baseRoutes()).fetch, now: () => NOW });
+  assert.ok(fixed.changes.changed.includes("grounding rooms.html"), JSON.stringify(fixed.changes));
+  assert.ok(!fixed.findings.some((f) => /Not accepted/.test(f.summary)));
+});
+
+test("MAR-RC-1 (M2): a struck-through old price is not a price the page states", async () => {
+  const root = await placedSite(TWIN_NET("€89"), PRICES([["Double room", "€89"], ["Single room", "€69"]]));
+  writeFileSync(join(root, "rooms.html"), PRICES([["Double room", "<del>€89</del> €79"], ["Single room", "€69"]]));
+  assert.match(await roomsLine(root), /; 1 of 3 facts the lock watches on it \(facts the network states\) is no longer on it, and the network still states it \(1 price\), so the agent may now answer with an old fact\.$/);
+  assert.deepEqual(extractLiterals(reduceToText("<p><s>€89</s> <strike>€88</strike> €79 <span>€77</span></p>")), ["money:eur 77", "money:eur 79"]);
+});
+
+test("MAR-RC-1 (M4): 'Doubles from €89' in the introduction does not hide the table's raise; removing that line alone changes no watched fact", async () => {
+  const intro = "Six rooms. Doubles from €89 a night.";
+  const root = await placedSite(TWIN_NET("€89"), PRICES([["Double room", "€89"], ["Single room", "€69"]], intro));
+  writeFileSync(join(root, "rooms.html"), PRICES([["Double room", "€95"], ["Single room", "€69"]], intro));
+  assert.match(await roomsLine(root), /is no longer on it where the lock recorded it \(it still appears elsewhere on the page, as another row's or section's value\), and the network still states it \(1 price\), so the agent may now answer with an old fact\.$/);
+  // the other way round: the introduction loses its line, the table still holds the double room's price where it was
+  writeFileSync(join(root, "rooms.html"), PRICES([["Double room", "€89"], ["Single room", "€69"]], "Six quiet rooms."));
+  assert.match(await roomsLine(root), /all 3 facts the lock watches on it \(facts the network states\) are still on it, so what changed is something the lock does not watch\.$/);
+});
+
+test("MAR-RC-1: a fact whose place cannot be told is never 'still on it': not checked, said at init and at the watch; an old lock reads the same", async () => {
+  const net = { link_labels: {}, tools: [{ name: "front", instructions: "Coffee is €4." }] };
+  const html = (extra = "") => `<html><body><h2>Morning</h2><p>Coffee €4.</p><h2>Evening</h2><p>Coffee €4.${extra}</p></body></html>\n`;
+  const root = await placedSite(net, html());
+  const page = (JSON.parse(readFileSync(join(root, LOCK_FILE), "utf8")) as PlumblineLock).grounding.sources.find((s) => s.ref === "rooms.html");
+  assert.equal(page?.anchors?.length, 1);
+  assert.equal(page?.places, undefined, "no place could be told: the member is omitted, never empty or null");
+  writeFileSync(join(root, "rooms.html"), html(" Cake too."));
+  const line = await roomsLine(root);
+  assert.match(line, /; the 1 fact the lock watches on it \(a fact the network states\) is on it, but the lock does not record where on it the network's fact is \(stated in more than one place, or a lock written before places were recorded\), so whether it moved is not checked: review the change, then re-lock \(watch --relock\)\.$/);
+  assert.doesNotMatch(line, /still on it|does not watch/);
+  // init names it in the publisher's terminal
+  const { run } = await import("./cli-helpers.js");
+  const fresh = copySite();
+  writeFileSync(join(fresh, "fixture_guesthouse.network.json"), JSON.stringify(net));
+  writeFileSync(join(fresh, "links.json"), '{ "version": 1, "networks": {} }\n');
+  writeFileSync(join(fresh, "rooms.html"), html());
+  const init = run("init", "--root", fresh, "--source", "rooms.html");
+  assert.match(init.out, /^facts rooms\.html: where on it not told: 1 \(1 price: EUR 4\); each is on the page in more than one place and none is named as the network names it, so a watch does not check whether it moved$/m, init.out + init.err);
+  // a lock written before places: every anchor on the page is not checked for where it is, never "still on it"
+  const twin = await placedSite(TWIN_NET("€89"), PRICES([["Double room", "€89"], ["Twin room", "€89"]]));
+  const lockPath = join(twin, LOCK_FILE);
+  const old = JSON.parse(readFileSync(lockPath, "utf8")) as PlumblineLock;
+  for (const s of old.grounding.sources) delete s.places;
+  writeFileSync(lockPath, JSON.stringify(old));
+  writeFileSync(join(twin, "rooms.html"), PRICES([["Double room", "€95"], ["Twin room", "€89"]]));
+  assert.match(await roomsLine(twin), /all 2 facts the lock watches on it \(facts the network states\) are on it, but the lock does not record where on it the network's facts are \(stated in more than one place, or a lock written before places were recorded\), so whether they moved is not checked/);
+});
+
+test("MAR-RC-1: a lock whose places do not belong to its anchors is unusable", async () => {
+  const { lockProblem } = await import("../watch/decide.js");
+  const h = "a".repeat(64);
+  const lock = (source: object) => ({ version: 1, runtime: { source: "nsdeploy", commit: "unknown", files: {} }, grounding: { sources: [{ ref: "p.html", sha256: h, ...source }], builtAt: "x" }, peers: {} });
+  assert.equal(lockProblem(lock({ anchors: [h], places: { [h]: ["b".repeat(64)] } })), null);
+  assert.equal(lockProblem(lock({ anchors: [h], places: { ["c".repeat(64)]: ["b".repeat(64)] } })), "the lock's grounding sources are malformed");
+  assert.equal(lockProblem(lock({ anchors: [h], places: { [h]: [] } })), "the lock's grounding sources are malformed");
+  assert.equal(lockProblem(lock({ anchors: [h], places: null })), "the lock's grounding sources are malformed");
+});

@@ -38,7 +38,12 @@ compared, never verified, and never a public key: the lock is not a trust store.
 `formerKid`, or a malformed one, makes the lock `unusable`. Likewise a grounding source may carry `anchors`
 (`GroundingSource.anchors`, since 2026-11-18): the sorted SHA-256 of each normalised literal (a price, a time, a date, a
 phone number, an e-mail address, a percentage) that the network's instructions and that page both state, so no literal
-is written in clear; omitted when there are none. And a lock may carry `external` (since 2026-11-18): agent definitions
+is written in clear; omitted when there are none. Such a source may also carry `places` (`GroundingSource.places`, since
+2026-11-18, MAR-RC-1): keyed by a member of its `anchors`, the sorted SHA-256 of "<literal>\n<place>" for each place on
+the page the network's fact is stated in (a place is the nearest heading and, in a table row, the row's first cell), so a
+value that moved on the page is told from one still in place, again with nothing in clear; omitted when no place could
+be told. A key that is not one of the source's anchors, or an empty list, makes the lock `unusable`. And a lock may
+carry `external` (since 2026-11-18): agent definitions
 from outside the agentic-web spec, keyed by address, each `{ kind, sha256, parts?, checkedAt }` (`ExternalRecord`,
 `EXTERNAL_KINDS`: `a2a-card`, and `mcp-tools`, reserved and not read by this build); `parts` maps SHA-256 of a part's id
 to SHA-256 of its canonical JSON.

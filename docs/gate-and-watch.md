@@ -251,7 +251,8 @@ number and a price is not also a percentage. Money is taken in three passes: a s
 
 A literal that a grounding page also states is an anchor, and the lock records SHA-256 of each one in
 `grounding.sources[].anchors`. The page is reduced to its text by a small scanner (no parser dependency): script,
-style, template and noscript contents and comments dropped; a table cell, row, paragraph, list item, heading, line
+style, template and noscript contents, struck-through text (`<del>`, `<s>`, `<strike>`: "<del>€89</del> €79 this
+winter" states €79) and comments dropped; a table cell, row, paragraph, list item, heading, line
 break or other block tag becomes ` | `, which no pattern reads across, so a number in one cell never joins a price in
 the next (`Sleeps | 2 | €89`, `€89 | 120`); every other tag (a span, a link, emphasis) is a space; the common entities
 decoded; and the target of a `tel:` or `mailto:` link is written out beside the link's text (a visitor who taps "Call
@@ -259,15 +260,35 @@ us" dials it, so the page states it). Every pattern's repetitions are bounded an
 page of pathological markup is read in milliseconds. The network and manifest files themselves are not anchored on
 themselves.
 
-When an anchored page changes, the watch reduces it again, takes its literals by the same patterns, counts the anchors
-no longer among them, and asks the networks among the lock's grounding sources, as they are now, whether they still
-state the ones gone. The sentence says which of three things happened:
+**An anchor is a value in its place** (MAR-RC-1), not the value anywhere on the page: a double room raised from €89
+while a twin room at €89, or "Doubles from €89" in the introduction, still shows the number must not read as "still on
+it". So the lock also records, per anchor, where on the page the network's fact is, in `grounding.sources[].places`
+(keyed by the anchor, each value the sorted SHA-256 of "<literal>\n<place>", never the words in clear). A place is the
+nearest heading before the value and, in a table row, the row's label (its first cell). Which places hold the network's
+fact: those whose label the network's own clause uses ("The double room costs €89" and the row "Double room"); with
+none, the value's only place on the page; with none and several places, no place, and `init` and `--relock` say so in
+the publisher's own terminal ("facts rooms.html: where on it not told: 1 (1 price: EUR 4); each is on the page in more
+than one place and none is named as the network names it, so a watch does not check whether it moved").
+
+When an anchored page changes, the watch reduces it again, takes its literals by the same patterns, and sorts each
+anchor: still in every place the lock recorded (present), on the page but not in a recorded place (moved), on the page
+with no place recorded (not checked for where it is: a lock written before places, or a place that could not be told),
+or not on the page (gone). It asks the networks among the lock's grounding sources, as they are now, whether they still
+state the ones gone, and, for a moved one, whether they still state it in a clause that names no place the page now
+states it in. The sentence says which of these happened:
 
 - **A fact the network still states is gone from the page** (the stale fact): "K of N facts the lock watches on it
   (facts the network states) is/are no longer on it, and the network still states it/them (1 price), so the agent may
   now answer with an old fact." (Or "the network still states S of them (...)" when only some.)
+- **A fact the network still states moved**: "... is no longer on it where the lock recorded it (it still appears
+  elsewhere on the page, as another row's or section's value), and the network still states it (1 price), so the agent
+  may now answer with an old fact." With the network corrected to where the value now is: "... and the network no longer
+  states it there either, so no stale fact is left: review the change, then re-lock (watch --relock)."
 - **None of the watched facts changed**: "all N facts the lock watches on it (facts the network states) are still on
-  it, so what changed is something the lock does not watch."
+  it, so what changed is something the lock does not watch." Only when every anchor is in a recorded place.
+- **Where a fact is was not checked**: "all N facts ... are on it, but the lock does not record where on it the
+  network's facts are (stated in more than one place, or a lock written before places were recorded), so whether they
+  moved is not checked: review the change, then re-lock (watch --relock)." Never "still on it".
 - **The network no longer states it either** (both sides were corrected): "... is no longer on it, and the network no
   longer states it either, so no stale fact is left: review the change, then re-lock (watch --relock)."
 
@@ -365,7 +386,9 @@ relock keeps the lock's earlier record of that page (its hash and anchors) with 
 still states 1 fact this page no longer states (1 price), and no other locked page states it, ..."), so every later
 watch still reports the stale fact, and the change list does not show the page as changed. It leaves when the network
 (or the page) is corrected and relocked, or when the page is taken out with `--drop`. A fact moved to another locked
-page is not stale.
+page is not stale. A fact still on the page but no longer where the lock recorded it is stale while the network still
+states it in a clause that names no place the page states it in now (MAR-RC-1: "Not accepted: the network still states 1
+fact this page no longer states where the lock recorded it (1 price) ...").
 
 `--drop <ref>` (repeatable, with `--relock` only) takes a grounding source the publisher no longer wants watched out of
 the lock: it is not captured again, and `removed grounding <ref>` lists it. A later `--relock` does not bring it back. A
@@ -417,7 +440,7 @@ passes `--accept-signer`: with a signer change pending its pull request is not r
   "grounding": {
     "sources": [
       { "ref": "agent-manifest.json", "sha256": "<sha256>" },
-      { "ref": "pages/prices.html", "sha256": "<sha256>", "anchors": ["<sha256 of a normalised literal>"] }
+      { "ref": "pages/prices.html", "sha256": "<sha256>", "anchors": ["<sha256 of a normalised literal>"], "places": { "<an anchor>": ["<sha256 of the literal and its place>"] } }
     ],
     "builtAt": "<ISO UTC>"
   },
