@@ -22,7 +22,7 @@
 import { LOCK_FILE, type DriftFinding, type LockState, type WatchedRecord } from "../core/types.js";
 import type { SafeFetchOptions, SafeFetchResponse } from "../net/fetch-types.js";
 import { locateTarget, type Fetcher } from "../net/locate.js";
-import { groundingFindingsWithAnchors } from "./anchors.js";
+import { groundingFindingsWithAnchors, lockFacts } from "./anchors.js";
 import { externalFinding, observeExternal, type ExternalObservation } from "./external.js";
 import {
   destinationProblem,
@@ -69,6 +69,11 @@ export interface PublishedReading {
   findings: DriftFinding[];
   /** UAT-17: one row per peer, pending peer and external definition the lock holds (decide.ts lockRecords); found only. */
   records?: WatchedRecord[];
+  /**
+   * UAT-31: what the lock watches, in kinds of fact, per grounding source (anchors.ts lockFacts); found only, and only
+   * when a network among the sources could be read. Not part of the watch report (watch --url does not print it).
+   */
+  facts?: Awaited<ReturnType<typeof lockFacts>>;
 }
 
 /** The sentence for a lock the browser was refused (CORS or a network failure): never "publishes no lock". */
@@ -115,7 +120,7 @@ interface Ctx {
   why: Describe;
 }
 
-async function groundingOf(lock: Lock, base: string, ctx: Ctx): Promise<DriftFinding[]> {
+async function groundingOf(lock: Lock, base: string, ctx: Ctx): Promise<{ findings: DriftFinding[]; facts: Awaited<ReturnType<typeof lockFacts>> }> {
   const all: Observed[] = [];
   const read = { fetchOptions: ctx.fetchOptions, why: ctx.why };
   for (const source of lock.grounding.sources) {
@@ -132,7 +137,7 @@ async function groundingOf(lock: Lock, base: string, ctx: Ctx): Promise<DriftFin
   }
   // a changed page with anchors is re-read for the facts the network states, and the ones gone are checked against what
   // the networks among these sources state now (anchors.ts); the CLI counts the same
-  return groundingFindingsWithAnchors(lock.grounding.sources, all);
+  return { findings: await groundingFindingsWithAnchors(lock.grounding.sources, all), facts: await lockFacts(lock.grounding.sources, all) };
 }
 
 async function runtimeOf(lock: Lock, base: string, ctx: Ctx): Promise<DriftFinding[]> {
@@ -222,6 +227,16 @@ export async function readPublishedLock(target: string, fetcher: Fetcher, option
     if (problem !== null) today[url] = { notContacted: problem };
   }
   const peerOut = [...peers.flatMap((p) => p.findings), ...pendingPeerFindings(checked, today), ...externalOut];
-  const findings = [...grounding, ...runtime, ...peerOut];
-  return { target, base, lockUrl, lockFound: true, lockState: "found", unreachablePeers, findings, records: lockRecords(checked, findings) };
+  const findings = [...grounding.findings, ...runtime, ...peerOut];
+  return {
+    target,
+    base,
+    lockUrl,
+    lockFound: true,
+    lockState: "found",
+    unreachablePeers,
+    findings,
+    records: lockRecords(checked, findings),
+    ...(grounding.facts !== undefined ? { facts: grounding.facts } : {}),
+  };
 }

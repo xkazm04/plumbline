@@ -532,3 +532,28 @@ test("UAT-29: the owner's line is never greener than the findings, and names no 
   // a report written before codes still gets a line that sends it on, never a green one
   assert.match(ownerLine([{ severity: "block", ref: "runtime/x.js" }]) ?? "", /^Plumbline found something on your site/);
 });
+
+// ---- UAT-31: the published reading says what the lock watches, in kinds, per source ----
+
+test("UAT-31 (MAR-L1-12): the published reading carries the lock's sources and, per page, the kinds watched and not watched; never a value", async () => {
+  const root = larchSite();
+  await watch(root, baseRoutes(), { init: true, extraSources: ["rooms.html"] });
+  const SITE = "https://larch.example";
+  const lock = JSON.parse(readFileSync(join(root, LOCK_FILE), "utf8")) as PlumblineLock;
+  const published: Record<string, Route> = { [`${SITE}/agent-manifest.json`]: { body: readFileSync(join(root, "agent-manifest.json"), "utf8") } };
+  for (const ref of [LOCK_FILE, ...lock.grounding.sources.map((s) => s.ref)]) published[`${SITE}/${ref}`] = { body: readFileSync(join(root, ref), "utf8") };
+  const reading = await readPublishedLock(`${SITE}/`, scripted({ ...baseRoutes(), ...published }).fetch);
+  const facts = reading.facts;
+  assert.ok(facts, "the network could be read");
+  // the network states 2 prices, 2 times (15:00 and the quiet hours' 22:00, 07:00 among them) and a phone number
+  assert.equal(facts.network, "2 prices, 3 times, 1 phone number");
+  const rooms = facts.sources.find((s) => s.ref === "rooms.html");
+  assert.deepEqual(rooms, { ref: "rooms.html", role: "page", watched: "2 prices, 1 time, 1 phone number", notWatched: "2 times" });
+  assert.equal(facts.sources.find((s) => s.ref === "fixture_guesthouse.network.json")?.role, "network");
+  assert.equal(facts.unwatched, "2 times");
+  for (const literal of ["89", "69", "15:00", "1632"]) assert.ok(!JSON.stringify(facts).includes(literal), literal);
+  // watch --url's report does not carry it: it is the Desk's tool result, not the wire's
+  const { runWatchUrl } = await import("../watch/index.js");
+  const report = await runWatchUrl({ url: `${SITE}/` }, { fetch: scripted({ ...baseRoutes(), ...published }).fetch });
+  assert.equal(Object.hasOwn(report, "facts"), false);
+});

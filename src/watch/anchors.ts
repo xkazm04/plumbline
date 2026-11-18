@@ -705,6 +705,44 @@ export async function networkReadNow(
   return texts.length > 0 ? { stated, literals, clauses: networkClauses(texts) } : undefined;
 }
 
+/**
+ * UAT-31 (MAR-L1-12): what a lock watches, said from the lock and the networks now, so an assistant's tool result can
+ * answer "does my chat still say that price?": every grounding source with its role (a `page` the lock anchors facts
+ * on, the `network` the assistant answers from, another agent `file`), and per page the kinds of the network's facts it
+ * is watched for and the kinds it is not; then the kinds no page watches. Kinds only ("3 prices, 1 time"), never a
+ * literal. Undefined when no network among the sources could be read now (nothing to say what the facts are).
+ */
+export async function lockFacts(
+  sources: readonly GroundingSource[],
+  seen: readonly (Observed | undefined)[],
+): Promise<{ network: string; sources: { ref: string; role: "page" | "network" | "file"; watched?: string; notWatched?: string }[]; unwatched: string } | undefined> {
+  const literals = new Set<string>();
+  const networks = new Set<number>();
+  for (const [i, source] of sources.entries()) {
+    const s = seen[i];
+    if ((source.anchors ?? []).length > 0 || s === undefined || !s.ok || s.bytes === undefined) continue;
+    const instructions = networkInstructions(new TextDecoder("utf-8").decode(s.bytes));
+    if (instructions === null) continue;
+    networks.add(i);
+    for (const literal of instructions.flatMap((t) => extractLiterals(t))) literals.add(literal);
+  }
+  if (networks.size === 0) return undefined;
+  const hashed = await Promise.all([...literals].map(async (l) => [l, await sha256Hex(l)] as const));
+  const watchedAnywhere = new Set<string>();
+  const out: { ref: string; role: "page" | "network" | "file"; watched?: string; notWatched?: string }[] = [];
+  for (const [i, source] of sources.entries()) {
+    const anchors = new Set(source.anchors ?? []);
+    if (anchors.size === 0) {
+      out.push({ ref: source.ref, role: networks.has(i) ? "network" : "file" });
+      continue;
+    }
+    const watched = hashed.filter(([, h]) => anchors.has(h)).map(([l]) => l);
+    for (const l of watched) watchedAnywhere.add(l);
+    out.push({ ref: source.ref, role: "page", watched: describeKinds(watched), notWatched: describeKinds([...literals].filter((l) => !watched.includes(l))) });
+  }
+  return { network: describeKinds([...literals]), sources: out, unwatched: describeKinds([...literals].filter((l) => !watchedAnywhere.has(l))) };
+}
+
 /** What the networks among the lock's grounding sources state now (networkReadNow), by hash and kind. */
 export async function networkStatesNow(sources: readonly GroundingSource[], seen: readonly Observed[]): Promise<NetworkStatement | undefined> {
   return (await networkReadNow(sources, seen))?.stated;

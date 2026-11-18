@@ -2915,3 +2915,51 @@ test("MAR-RC-2: a signature that no longer covers the files reads as a change be
   // the verifier's rule stays: until it is known who changed them, they are not the publisher's
   assert.match(STRINGS.verdicts.invalidTamperedMeaning, /do not treat these files as the publisher's until you know who changed them\.$/);
 });
+
+// ---- UAT-31: the assistant's tool result carries what the lock watches ----
+
+test("UAT-31 (MAR-L1-12): read_drift returns the lock's sources and, per page, the kinds of fact watched and not watched", async () => {
+  const { sha256Hex } = await import("../lib/plumbline/core/index.js");
+  const { extractLiterals } = await import("../lib/plumbline/watch/anchors.js");
+  const SITE = "https://guesthouse.example";
+  const network = JSON.stringify({ tools: [{ name: "front", instructions: "The double room costs €89 per night. Check-in is from 15:00. Quiet hours start at 22:00." }] });
+  const page = "<html><body><p>Double room €89 per night. Check-in is from 15:00.</p></body></html>";
+  const anchors = await Promise.all(extractLiterals("€89 per night. Check-in is from 15:00.").map((l) => sha256Hex(l)));
+  const lock = JSON.stringify({
+    version: 1,
+    runtime: { source: "nsdeploy", commit: "53a787c", files: {} },
+    grounding: {
+      sources: [
+        { ref: "guest.network.json", sha256: await sha256Hex(network) },
+        { ref: "rooms.html", sha256: await sha256Hex(page), anchors },
+        { ref: "x <b>evil</b>.html", sha256: "a".repeat(64) },
+      ],
+      builtAt: NOW.toISOString(),
+    },
+    peers: {},
+  });
+  const site = new Web();
+  site.set(`${SITE}/agent-manifest.json`, JSON.stringify({ networks: [] }));
+  site.set(`${SITE}/plumbline.lock.json`, lock);
+  site.set(`${SITE}/guest.network.json`, network);
+  site.set(`${SITE}/rooms.html`, page);
+  App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+  App.page.noteVisitorTarget(`${SITE}/`);
+  try {
+    const result = await callTool("read_drift", { target: `${SITE}/` });
+    assert.equal(result.lockFound, true);
+    assert.equal(result.networkFacts, "1 price, 2 times");
+    assert.deepEqual(result.sources, [
+      { ref: "guest.network.json", role: "network" },
+      { ref: "rooms.html", role: "page", watched: "1 price, 1 time", notWatched: "1 time" },
+      { ref: STRINGS.safety.withheld, role: "file" },
+    ]);
+    assert.equal(result.unwatched, "1 time");
+    // kinds only: no value reaches the model, and a ref that fails its pattern is withheld (D2)
+    for (const value of ["89", "15:00", "22:00", "evil"]) assert.ok(!JSON.stringify(result).includes(value), value);
+    // the tool's description tells the model what the fields are
+    assert.match(await siteFile("site-actions.js"), /sources, the lock's grounding sources .*watched.*notWatched.*unwatched/);
+  } finally {
+    restore();
+  }
+});

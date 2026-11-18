@@ -630,6 +630,16 @@ export class DeskPage {
       lock: result.lockLabel,
       findings: result.findings.map(safeFinding),
       unreachablePeers: result.unreachablePeers.map(safeRef),
+      // UAT-31 (MAR-L1-12): what the lock watches, so "does my chat still say that price?" can be answered from the
+      // result: each source's role and, per page, the kinds of fact it is watched for and not (Plumbline's words, never
+      // a value); the refs pass their pattern or are withheld (D2)
+      ...(result.facts
+        ? {
+            sources: result.facts.sources.map((s) => ({ ref: safeRef(s.ref), role: s.role, ...(s.watched !== undefined ? { watched: s.watched, notWatched: s.notWatched } : {}) })),
+            networkFacts: result.facts.network,
+            unwatched: result.facts.unwatched,
+          }
+        : {}),
     };
   }
 
