@@ -30,7 +30,12 @@ Treat it as provenance and integrity, never as endorsement.
 publishes one it is one of the signed files (below). Its wire shape is `PlumblineLock` in `types.ts`; since 2026-11-18 a
 peer record may carry `outline` (`PeerOutline`: `agents`, `hosts`, `front`, every string a lowercase hex SHA-256, so no
 peer's names or hosts are written in clear), omitted when absent, never `null`. A reader older than this change ignores
-the member; a lock that carries a malformed one is `unusable`. Likewise a grounding source may carry `anchors`
+the member; a lock that carries a malformed one is `unusable`. A peer record may also carry `formerKid` (since
+2026-11-18, TOM-RC-1), a kid in its exact pattern, present only when `kid` is absent: the kid the lock recorded before a
+person accepted, with `watch --relock --accept-signer <peer>`, that the peer publishes no signature now. A later
+signature by any other key is a signer change from it, which a relock refuses until a person names the peer again. It is
+compared, never verified, and never a public key: the lock is not a trust store. A record carrying both `kid` and
+`formerKid`, or a malformed one, makes the lock `unusable`. Likewise a grounding source may carry `anchors`
 (`GroundingSource.anchors`, since 2026-11-18): the sorted SHA-256 of each normalised literal (a price, a time, a date, a
 phone number, an e-mail address, a percentage) that the network's instructions and that page both state, so no literal
 is written in clear; omitted when there are none. And a lock may carry `external` (since 2026-11-18): agent definitions

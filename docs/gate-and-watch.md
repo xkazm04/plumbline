@@ -123,7 +123,7 @@ a lock the browser was refused), so a drift count is a count of drift.
 | `peer` | each `peers[url]`: the network definition, hashed again | changed in any byte: `block` (a peer's definition runs in the visitor's browser, so a changed one is changed code). Unreachable: `warn`. An address the address rule refuses (not https, a private or loopback address) reads the same on every surface: "A peer in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked." |
 | `peer` outline | with a changed definition, its outline against the lock's (`src/watch/outline.ts`) | the same `block`; the summary adds what changed in counts: "In outline: agents: N added, N removed, N changed; outbound hosts: N added, N removed; front agent: changed or unchanged". The same outline is "Formatting or non-agent content only" (still `block`: the bytes the runtime reads changed). No outline in the lock: "re-lock to record one". A definition that cannot be outlined now (not JSON, a repeated key): said so |
 | `peer` links | each `peers[url].links`: the peer's `links.json` at the same site base (the runtime fetches it for every peer network it loads and lays it over that network's links) | appeared (locked `absent`, now served), changed, or gone (404/410 now): `block`. Cannot be read (timeout, HTTP 5xx): `warn`. A lock written before 2026-11-17 has no `links` for the peer: `warn`, "re-lock to track it", never a silent pass |
-| `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`, saying what the peer publishes about it (UAT-4): "a rotation statement from the locked key is published (not verified here)" or "a different key, with no rotation published" (its `plumbline-rotation.json` is read only then); with `watch --trust <file>` (opt-in: the watch never needs a trust store), a chain that verifies from a key that file holds for the peer's origin to the new kid reads "it rotated from the key the lock recorded, verified against your trust file". Each ends "A relock refuses it until a person decides: watch --relock --accept-signer <this peer>". Signed when locked, no usable signature now: `warn`. Unsigned when locked, signed now: `info`. A `kid` that is not exactly 16 lowercase hex characters is never recorded or quoted; it counts as no usable signature |
+| `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`, saying what the peer publishes about it (UAT-4): "a rotation statement from the locked key is published (not verified here)" or "a different key, with no rotation published" (its `plumbline-rotation.json` is read only then); with `watch --trust <file>` (opt-in: the watch never needs a trust store), a chain that verifies from a key that file holds for the peer's origin to the new kid reads "it rotated from the key the lock recorded, verified against your trust file". Each ends "A relock refuses it until a person decides: watch --relock --accept-signer <this peer>". Signed when locked and no signature now (its `plumbline.signature.json` answers 404 or 410): `block`, the same refusal (TOM-RC-1: a peer that says it has no signature is a signer change, not "unsigned"). Signed when locked and the signature cannot be read now (a fetch error, an HTTP 5xx, not JSON, no valid kid): `warn`, "its signer was not checked; a relock keeps the key the lock recorded". A peer a person accepted as no longer signing (the lock's `formerKid`) that is signed again: by the key it last had, `info`; by any other key, `block` with the same refusal. Unsigned when locked, signed now: `info`. A `kid` that is not exactly 16 lowercase hex characters is never recorded or quoted; it counts as no usable signature |
 | `peer` external | each `external[url]` (an A2A Agent Card, `src/watch/external.ts`), fetched and hashed again | changed in any byte: `block`, with "In outline: skills: N added, N removed, N changed" and whether it carries JWS signatures (counted, not verified). Unreachable or an HTTP error: `warn`. An `mcp-tools` entry: `warn`, not checked by this build |
 | `peer` pending | each `pendingPeers[url]`: a peer that could not be captured when the lock was written | `warn` on every watch, reachable or not, until `--relock` captures it. The checkout's watch asks it again and says why it is still pending today: "it answers now: review it, then run watch --relock to capture it", "it still cannot be read (<cause>)", or "it was not contacted now either: it is not an https address". A reader of a published lock (`watch --url`, the Desk) never contacts a pending peer; it applies the address rule only |
 | coverage | what the site names now (the discovery `--init` uses, below) against what the lock holds | a root agent file or a manifest-named network file not in `grounding.sources`: `warn` (grounding). A peer a network or `links.json` names that is neither in `peers` nor pending: `warn` (peer). A network file that is not JSON, so its peers cannot be read: `warn` (peer). An unsafe `hocon`: `warn`, as at init |
@@ -356,8 +356,8 @@ returns changed the next watch blocks with the outline; a pending peer keeps the
 external definition keeps its record; and a peer whose `plumbline.signature.json` cannot be read (an HTTP 5xx, not JSON,
 no valid kid) keeps the kid the lock recorded (a `warn`: "A peer's signature could not be read at capture ..."; at
 `init`, with no kid to keep, the lock records none and says so). A peer that was signed and publishes no signature now
-(404) is recorded unsigned, with a `warn` saying so. So a relock with nothing reachable changes no peer or card ref. A
-peer leaves the lock only when no network names it any more.
+(404 or 410) is a signer change (TOM-RC-1, below): the relock refuses it. So a relock with nothing reachable changes no
+peer or card ref. A peer leaves the lock only when no network names it any more.
 
 **A relock never silences a stale fact** (UAT-2). A page given with `--source` that no longer states a fact the lock
 watched on it, while the network still states that fact and no page in the new lock states it, is not accepted: the
@@ -379,12 +379,27 @@ more, so `--drop <peer>` is refused (exit 2) with that sentence, and nothing is 
 signed by another key than the one the lock recorded: exit 1, nothing written, each such peer named with the kid the
 lock recorded, the kid it is signed by now and what it publishes about it, and the command to run after deciding.
 `--accept-signer <peer>` (repeatable) names a peer whose new signer a person accepts; the relock refuses until every
-such peer is named or the site stops naming it. An accepted signer is listed in the change list (`signer  peer <url>:
+such peer is named or the site stops naming it. **Once the lock has recorded a signer for a peer, only a person naming
+the peer moves it** (TOM-RC-1): to another kid; to no signature (the peer answers 404 or 410 for its
+`plumbline.signature.json`; accepted, the lock records the peer unsigned and keeps the kid it had as `formerKid`); and,
+for a peer accepted as no longer signing, to any kid other than its `formerKid`. A signature that cannot be read is
+none of these: the relock keeps the recorded kid and says so. The refusal names each peer with the kid the lock
+recorded and what it is signed by now (or that it publishes no signature), and gives one command per peer (TOM-RC-3): with
+one peer, `--relock --accept-signer <peer>`; with several, `--relock --accept <peer> --accept-signer <peer>` each, since
+naming one still leaves the relock refused for the others; each with `--trust <your trust file>` when no trust file was
+given and the peer has a new key to back. `--json`: `{ relocked: false, refused: "signer", peers: [{ peer, from, to?,
+how }], commands }`. An accepted signer is listed in the change list (`signer  peer <url>:
 <old> -> <new> (...)`, `--json` `signers`), with `--trust <file>` saying whether that trust file backs the new key (it
 holds it for the peer's origin, or the published rotation verifies from a key it holds); an unbacked one is still
 accepted when named, and the line says "not backed by your trust file". `--accept <ref>` (repeatable) narrows a relock to
 the named refs (a grounding ref, a peer address, an external address or a runtime file): everything else keeps the
-previous lock's record and keeps reporting, so accepting a rotated seller does not touch a swapped one. The lock still
+previous lock's record and keeps reporting, so accepting a rotated seller does not touch a swapped one. A first signer
+is never recorded without a line (TOM-RC-4): `init`, `watch --init` and the relock print `signer  peer <url>: first seen,
+recorded <kid>; compared with no earlier key (...)` for a peer the lock did not hold, and `recorded <kid>, its first
+signer (the lock recorded it unsigned)` for one recorded unsigned, each with its backing (`--json`: `firstSigners: [{
+peer, kid, was: "added" | "unsigned", backing }]`). The lock keeps no record of a peer it no longer holds, so a peer
+the site stops naming and names again is first seen: its key is compared with nothing earlier, and the line says so.
+The lock still
 pins a peer's kid only, never its public key: a published, signed file is not a second trust store. The Action never
 passes `--accept-signer`: with a signer change pending its pull request is not relocked, and says so (below).
 
@@ -408,7 +423,7 @@ passes `--accept-signer`: with a signer change pending its pull request is not r
   },
   "peers": {
     "https://peer.example/partner": {
-      "sha256": "<sha256>", "links": "<sha256> or absent", "kid": "<kid>",
+      "sha256": "<sha256>", "links": "<sha256> or absent", "kid": "<kid>, or formerKid: <kid> once a person accepted that it stopped signing",
       "outline": { "agents": { "<sha256 of a name>": "<sha256 of the agent>" }, "hosts": ["<sha256 of a host>"], "front": "<sha256 of a name>" },
       "checkedAt": "<ISO UTC>"
     }
@@ -422,7 +437,9 @@ passes `--accept-signer`: with a signer change pending its pull request is not r
 
 Every `<sha256>` is the lowercase hex SHA-256 of exact bytes. `peers[url].links` is the hash of the peer's `links.json`
 at its site base, or the literal string `absent` when the peer answered 404 or 410, so a `links.json` that appears later
-is drift. `kid` is present only when the peer published a signature. `outline` (since 2026-11-18) is the peer's
+is drift. `kid` is present only when the peer published a signature. `formerKid` (since 2026-11-18) is present only
+without `kid`: the kid the lock recorded before a person accepted, with `--accept-signer`, that the peer publishes no
+signature now; a later signature by any other key is a signer change from it. `outline` (since 2026-11-18) is the peer's
 definition in outline, below; it is omitted when the definition could not be outlined, and every lock written before
 has none. `runtime.via` is present only when the runtime
 names the repository folder it was copied from, and `pendingPeers` only when a peer could not be captured. Absent

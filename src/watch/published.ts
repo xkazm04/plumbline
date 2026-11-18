@@ -148,7 +148,7 @@ async function peerOf(url: string, record: Lock["peers"][string], ctx: Ctx): Pro
   if (problem !== null) return { findings: [refusedPeerFinding(url, problem)], unreachable: false };
   // the reads every watch makes (observe.ts), with the network file the peer's manifest names held to the address
   // rule before it is fetched
-  const seen = await observePeer(url, ctx.fetcher, { fetchOptions: ctx.fetchOptions, why: ctx.why, links: record.links !== undefined, guard: destinationProblem, ...(record.kid !== undefined ? { lockedKid: record.kid } : {}) });
+  const seen = await observePeer(url, ctx.fetcher, { fetchOptions: ctx.fetchOptions, why: ctx.why, links: record.links !== undefined, guard: destinationProblem, ...((record.kid ?? record.formerKid) !== undefined ? { lockedKid: (record.kid ?? record.formerKid) as string } : {}) });
   return { findings: peerFindings(url, record, seen), unreachable: !seen.definition.ok && seen.definition.refused === undefined };
 }
 

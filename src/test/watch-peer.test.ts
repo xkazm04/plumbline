@@ -129,12 +129,15 @@ test("peer signer neighbour: the same kid is clean", async () => {
   assert.deepEqual((await watch(root, withKid)).findings, []);
 });
 
-test("peer signer: a signed peer that stops publishing its signature is a warn; an unsigned one that starts is info", async () => {
+test("peer signer: a signed peer that publishes no signature now is a block a relock refuses (TOM-RC-1); one whose signature cannot be read is a warn; an unsigned one that starts is info", async () => {
   const withKid = { ...baseRoutes(), [PEER_SIGNATURE]: signed("aaaaaaaaaaaaaaaa") };
   const signedRoot = await locked(withKid);
   const dropped = await watch(signedRoot, baseRoutes());
-  assert.deepEqual(dropped.findings.map((f) => [f.severity, f.ref]), [["warn", PEER]]);
-  assert.match(dropped.findings[0]!.summary, /no longer shows a usable signature/);
+  assert.deepEqual(dropped.findings.map((f) => [f.severity, f.ref, f.expected]), [["block", PEER, "aaaaaaaaaaaaaaaa"]]);
+  assert.match(dropped.findings[0]!.summary, /recorded as signed publishes no signature now .*A relock refuses it until a person decides: watch --relock --accept-signer <this peer>\.$/);
+  const unread = await watch(signedRoot, { ...baseRoutes(), [PEER_SIGNATURE]: { status: 503 } });
+  assert.deepEqual(unread.findings.map((f) => [f.severity, f.ref]), [["warn", PEER]]);
+  assert.equal(unread.findings[0]!.summary, "A peer's signature could not be read now (its signature request answered HTTP 503), so its signer was not checked; a relock keeps the key the lock recorded.");
 
   const unsignedRoot = await locked();
   const started = await watch(unsignedRoot, withKid);

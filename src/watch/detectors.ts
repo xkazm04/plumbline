@@ -189,7 +189,7 @@ export async function detectPeers(lock: Lock, env: DetectorEnv): Promise<DriftFi
         await observePeer(url, env.fetch, {
           fetchOptions: env.fetchOptions,
           links: record.links !== undefined,
-          ...(record.kid !== undefined ? { lockedKid: record.kid } : {}),
+          ...((record.kid ?? record.formerKid) !== undefined ? { lockedKid: (record.kid ?? record.formerKid) as string } : {}),
           ...(env.trust !== undefined ? { trust: env.trust } : {}),
         }),
       ),

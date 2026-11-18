@@ -90,6 +90,17 @@ test("the lock's peer record: links is a sha256 or the literal string absent", (
   assert.equal(PEER_LINKS_ABSENT, "absent");
 });
 
+test("the lock's peer record (since 2026-11-18): formerKid, a kid in its exact pattern, only when kid is absent", async () => {
+  const { lockProblem } = await import("../watch/decide.js");
+  const h = "e".repeat(64);
+  const lock = (peer: object) => ({ version: 1, runtime: { source: "nsdeploy", commit: "unknown", files: {} }, grounding: { sources: [], builtAt: "x" }, peers: { "https://p.example/a": { sha256: h, checkedAt: "x", ...peer } } });
+  assert.equal(lockProblem(lock({ formerKid: "aaaaaaaaaaaaaaaa" })), null);
+  assert.equal(lockProblem(lock({ kid: "bbbbbbbbbbbbbbbb" })), null);
+  assert.equal(lockProblem(lock({ kid: "bbbbbbbbbbbbbbbb", formerKid: "aaaaaaaaaaaaaaaa" })), "the lock's peer entries are malformed", "never beside kid");
+  assert.equal(lockProblem(lock({ formerKid: "AAAA" })), "the lock's peer entries are malformed");
+  assert.equal(lockProblem(lock({ formerKid: null })), "the lock's peer entries are malformed", "omitted, never null");
+});
+
 test("a lock's grounding source (since 2026-11-18): ref, sha256 and anchors, the anchors only when there are some, each a SHA-256", async () => {
   const { anchorsOf } = await import("../watch/anchors.js");
   const found = await anchorsOf(["money:eur 120"], new TextEncoder().encode("<p>EUR 120</p>"));

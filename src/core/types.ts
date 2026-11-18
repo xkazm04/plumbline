@@ -240,6 +240,13 @@ export interface PeerRecord {
   links?: string;
   kid?: string;
   /**
+   * Since 2026-11-18 (TOM-RC-1): present only when `kid` is absent. The kid the lock recorded for this peer before a
+   * person accepted, with `watch --relock --accept-signer <peer>`, that it publishes no signature now. A later signature
+   * by any other key is a signer change from this kid, which a relock refuses until a person names the peer again; a
+   * signature by this kid again is recorded as `kid`. Compared, never verified: it is not a trust decision.
+   */
+  formerKid?: string;
+  /**
    * The definition in outline (since 2026-11-18), so a changed peer can be said in counts: agents added, removed and
    * changed, outbound hosts added and removed, the front agent changed or not. Omitted when the definition could not be
    * outlined (not JSON, a repeated key) and in every lock written before; a watch then says to re-lock to see what

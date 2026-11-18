@@ -65,9 +65,10 @@ test("UAT-3: a signature that answers 5xx at capture is a finding and keeps the 
   const finding = result.findings.find((f) => f.ref === PEER);
   assert.match(finding?.summary ?? "", /signature could not be read at capture \(its signature request answered HTTP 500\), so the lock keeps the key it recorded before/);
   assert.deepEqual(result.changes.changed, [], "the kept kid is no change");
-  // a peer that was signed and now publishes none: recorded unsigned, said so
-  const unsigned = await relock(root, baseRoutes());
-  assert.match(unsigned.findings.find((f) => f.ref === PEER)?.summary ?? "", /recorded as signed publishes no signature now/);
+  // a peer that was signed and now publishes none: a signer change a relock refuses (TOM-RC-1), the kid kept
+  const { RelockRefused } = await import("../watch/index.js");
+  await assert.rejects(relock(root, baseRoutes()), RelockRefused);
+  assert.equal(readLock(root).peers[PEER]?.kid, "aaaaaaaaaaaaaaaa");
 });
 
 test("UAT-3: a pending peer stays pending with its date through a relock while it is down, and its line says why today", async () => {

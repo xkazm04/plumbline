@@ -206,10 +206,14 @@ export async function captureLock(
     const { definition: def, links, signature } = seen;
     const pinned = previous?.peers[url];
     if (def.ok && links !== undefined && "state" in links) {
-      // the signer: a signature that could not be read is not "unsigned" (UAT-3, TOM-L1-08)
+      // the signer: a signature that could not be read is not "unsigned" (UAT-3, TOM-L1-08). One the peer says it does
+      // not have (404, 410) is captured as none, and the lock remembers the kid it had (formerKid), so a later signature
+      // by another key is still a signer change (TOM-RC-1). Whether a person named that change is runRelock's decision.
       let kid = "kid" in signature ? signature.kid : undefined;
+      let formerKid: string | undefined;
       if ("problem" in signature) {
         kid = pinned?.kid;
+        if (kid === undefined) formerKid = pinned?.formerKid;
         findings.push({
           kind: "peer",
           severity: "warn",
@@ -219,13 +223,14 @@ export async function captureLock(
               ? `A peer's signature could not be read at capture (${signature.problem}), so the lock keeps the key it recorded before; every watch compares the peer's signer with that key.`
               : `A peer's signature could not be read at capture (${signature.problem}), so the lock records no key for it; re-lock once its signature answers.`,
         });
-      } else if (kid === undefined && pinned?.kid !== undefined) {
-        findings.push({ kind: "peer", severity: "warn", ref: url, summary: "A peer the lock recorded as signed publishes no signature now; the new lock records it as unsigned." });
+      } else if (kid === undefined) {
+        formerKid = pinned?.kid ?? pinned?.formerKid;
       }
       peers[url] = {
         sha256: def.sha256,
         links: links.state,
         ...(kid !== undefined ? { kid } : {}),
+        ...(formerKid !== undefined ? { formerKid } : {}),
         ...(def.outline ? { outline: def.outline } : {}),
         checkedAt: options.now.toISOString(),
       };

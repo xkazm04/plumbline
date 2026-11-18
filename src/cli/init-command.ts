@@ -13,7 +13,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { LOCK_FILE, type DriftFinding } from "../core/types.js";
 import { factCoverageCounts, factCoverageLines, type FactCoverage } from "../watch/anchors.js";
-import { runInit } from "../watch/index.js";
+import { firstSignerWords, runInit, type FirstSigner } from "../watch/index.js";
 import { readLock } from "../watch/lock.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
 
@@ -125,11 +125,13 @@ export async function runInitCommand(argv: string[]): Promise<number> {
   let lockAction: "written" | "kept";
   let findings: DriftFinding[] = [];
   let coverage: FactCoverage | undefined;
+  let firstSigners: FirstSigner[] = [];
   if (before.kind === "missing") {
     try {
       const written = await runInit({ root, init: true, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }, { extraSources: sources });
       if (written === null) throw new Error(`${LOCK_FILE} appeared while init ran`);
       ({ findings, coverage } = written);
+      firstSigners = written.firstSigners ?? [];
     } catch (error) {
       process.stderr.write(`init failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
@@ -174,6 +176,7 @@ export async function runInitCommand(argv: string[]): Promise<number> {
           lockFile: LOCK_FILE,
           counts,
           ...(coverage !== undefined ? { facts: factCoverageCounts(coverage) } : {}),
+          ...(firstSigners.length > 0 ? { firstSigners } : {}),
           findings,
           ...(workflowRel !== undefined ? { workflow: WORKFLOW_PATH, workflowRoot: workflowRel } : {}),
           next: steps,
@@ -190,6 +193,8 @@ export async function runInitCommand(argv: string[]): Promise<number> {
     );
     // what the lock watches: the facts your own network states, per page (your files, your terminal)
     for (const line of coverage !== undefined ? factCoverageLines(coverage) : []) process.stdout.write(`${line}\n`);
+    // the key each peer is recorded with: a first key is never recorded without a line (TOM-RC-4)
+    for (const f of firstSigners) process.stdout.write(`signer  peer ${f.peer}: ${firstSignerWords(f)}\n`);
     for (const f of findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
     if (workflowRel !== undefined) process.stdout.write(`init: wrote ${WORKFLOW_PATH} (root: ${workflowRel})\n`);
     process.stdout.write("next:\n");

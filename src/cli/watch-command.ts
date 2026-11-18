@@ -13,7 +13,7 @@
 import { resolve } from "node:path";
 import { RESIGN_REMINDER, type WatchReport } from "../watch/decide.js";
 import { factCoverageCounts, factCoverageLines } from "../watch/anchors.js";
-import { RelockRefused, runInit, runRelock, runWatch, runWatchUrl, type RelockRefusal } from "../watch/index.js";
+import { firstSignerWords, RelockRefused, runInit, runRelock, runWatch, runWatchUrl, type RelockRefusal, type RelockReport, type SignerChange } from "../watch/index.js";
 import { readTrustFile } from "./files.js";
 import type { TrustEntry } from "../core/types.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
@@ -129,40 +129,30 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
     try {
       result = await runRelock(options, { extraSources, dropSources, externals, acceptSigners, accept, ...(trust !== undefined ? { trust } : {}) });
     } catch (error) {
-      if (error instanceof RelockRefused) return printRefusal(error.refusal, rootValue ?? ".", json);
+      if (error instanceof RelockRefused) return printRefusal(error.refusal, rootValue ?? ".", json, trust !== undefined);
       process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
     }
-    const { coverage, ...rest } = result;
-    // --json carries what the lock watches in counts by kind; the literals are for the publisher's terminal only
-    if (json) process.stdout.write(`${JSON.stringify({ relocked: true, ...rest, facts: factCoverageCounts(coverage), reminder: RESIGN_REMINDER }, null, 2)}\n`);
-    else {
-      process.stdout.write(`relock: wrote plumbline.lock.json (the previous lock was ${result.previous})\n`);
-      const { added, removed, changed } = result.changes;
-      for (const ref of added) process.stdout.write(`added   ${ref}\n`);
-      for (const ref of removed) process.stdout.write(`removed ${ref}\n`);
-      for (const ref of changed) process.stdout.write(`changed ${ref}\n`);
-      // a signer a person accepted (UAT-4), with what the --trust file says of it, in the change list
-      for (const c of result.signers ?? []) process.stdout.write(`signer  peer ${c.peer}: ${c.from} -> ${c.to} (${c.how}; ${c.backing ?? ""})\n`);
-      if (added.length + removed.length + changed.length === 0) process.stdout.write("no ref changed\n");
-      for (const line of factCoverageLines(coverage)) process.stdout.write(`${line}\n`);
-      for (const f of result.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
-      process.stdout.write(`${RESIGN_REMINDER}\n`);
-    }
+    process.stdout.write(relockOutput(result, json));
     return 0;
   }
 
   if (init) {
     let written;
     try {
-      written = await runInit(options, { extraSources, externals });
+      written = await runInit(options, { extraSources, externals, ...(trust !== undefined ? { trust } : {}) });
     } catch (error) {
       process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
     }
     if (written !== null) {
-      if (json) process.stdout.write(`${JSON.stringify({ findings: written.findings, facts: factCoverageCounts(written.coverage) }, null, 2)}\n`);
-      else for (const line of factCoverageLines(written.coverage)) process.stdout.write(`${line}\n`);
+      if (json) {
+        const first = written.firstSigners !== undefined ? { firstSigners: written.firstSigners } : {};
+        process.stdout.write(`${JSON.stringify({ findings: written.findings, facts: factCoverageCounts(written.coverage), ...first }, null, 2)}\n`);
+      } else {
+        for (const line of factCoverageLines(written.coverage)) process.stdout.write(`${line}\n`);
+        for (const f of written.firstSigners ?? []) process.stdout.write(`signer  peer ${f.peer}: ${firstSignerWords(f)}\n`);
+      }
       return json ? exitOf({ findings: written.findings }) : printReport({ findings: written.findings }, false);
     }
   }
@@ -178,20 +168,82 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
 }
 
 /**
- * A relock that wrote nothing (UAT-4). A signer change: exit 1, each peer named with what it publishes, and the command
- * a person runs after deciding (CI never passes --accept-signer). --drop naming a peer: a usage error, exit 2.
+ * What a relock that wrote the lock prints (exported so the UAT harness prints the same): the change list, each signer
+ * change a person accepted (UAT-4, TOM-RC-1) and each first signer recorded (TOM-RC-4), the facts the lock watches, the
+ * findings and the reminder to sign again; with --json the same in one object, the facts as counts only.
  */
-function printRefusal(refusal: RelockRefusal, rootArg: string, json: boolean): 1 | 2 {
+export function relockOutput(result: RelockReport, json: boolean): string {
+  const { coverage, ...rest } = result;
+  // --json carries what the lock watches in counts by kind; the literals are for the publisher's terminal only
+  if (json) return `${JSON.stringify({ relocked: true, ...rest, facts: factCoverageCounts(coverage), reminder: RESIGN_REMINDER }, null, 2)}\n`;
+  const lines = [`relock: wrote plumbline.lock.json (the previous lock was ${result.previous})`];
+  const { added, removed, changed } = result.changes;
+  for (const ref of added) lines.push(`added   ${ref}`);
+  for (const ref of removed) lines.push(`removed ${ref}`);
+  for (const ref of changed) lines.push(`changed ${ref}`);
+  // a signer a person accepted (UAT-4), with what the --trust file says of it, in the change list
+  for (const c of result.signers ?? []) {
+    lines.push(
+      c.to === undefined
+        ? `signer  peer ${c.peer}: ${c.from} -> none (${c.how}; the lock remembers ${c.from}, so a later signature by another key is refused until a person names this peer)`
+        : `signer  peer ${c.peer}: ${c.from} -> ${c.to} (${c.how}; ${c.backing ?? ""})`,
+    );
+  }
+  // a first signer, of a peer first seen (a relisted one included) or recorded unsigned before (TOM-RC-4)
+  for (const f of result.firstSigners ?? []) lines.push(`signer  peer ${f.peer}: ${firstSignerWords(f)}`);
+  if (added.length + removed.length + changed.length === 0) lines.push("no ref changed");
+  lines.push(...factCoverageLines(coverage));
+  for (const f of result.findings) lines.push(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}`);
+  lines.push(RESIGN_REMINDER);
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * The commands a refused relock suggests (TOM-RC-3): one per peer, so no single printed line accepts two signers. With
+ * one peer pending it is `--accept-signer <peer>` (a relock that accepts everything else too, as a plain one would);
+ * with more, each is narrowed to its peer (`--accept <peer> --accept-signer <peer>`), since naming one signer still
+ * leaves the relock refused for the others. Without a trust file, `--trust <your trust file>` is added, so the relock
+ * says whether that file backs the new key (a peer that publishes no signature now has no new key to back).
+ */
+export function refusalCommands(peers: readonly { peer: string; to?: string }[], rootArg: string, trustGiven: boolean): string[] {
+  return peers.map((p) => {
+    const narrow = peers.length > 1 ? `--accept ${p.peer} ` : "";
+    const trust = !trustGiven && p.to !== undefined ? " --trust <your trust file>" : "";
+    return `plumbline watch --root ${rootArg} --relock ${narrow}--accept-signer ${p.peer}${trust}`;
+  });
+}
+
+/**
+ * What a relock refused for a signer change prints (UAT-4; exported so the UAT harness prints the same): each peer named
+ * with the kid the lock recorded and what it is signed by now, or that it publishes no signature, then one command per
+ * peer that a person runs after deciding (TOM-RC-3). CI never passes --accept-signer.
+ */
+export function signerRefusalOutput(peers: readonly SignerChange[], rootArg: string, json: boolean, trustGiven: boolean): string {
+  const commands = refusalCommands(peers, rootArg, trustGiven);
+  if (json) return `${JSON.stringify({ relocked: false, refused: "signer", peers, commands }, null, 2)}\n`;
+  const lines = ["relock refused: a peer's signer is not the one the lock recorded, and a relock does not accept a signer change unless a person names the peer. Nothing was written."];
+  for (const p of peers) {
+    lines.push(
+      p.to === undefined
+        ? `  peer ${p.peer}: the lock recorded ${p.from}; ${p.how} (it answers 404 or 410 for its signature)`
+        : `  peer ${p.peer}: the lock recorded ${p.from}; it is now signed by ${p.to} (${p.how})`,
+    );
+  }
+  lines.push(
+    peers.length === 1
+      ? "Decide first whether you accept the change (verify --url; adopt for a published rotation; for a different key with no rotation, or no signature, ask the publisher out of band). Then run:"
+      : "Decide each peer on its own first (verify --url; adopt for a published rotation; for a different key with no rotation, or no signature, ask the publisher out of band). Each command accepts only its peer; a plain relock accepts the rest once no signer change is pending:",
+  );
+  for (const c of commands) lines.push(`  ${c}`);
+  return `${lines.join("\n")}\n`;
+}
+
+/** A relock that wrote nothing (UAT-4): a signer change exits 1; --drop naming a peer is a usage error, exit 2. */
+function printRefusal(refusal: RelockRefusal, rootArg: string, json: boolean, trustGiven: boolean): 1 | 2 {
   if (refusal.refused === "drop-peer") {
     return refuse(`--drop takes a grounding ref or an external definition the lock holds; ${refusal.refs.join(", ")} ${refusal.refs.length === 1 ? "is a peer, which leaves" : "are peers, which leave"} the lock when no network names ${refusal.refs.length === 1 ? "it" : "them"}: remove ${refusal.refs.length === 1 ? "it" : "them"} from the site's network (or links.json), then relock`);
   }
-  const command = `plumbline watch --root ${rootArg} --relock ${refusal.peers.map((p) => `--accept-signer ${p.peer}`).join(" ")}`;
-  if (json) process.stdout.write(`${JSON.stringify({ relocked: false, refused: "signer", peers: refusal.peers, command }, null, 2)}\n`);
-  else {
-    process.stdout.write("relock refused: a peer is signed by another key than the lock recorded, and a relock does not accept a new signer unless a person names it. Nothing was written.\n");
-    for (const p of refusal.peers) process.stdout.write(`  peer ${p.peer}: the lock recorded ${p.from}; it is now signed by ${p.to} (${p.how})\n`);
-    process.stdout.write(`After deciding whether you trust the new key (verify --url, adopt for a rotation), run: ${command}\n`);
-  }
+  process.stdout.write(signerRefusalOutput(refusal.peers, rootArg, json, trustGiven));
   return 1;
 }
 

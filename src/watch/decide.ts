@@ -5,9 +5,10 @@
 // the result here, so one severity policy serves both (docs/gate-and-watch.md):
 //   grounding  changed or unreadable source: warn. A file the lock should cover and does not: warn.
 //   runtime    changed, missing or added vendored file: block (copy-do-not-change). Added is the CLI's alone.
-//   peer       changed definition, a links.json that appeared, changed or went away, or a changed signer kid: block;
-//              unreachable, links.json not checkable or not recorded, signature gone, pending since init, or named by
-//              a network and not in the lock: warn; newly signed: info.
+//   peer       changed definition, a links.json that appeared, changed or went away, a changed signer kid, or a recorded
+//              signer whose peer now publishes no signature: block; unreachable, links.json or signature not
+//              checkable, links.json not recorded, pending since init, or named by a network and not in the lock: warn;
+//              newly signed: info.
 //   signature  the site's own plumbline.signature.json: expired: block; expiring within 14 days: warn (kind grounding,
 //              ref plumbline.signature.json; there is no fourth drift kind on the wire).
 
@@ -80,6 +81,7 @@ export function lockProblem(value: unknown): string | null {
       !isHex(p.sha256) ||
       typeof p.checkedAt !== "string" ||
       (p.kid !== undefined && (typeof p.kid !== "string" || !KID_PATTERN.test(p.kid))) ||
+      (p.formerKid !== undefined && (typeof p.formerKid !== "string" || !KID_PATTERN.test(p.formerKid) || p.kid !== undefined)) ||
       (p.links !== undefined && !isHex(p.links) && p.links !== PEER_LINKS_ABSENT) ||
       (p.outline !== undefined && !isPeerOutline(p.outline))
     ) {
@@ -354,31 +356,80 @@ export function peerFindings(url: string, record: PeerRecord, seen: PeerObservat
       });
     }
   }
-  // The peer's signer. Only the kid is compared; verifying the signature needs a trust store (src/core's job).
+  out.push(...signerFindings(url, record, seen));
+  return out;
+}
+
+/** The decision a relock waits on, said at the end of every signer change's sentence (UAT-4, TOM-RC-1). */
+const ACCEPT_SIGNER = "A relock refuses it until a person decides: watch --relock --accept-signer <this peer>.";
+
+/**
+ * The peer's signer (UAT-4, TOM-RC-1). Only the kid is compared; verifying the signature needs a trust store (src/core's
+ * job). Once a lock has recorded a signer for a peer, only a person naming the peer moves it, so each of these is
+ * `block` and a relock refuses it: another kid than the recorded one; no signature at all (404 or 410: the peer says it
+ * has none); and, for a peer a person accepted as no longer signing (`formerKid`), a kid other than the one it last had.
+ * A signature that cannot be read (a fetch error, an HTTP 5xx, not JSON, no valid kid) is not "none": the signer was
+ * not checked (`warn`), and a relock keeps the recorded kid. A first signature on a peer never recorded as signed is
+ * `info`: a relock records it and says so.
+ */
+export function signerFindings(url: string, record: PeerRecord, seen: PeerObservation): DriftFinding[] {
   const sig = seen.signature;
   const kid = "kid" in sig ? sig.kid : undefined;
-  if (kid !== undefined && record.kid !== undefined && kid !== record.kid) {
-    out.push({
-      kind: "peer",
-      severity: "block",
-      ref: url,
-      expected: record.kid,
-      actual: kid,
-      summary: `A peer is now signed by a different key than the one the lock recorded: ${signerChangeWords(seen.rotation)}. A relock refuses it until a person decides: watch --relock --accept-signer <this peer>.`,
-    });
-  } else if (kid !== undefined && record.kid === undefined) {
-    out.push({ kind: "peer", severity: "info", ref: url, actual: kid, summary: "A peer that was unsigned when locked now publishes a signature; re-lock to record its key." });
-  } else if (kid === undefined && record.kid !== undefined) {
-    const problem = "problem" in sig ? sig.problem : undefined;
-    out.push({
-      kind: "peer",
-      severity: "warn",
-      ref: url,
-      expected: record.kid,
-      summary: `A peer that was signed when locked no longer shows a usable signature${problem ? ` (${problem})` : " (none is published)"}.`,
-    });
+  const recorded = record.kid;
+  const former = recorded === undefined ? record.formerKid : undefined;
+  if (recorded !== undefined) {
+    if (kid !== undefined && kid !== recorded) {
+      return [
+        {
+          kind: "peer",
+          severity: "block",
+          ref: url,
+          expected: recorded,
+          actual: kid,
+          summary: `A peer is now signed by a different key than the one the lock recorded: ${signerChangeWords(seen.rotation)}. ${ACCEPT_SIGNER}`,
+        },
+      ];
+    }
+    if ("none" in sig) {
+      return [
+        {
+          kind: "peer",
+          severity: "block",
+          ref: url,
+          expected: recorded,
+          summary: `A peer the lock recorded as signed publishes no signature now (its ${SIGNATURE_FILE} is not published), so nothing ties it to the key the lock recorded. ${ACCEPT_SIGNER}`,
+        },
+      ];
+    }
+    if ("problem" in sig) {
+      return [
+        {
+          kind: "peer",
+          severity: "warn",
+          ref: url,
+          expected: recorded,
+          summary: `A peer's signature could not be read now (${sig.problem}), so its signer was not checked; a relock keeps the key the lock recorded.`,
+        },
+      ];
+    }
+    return [];
   }
-  return out;
+  if (kid === undefined) return [];
+  if (former !== undefined) {
+    return kid === former
+      ? [{ kind: "peer", severity: "info", ref: url, actual: kid, summary: "A peer that had stopped signing is signed again by the key the lock last recorded for it; re-lock to record it." }]
+      : [
+          {
+            kind: "peer",
+            severity: "block",
+            ref: url,
+            expected: former,
+            actual: kid,
+            summary: `A peer that had stopped signing is now signed by a different key than the one the lock last recorded for it: ${signerChangeWords(seen.rotation)}. ${ACCEPT_SIGNER}`,
+          },
+        ];
+  }
+  return [{ kind: "peer", severity: "info", ref: url, actual: kid, summary: "A peer that was unsigned when locked now publishes a signature; re-lock to record its key." }];
 }
 
 /**
@@ -603,7 +654,7 @@ export function lockChanges(before: Lock | undefined, after: Lock): LockChanges 
   };
   const ground = (l: Lock | undefined) => Object.fromEntries((l?.grounding.sources ?? []).map((s) => [s.ref, s.sha256]));
   const peer = (l: Lock | undefined) =>
-    Object.fromEntries(Object.entries(l?.peers ?? {}).map(([u, p]) => [u, `${p.sha256} ${p.links ?? ""} ${p.kid ?? ""}`]));
+    Object.fromEntries(Object.entries(l?.peers ?? {}).map(([u, p]) => [u, `${p.sha256} ${p.links ?? ""} ${p.kid ?? ""} ${p.formerKid ?? ""}`]));
   compare("grounding", ground(before), ground(after));
   compare("runtime", before?.runtime.files ?? {}, after.runtime.files);
   compare("peer", peer(before), peer(after));
