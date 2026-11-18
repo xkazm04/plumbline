@@ -445,6 +445,20 @@ may run in parallel, because it adds no claim.
 - standard: `quality-gates/refusal-names-a-reachable-remedy`.
 - Size: S.
 - Must not break: on a signed site the reminder and the draft rule stay exactly as they are (MAR-L1-17).
+- State: fixed (commit b87dc08, pin c1a759e), awaiting recertify. Cause confirmed. "Signed" means the site root holds a
+  `plumbline.signature.json`: the CLI relock checks it (`relockOutput(result, json, siteSigned)`, also used by the
+  harness), and the Action's `report.mjs` reads it at the workspace's site root (`siteIsSigned`; in the pull request step
+  after this run's `sign`, so a site signed in this run counts). Keyless: no reminder line and no `reminder` in
+  `--json`; the issue says "and commit the lock." (no lock: "review the lock and commit it."); the pull request body
+  drops the "**Not signed.**" paragraph and the refused-relock "sign the site again"; the plan's `draft` is false. A
+  signed site's text and draft rule are byte for byte as before (tests compare them). Live on meridian-trips (harness
+  init, `run-action.mjs --harness --relock-pr true`): after `partner-adds-agent`, r1 created issue #1 and pull request
+  #2 with `draft=false`, neither body containing "sign"; r2 (unchanged) planned `none` for both, every step exit 0;
+  after `partner-adds-links`, r3 commented on the issue and edited the pull request (still not a draft); a person
+  merged #2 with the branch kept, and r4 closed the issue ("the site's signature, if it has one, ...") and planned
+  `none`, exit 0 (MC-4). The relock on the r2 checkout prints no sign line. Tests: "UAT-12 ..." in
+  `action/report.test.mjs`, the relock test in `src/test/gate-watch-cli.test.ts`. Ceiling: a site whose signature file
+  is not at the root (`root:` names another folder) is judged by that folder, as the push step already does.
 
 ### UAT-13. Line endings are not "different facts"
 
