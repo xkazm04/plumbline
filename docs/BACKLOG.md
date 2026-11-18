@@ -738,6 +738,20 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: M.
 - Must not break: guardrail 6 for the address form.
+- State: fixed (commit 5e1a0b5, pin 38e87fd), awaiting recertify. `plumbline gate --root <folder> [--adapters validator]
+  [--fail-on] [--json]` (`src/cli/gate-root.ts`): the gate's runner with a fetcher over the folder (`readUnderRoot`,
+  exact bytes, nothing outside the folder's real path) at `https://files.plumbline.invalid/`, never contacted; a manifest
+  naming another site's network file is not fetched; Atlas and Customs are refused with `--root` (exit 2), as are a
+  target beside it, `--trust` and `--allow-local`; stderr says first that nothing is sent to a third party; the report
+  and exit codes are the gate's (`target` is the folder as given). The Action: `command: gate` with no `target` runs
+  `gate --root "$GITHUB_WORKSPACE/<root>"` (`adapters` does not apply); `inputProblem` asks for a target or a root
+  folder. Live on tallow-finch's dunmore-books folder with the built CLI: before `fix-launch` "gate fail: ... (files) -
+  checked by 1 of 1 (validator fail)", "1 x duplicate keys: ...", exit 1; after it "gate pass ... found no problem: 1
+  network definition checked", exit 0. Tests: `src/test/gate-root.test.ts`; "UAT-22" in `action/report.test.mjs` (the
+  Run step in bash with a stub CLI: no target gives `gate --root <workspace>/site --fail-on fail --json`, no
+  `--adapters`). Decided here: an empty `target` now means "the files at root" rather than a refusal (the inputs check
+  still refuses when root is not a folder); the owner may prefer an explicit input. The watch path of `action.yml` is
+  unchanged, so MC-4 was not re-run for this change (it ran for UAT-18).
 
 ### UAT-23. The trust file records when; verify reads a missing trust file as empty
 
