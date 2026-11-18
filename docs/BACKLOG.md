@@ -682,6 +682,18 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: M.
 - Must not break: a stranger's list stays `unverifiable` (first contact is a person's decision; guardrail 3).
+- State: fixed (commit 21fb6a6), awaiting recertify. `scripts/scan-ecosystem.mjs --trust <trust file>` checks each
+  site's signature through `gate --trust`'s `checkSignature` (`verify --url` itself, one verifier): the site carries
+  `verdict` (`verified`, `invalid`, `unverifiable`) and `signatureCheck` (verify's result), an invalid signature ranks as
+  `invalid` attention (UAT-19), the summary counts `verdict`, `settings.trust` is `true`, the disclosure's signature
+  sentence says what was checked against the file, and the page's Signature cell and details say the verdict with its
+  reason. A trust file that cannot be used is refused (exit 2) before anything is read. Without `--trust` the report is
+  as before. Live on tallow-finch (trust file made by `trust --url --allow-local --yes` for 4400, 4405, 4406; the scan
+  library with `allowLocal`, `--adapters validator`, since the script's `--allow-local` is UAT-21): alder-bakery
+  `verified`, brightwater `unverifiable` (unsigned), fernhill-hotel `invalid expired`, glenrock-gym `invalid tampered`,
+  summary `{verified 1, invalid 2, unverifiable 1}`; without the file the same four read `unverifiable` or no verdict, as
+  today. Tests: "UAT-20 ..." in `src/test/scan.test.ts`. Ceiling: as `verify` does, a verified revocation is recorded in
+  the operator's trust file during a scan.
 
 ### UAT-21. A publisher can rehearse before production
 
