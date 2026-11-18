@@ -39,6 +39,14 @@ test("the watch template uses this repository's Action pinned to a full commit S
   const pinned = git("show", `${sha}:action/action.yml`);
   assert.match(pinned, /cd "\$GITHUB_ACTION_PATH\/\.\."/, "the pinned commit's Action builds itself");
   assert.match(pinned, /\n {2}command:\n/, "the pinned commit's Action has the command input the template uses");
+  // every input the template passes to the Action must exist in the pinned commit's action.yml: GitHub only warns about
+  // an unknown input, so a pin older than the input silently ignores it (an `issues: true` that opens no issue)
+  const block = /uses: xkazm04\/plumbline\/action@[^\n]+\n\s+with:\n((?:\s{10,}[a-z-]+:.*\n)+)/.exec(template);
+  assert.ok(block, "the template passes inputs to the Action");
+  const passed = [...block[1]!.matchAll(/^\s+([a-z-]+):/gm)].map((m) => m[1]!);
+  assert.ok(passed.length > 0);
+  const inputsPart = pinned.slice(pinned.indexOf("\ninputs:"), pinned.indexOf("\noutputs:"));
+  for (const name of passed) assert.match(inputsPart, new RegExp(`\\n {2}${name}:\\n`), `the pinned Action declares the input ${name}`);
   // every Action output the template reads must exist in the pinned commit's action.yml, or the step reads ""
   const read = [...template.matchAll(/steps\.watch\.outputs\.([a-z-]+)/g)].map((m) => m[1]!);
   assert.ok(read.length > 0, "the template reads the Action's outputs");
