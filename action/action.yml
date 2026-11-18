@@ -268,7 +268,9 @@ runs:
             signed="$pr/sign.json"
           fi
         fi
-        gh pr list --head "$branch" --state open --json number,body,isDraft > "$pr/open.json"
+        # isCrossRepository: --head matches the branch name alone, so a fork's pull request from a branch of the same
+        # name is listed too; the plan never takes it for the Action's own (UAT-33)
+        gh pr list --head "$branch" --state open --json number,body,isDraft,isCrossRepository > "$pr/open.json"
         node "$GITHUB_ACTION_PATH/report.mjs" pr "$MODE" "$REPORT" "$relock" "$signed" "$pr/open.json" "$pr/body.md" "$pr/comment.md"
 
     - name: Open, update or close the pull request

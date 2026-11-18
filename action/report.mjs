@@ -783,7 +783,8 @@ function prTechnical({ mode, report, relock, kid, runUrl, siteSigned = true, nam
 
 /**
  * What to do with the one pull request of a mode, from whether this run wants one, this run's body, whether it signed,
- * and the open pull requests on the mode's branch (`gh pr list --head <branch> --state open --json number,body,isDraft`):
+ * and the open pull requests on the mode's branch (`gh pr list --head <branch> --state open --json
+ * number,body,isDraft,isCrossRepository`; one whose head is in another repository, a fork's, is never the Action's own):
  * - `create` when one is wanted and none is open; a draft when it was not signed;
  * - `edit` when one is open and its body differs (the branch is pushed again), with `draft` saying which state it must be in;
  * - `none` when the open one's body is this run's (nothing is pushed: the capture times alone are no news);
@@ -791,7 +792,9 @@ function prTechnical({ mode, report, relock, kid, runUrl, siteSigned = true, nam
  */
 export function prPlan({ mode, wanted, body, signed, open, runUrl, refused = false, siteSigned = true }) {
   if (mode !== "relock" && mode !== "renew") throw new Error("the mode is relock or renew");
-  const pr = (Array.isArray(open) ? open : []).find((p) => p && Number.isInteger(p.number));
+  // UAT-33: gh pr list --head filters by the branch name alone, so a fork's pull request from a branch of the same name
+  // comes back too; only a pull request whose head is in this repository is the Action's own
+  const pr = (Array.isArray(open) ? open : []).find((p) => p && Number.isInteger(p.number) && p.isCrossRepository !== true);
   // a draft waits for a signature; a site that publishes none has nothing to wait for (UAT-12, DEV-L1-04)
   const draft = siteSigned && !signed;
   // UAT-4: the relock was refused (a peer's signer changed; CI never accepts one). Nothing is pushed: an open pull

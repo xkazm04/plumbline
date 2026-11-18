@@ -66,7 +66,8 @@ if (noun === "issue" && verb === "list") {
   save();
 } else if (noun === "pr" && verb === "list") {
   const head = opt("--head");
-  const open = state.prs.filter((p) => p.state === "open" && p.head === head).map(({ number, body, isDraft }) => ({ number, body, isDraft }));
+  // like the real gh, --head matches the branch name alone; a pull request from a fork carries isCrossRepository
+  const open = state.prs.filter((p) => p.state === "open" && p.head === head).map(({ number, body, isDraft, isCrossRepository }) => ({ number, body, isDraft, isCrossRepository: isCrossRepository === true }));
   record("pr list", false);
   save();
   process.stdout.write(JSON.stringify(open));

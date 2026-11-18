@@ -1165,3 +1165,23 @@ test("UAT-35: renewNeeded decides on the expiry codes, whatever the sentence say
   // a report written before codes (UAT-17) is read as before
   assert.equal(renewNeeded({ findings: [{ severity: "warn", kind: "grounding", ref: sig, summary: "The site's signature expires on 2026-12-01, in 5 days; sign the site again before then." }] }), true);
 });
+
+// ---- UAT-33: a fork's pull request on a branch named plumbline/relock is never taken for the Action's own ----
+
+test("UAT-33: the pull request plan ignores a pull request whose head is in another repository (a fork's branch of the same name)", () => {
+  const body = prBody({ mode: "relock", report: { findings: [peerChange] }, relock: relockOut, kid: null, runUrl });
+  const fork = { number: 41, body: "a stranger's change", isDraft: false, isCrossRepository: true };
+  // gh pr list --head filters by the branch name alone ("<owner>:<branch>" syntax not supported, gh 2.102.0's help),
+  // so a fork's pull request from its own plumbline/relock comes back with ours
+  assert.deepEqual(prPlan({ mode: "relock", wanted: true, body, signed: false, open: [fork], runUrl }), { action: "create", draft: true, title: PR_TITLES.relock, branch: PR_BRANCHES.relock });
+  assert.equal(prPlan({ mode: "relock", wanted: false, body, signed: false, open: [fork], runUrl }).action, "none", "a clean run never closes a fork's pull request");
+  assert.equal(prPlan({ mode: "relock", wanted: true, body, signed: false, open: [fork], runUrl, refused: true }).action, "none", "a refused relock never describes a fork's pull request");
+  // ours is found beside it
+  const ours = { number: 3, body, isDraft: true, isCrossRepository: false };
+  assert.equal(prPlan({ mode: "relock", wanted: false, body, signed: false, open: [fork, ours], runUrl }).number, 3);
+});
+
+test("UAT-33: the Action asks gh whether each pull request's head is in another repository", () => {
+  const action = read("action/action.yml");
+  assert.match(action, /gh pr list --head "\$branch" --state open --json number,body,isDraft,isCrossRepository > "\$pr\/open\.json"/);
+});
