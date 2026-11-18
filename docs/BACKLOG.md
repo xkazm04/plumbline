@@ -866,6 +866,19 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: S.
 - Must not break: guardrail 4.
+- State: fixed (commit 39d2e4f), awaiting recertify; the Desk must be relocked and re-signed by the owner (changed:
+  `site/desk.js`, `site/strings.js`, `site/index.html`; test `site/tests/desk.test.mjs`). Hypothesis confirmed: the
+  Desk's revoke offered the new statement alone, which published in place of a list would unpublish it. Built as both
+  halves: an optional picker "Your site's current plumbline-revocation.json" beside the key; with it the download is
+  that list with the new statement added, oldest first ("The download holds your site's 2 revocations: ..."), or the
+  list unchanged when it already revokes the key under it ("No new revocation made ..."); a file that is not a
+  revocation list, or one with 64 statements, is refused in words; without it the page warns "This download holds this
+  revocation alone. If your site already publishes a plumbline-revocation.json, pick it above ...". Live in Chromium on
+  northgate-clinic's Desk (port 4399, `#/key`): after a CLI `revoke` of the clinic's key A, a throwaway key's private
+  file plus the clinic's published list gave "holds your site's 2 revocations", and the downloaded file held
+  `[9b2ff644f4170271, b962fe5553ca4f0c]`, the published one first. Test: "UAT-27 ..." in `site/tests/desk.test.mjs`.
+  Ceiling: the page does not fetch the site's list itself (it does not know which site the key signs for); the
+  visitor picks it.
 
 ## Build items: friendlier (after the sentences they carry are correct, MC-6)
 
