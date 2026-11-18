@@ -37,7 +37,7 @@ const pad = (n: number): string => String(n).padStart(2, "0");
  * A lone separator followed by exactly three digits groups thousands; followed by one or two, it is the decimal mark.
  */
 export function normaliseNumber(written: string): string {
-  let s = written.replace(/[\s  ']/g, "");
+  let s = written.replace(/[\s\u00A0\u202F']/g, "");
   const lastComma = s.lastIndexOf(",");
   const lastDot = s.lastIndexOf(".");
   if (lastComma >= 0 && lastDot >= 0) {
@@ -130,7 +130,7 @@ const PATTERNS: Pattern[] = [
  * number and a price is not also a percentage.
  */
 export function extractLiterals(text: string): string[] {
-  let rest = text.toLowerCase().replace(/[\s  ]+/g, " ");
+  let rest = text.toLowerCase().replace(/[\s\u00A0\u202F]+/g, " ");
   const out = new Set<string>();
   for (const pattern of PATTERNS) {
     pattern.re.lastIndex = 0;
@@ -188,7 +188,7 @@ export function pageText(bytes: Uint8Array): { text: string } | { problem: strin
 export function networkLiterals(networkText: string): string[] {
   let value: unknown;
   try {
-    value = JSON.parse(networkText.replace(/^﻿/, ""));
+    value = JSON.parse(networkText.replace(/^\uFEFF/, ""));
   } catch {
     return [];
   }

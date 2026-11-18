@@ -36,7 +36,7 @@ export async function badge(argv: string[], out: Out): Promise<number> {
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text.replace(/^﻿/, ""));
+    parsed = JSON.parse(text.replace(/^\uFEFF/, ""));
   } catch {
     throw new UsageError("--report must be a gate report written by plumbline gate --json; this file is not JSON");
   }

@@ -48,7 +48,7 @@ function hostOf(address: string): string | null {
 export function namedOutline(text: string): NamedOutline | null {
   let value: unknown;
   try {
-    value = JSON.parse(text.replace(/^﻿/, ""));
+    value = JSON.parse(text.replace(/^\uFEFF/, ""));
     if (countDuplicateKeys(text) > 0) return null;
   } catch {
     return null;

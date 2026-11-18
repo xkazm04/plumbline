@@ -132,7 +132,7 @@ test("plumbline diff: names and hosts for the caller's own files, control charac
   const a = path.join(tmp, "a.network.json");
   const b = path.join(tmp, "b.network.json");
   writeFileSync(a, network([front, helper]));
-  writeFileSync(b, network([{ ...front, tools: ["helper", "https://new.example/x"] }, { name: "evil\u001b[2Jname‮", tools: [] }]));
+  writeFileSync(b, network([{ ...front, tools: ["helper", "https://new.example/x"] }, { name: "evil\u001b[2Jname\u202E", tools: [] }]));
   const run = (...args: string[]) => spawnSync(process.execPath, [CLI, "diff", ...args], { encoding: "utf8" });
   const r = run(a, b);
   assert.equal(r.status, 1, r.stderr);
@@ -140,7 +140,7 @@ test("plumbline diff: names and hosts for the caller's own files, control charac
   assert.match(r.stdout, /^agents added: evil\?\[2Jname\?$/m);
   assert.match(r.stdout, /^agents removed: helper$/m);
   assert.match(r.stdout, /^outbound hosts added: new\.example$/m);
-  assert.ok(!r.stdout.includes("\u001b") && !r.stdout.includes("‮"));
+  assert.ok(!r.stdout.includes("\u001b") && !r.stdout.includes("\u202E"));
   const json = JSON.parse(run(a, b, "--json").stdout) as { sameOutline: boolean; agentsChanged: string[] };
   assert.deepEqual([json.sameOutline, json.agentsChanged], [false, ["front"]]);
   // formatting only: exit 0, said so
@@ -154,5 +154,5 @@ test("plumbline diff: names and hosts for the caller's own files, control charac
   assert.equal(dup.status, 2);
   assert.match(dup.stderr, /cannot be outlined: .*repeats a key/);
   assert.equal(run(a).status, 2);
-  assert.equal(printable("ok\u0007⁦x"), "ok??x");
+  assert.equal(printable("ok\u0007\u2066x"), "ok??x");
 });

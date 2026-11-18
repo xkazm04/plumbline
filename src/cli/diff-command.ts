@@ -15,7 +15,7 @@ export const DIFF_USAGE = "usage: plumbline diff <old network file> <new network
 
 /** A name or host made safe for a terminal line: C0, C1, DEL and the bidi controls become `?`. */
 export function printable(text: string): string {
-  return text.replace(/[\u0000-\u001f\u007f-\u009f؜‎‏‪-‮⁦-⁩]/g, "?");
+  return text.replace(/[\u0000-\u001f\u007f-\u009f\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "?");
 }
 
 async function outlineOf(path: string, label: string): Promise<{ text: string; outline: NamedOutline }> {
