@@ -1,5 +1,7 @@
 # Runs the Action from this repository the way an adopter does (it builds itself from its own checkout), against a
 # public agentic site (gate) and against this repository's Desk (watch), so the adopter's path is proven on a runner.
+# The refusals job proves the other path: inputs the Action must refuse do fail it, before the build, and a watch root
+# with no lock is never read as clean.
 name: Action smoke
 
 on:
@@ -54,3 +56,80 @@ jobs:
           FINDINGS: ${{ steps.watch.outputs.findings }}
         run: |
           echo "warn or block findings: $FINDINGS"
+
+  # Each refusal step is expected to fail: continue-on-error keeps the job going, and the last step asserts every
+  # outcome. An empty `report` output proves the step failed in the input check, before the build and the CLI, so a
+  # build or network failure cannot pass for a refusal.
+  refusals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: bad-command
+        continue-on-error: true
+        uses: ./action
+        with:
+          command: nope
+      - id: gate-no-target
+        continue-on-error: true
+        uses: ./action
+        with:
+          command: gate
+      - id: bad-fail-on
+        continue-on-error: true
+        uses: ./action
+        with:
+          target: https://example.com/
+          fail-on: maybe
+      - id: gate-with-issues
+        continue-on-error: true
+        uses: ./action
+        with:
+          target: https://example.com/
+          issues: true
+      - id: bad-issues
+        continue-on-error: true
+        uses: ./action
+        with:
+          command: watch
+          root: site
+          issues: maybe
+      - id: root-is-a-file
+        continue-on-error: true
+        uses: ./action
+        with:
+          command: watch
+          root: package.json
+      # Not a refusal: a folder with no plumbline.lock.json checked nothing, which is one warn finding, never clean.
+      - id: no-lock
+        continue-on-error: true
+        uses: ./action
+        with:
+          command: watch
+          root: action
+      - name: Assert the outcomes
+        shell: bash
+        env:
+          REFUSED: >-
+            bad-command=${{ steps.bad-command.outcome }}/${{ steps.bad-command.outputs.report }}
+            gate-no-target=${{ steps.gate-no-target.outcome }}/${{ steps.gate-no-target.outputs.report }}
+            bad-fail-on=${{ steps.bad-fail-on.outcome }}/${{ steps.bad-fail-on.outputs.report }}
+            gate-with-issues=${{ steps.gate-with-issues.outcome }}/${{ steps.gate-with-issues.outputs.report }}
+            bad-issues=${{ steps.bad-issues.outcome }}/${{ steps.bad-issues.outputs.report }}
+            root-is-a-file=${{ steps.root-is-a-file.outcome }}/${{ steps.root-is-a-file.outputs.report }}
+          NO_LOCK: ${{ steps.no-lock.outcome }}/${{ steps.no-lock.outputs.findings }}
+        run: |
+          bad=0
+          for entry in $REFUSED; do
+            # Expected: failure, with no report (the input check stopped it before the CLI ran).
+            if [ "${entry#*=}" = "failure/" ]; then echo "refused as expected: ${entry%%=*}"
+            else echo "::error::${entry%%=*} should be refused before the build, got ${entry#*=}"; bad=1; fi
+          done
+          if [ "$NO_LOCK" = "success/1" ]; then echo "no lock: one finding, never clean"
+          else echo "::error::a root with no lock should succeed with findings=1, got $NO_LOCK"; bad=1; fi
+          exit "$bad"

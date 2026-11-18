@@ -3,8 +3,9 @@
 # Needs plumbline.lock.json committed first: in a clone of xkazm04/plumbline at the pinned commit, run
 # `npm ci && node dist/cli/index.js watch --root <your site> --init`, then sign the site (the lock is a signed file),
 # and commit both. After you review a drift you accept: `watch --root <your site> --relock`, sign again, commit both.
-# It only reads the repository and keeps ONE issue titled "Plumbline drift": opened or updated on warn or block
-# findings, closed with a comment on the next clean run. It never pushes or opens a PR.
+# It only reads the repository and keeps ONE issue titled "Plumbline drift" (the Action's `issues: true`): opened on
+# warn or block findings, edited with a comment naming what is new when they change, closed with a comment on the next
+# clean run. That is why it needs `issues: write`. It never pushes or opens a PR.
 name: Plumbline watch
 
 on:
@@ -14,7 +15,7 @@ on:
 
 permissions:
   contents: read
-  issues: write
+  issues: write # the Action keeps the drift issue with the job's token
 
 concurrency:
   group: plumbline-watch
@@ -34,38 +35,18 @@ jobs:
         with:
           node-version: 22
 
-      # The Action builds plumbline from its own checkout: pinning it by commit SHA pins the code that runs.
+      # The Action builds plumbline from its own checkout: pinning it by commit SHA pins the code that runs. With
+      # `issues: true` it also opens, edits (with a comment when the findings change) or closes the drift issue.
       - name: Run plumbline watch
         id: watch
         uses: xkazm04/plumbline/action@dcb92c590f998366df2feef300d17781da9d1064
         with:
           command: watch
           root: "."
+          issues: true
 
-      # The Action read the report once: `findings` counts warn and block, `issue-body` is the issue text for them.
-      - name: Open, update or close the drift issue
+      - name: Findings
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           FINDINGS: ${{ steps.watch.outputs.findings }}
-          BODY: ${{ steps.watch.outputs.issue-body }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          # A count that is not a number means the Action did not read a report: never take that for clean.
-          case "$FINDINGS" in ''|*[!0-9]*) echo "::error::the Action gave no findings count"; exit 1 ;; esac
-          # One open issue only: edit it if it exists, create it if it does not, close it when the watch is clean.
-          number=$(gh issue list --state open --search '"Plumbline drift" in:title' --json number,title --jq '[.[] | select(.title == "Plumbline drift")][0].number // empty')
-          if [ "$FINDINGS" != "0" ]; then
-            if [ -n "$number" ]; then
-              gh issue edit "$number" --body-file "$BODY"
-              echo "Updated issue #$number"
-            else
-              gh issue create --title "Plumbline drift" --body-file "$BODY"
-            fi
-          elif [ -n "$number" ]; then
-            gh issue close "$number" --comment "Plumbline watch is clean as of $RUN_URL: the locked files, peers and runtime match plumbline.lock.json. Closing. (Clean is not safe: it means nothing locked has drifted.)"
-            echo "Closed issue #$number"
-          else
-            echo "Clean, and no open drift issue."
-          fi
+        run: echo "warn or block findings, $FINDINGS"

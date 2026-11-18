@@ -36,9 +36,11 @@ own site; a verifier who is not the publisher first downloads the site's `.well-
 node dist/cli/index.js trust --key ./keys/.well-known/plumbline-key.json --origin https://example.org --file ./plumbline.trust.json
 #   prints the kid and adds nothing (exit 1). Confirm that kid with the publisher out of band, then rerun with --yes.
 node dist/cli/index.js trust --key ./keys/.well-known/plumbline-key.json --origin https://example.org --file ./plumbline.trust.json --yes
+#   or read the key record from the live site: trust --url https://example.org --file ./plumbline.trust.json [--yes]
 node dist/cli/index.js verify --root ./site --trust ./plumbline.trust.json --origin https://example.org   # a local copy
 node dist/cli/index.js verify --url https://example.org --trust ./plumbline.trust.json                    # the live site
 node dist/cli/index.js gate https://agent-atlas-phi.vercel.app/
+node dist/cli/index.js adopt --url https://example.org --trust ./plumbline.trust.json        # follow a published rotation
 ```
 
 Later, the watch reports drift against the lock. Once a person has reviewed a drift and accepts it, `--relock` rewrites
@@ -52,9 +54,10 @@ node dist/cli/index.js sign --root ./site --key ./keys/plumbline.private.json --
 
 Exit codes: 0 clean, 1 findings (for `trust` without `--yes`: nothing added), 2 usage or I/O error.
 `gate --allow-local` checks a site on your own machine over http and still refuses every private range. In CI:
-`uses: xkazm04/plumbline/action@<commit sha>` (gate or watch) and `action/templates/plumbline-watch.yml` (a daily drift
-issue, closed by the next clean run). The Action builds Plumbline from the commit you pin, so the code that runs is
-exactly that commit's (`action/README.md`, which also says how to hear about security fixes and move the pin).
+`uses: xkazm04/plumbline/action@<commit sha>` (gate or watch; `issues: true` keeps one drift issue, with a comment when
+its findings change) and `action/templates/plumbline-watch.yml` (a daily drift issue, closed by the next clean run).
+The Action builds Plumbline from the commit you pin, so the code that runs is exactly that commit's (`action/README.md`,
+which also says how to hear about security fixes and move the pin).
 
 ## Documents
 
@@ -68,7 +71,7 @@ exactly that commit's (`action/README.md`, which also says how to hear about sec
 ## Develop
 
 `npm run check` (typecheck and tests), `npm run check:wire` (the format's exact strings), `npm run test:site` (the Desk),
-`node --test "action/*.test.mjs"` (the Action's report reader and the watch workflows' issue handling).
+`node --test "action/*.test.mjs"` (the Action's input checks, report reader and drift-issue decisions).
 `CLAUDE.md` holds the working rules. This repository is maintained through bp, a
 product blueprint: its scans and stand-ups decide what is built next.
 

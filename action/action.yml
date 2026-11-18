@@ -1,5 +1,5 @@
 name: Plumbline
-description: Gate an agentic website (validator port, Agent Atlas, Agent Customs; unreachable is `unavailable`, never `pass`) or watch a site for drift against its plumbline.lock.json. Runs the code of the commit you pin.
+description: Gate an agentic website (validator port, Agent Atlas, Agent Customs; unreachable is `unavailable`, never `pass`) or watch a site for drift against its plumbline.lock.json and keep its drift issue. Runs the code of the commit you pin.
 author: Plumbline
 
 inputs:
@@ -20,9 +20,17 @@ inputs:
     required: false
     default: gate
   root:
-    description: For `watch`, the site folder holding plumbline.lock.json, relative to the workspace. Default is the workspace itself.
+    description: For `watch`, the site folder holding plumbline.lock.json, relative to the workspace. Default is the workspace itself. A path that is not a folder is refused.
     required: false
     default: "."
+  issues:
+    description: "For `watch`: `true` keeps ONE open issue titled `Plumbline drift`. It is opened on warn or block findings, edited when they change (with a comment naming what is new, a new `block` first), and closed with a comment on the next clean run. The job needs `permissions: issues: write`. `false` (the default) leaves the issue to you, with the `findings` and `issue-body` outputs."
+    required: false
+    default: "false"
+  token:
+    description: "For `issues`, the token the drift issue is kept with. The default is the job's own token, which needs `issues: write`."
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   state:
@@ -37,10 +45,26 @@ outputs:
   issue-body:
     description: For `watch`, path to a Markdown file with the drift issue's body (warn and block findings, and what to do about them).
     value: ${{ steps.run.outputs.issue-body }}
+  issue-action:
+    description: "For `watch` with `issues: true`, what was done to the drift issue: create, edit, close or none."
+    value: ${{ steps.issue-plan.outputs.action }}
 
 runs:
   using: composite
   steps:
+    # Every refusal comes before the build, so a misconfigured workflow goes red at once with its reason. The decision is
+    # report.mjs's inputProblem, which action/report.test.mjs tests. Inputs reach scripts through the environment, never
+    # by interpolation into the script text.
+    - name: Check the inputs
+      shell: bash
+      env:
+        PLUMBLINE_COMMAND: ${{ inputs.command }}
+        PLUMBLINE_TARGET: ${{ inputs.target }}
+        PLUMBLINE_FAIL_ON: ${{ inputs.fail-on }}
+        PLUMBLINE_ROOT: ${{ inputs.root }}
+        PLUMBLINE_ISSUES: ${{ inputs.issues }}
+      run: node "$GITHUB_ACTION_PATH/report.mjs" inputs
+
     # The code that runs is this action's own checkout: pinning the action by commit SHA pins the code, with no package
     # registry in between (the npm name plumbline belongs to an unrelated project, and npx's git installs break on the
     # runner's npm). npm ci also runs the prepare build.
@@ -54,7 +78,6 @@ runs:
     - name: Run plumbline
       id: run
       shell: bash
-      # Inputs reach the script through the environment, never by interpolation into the script text.
       env:
         PLUMBLINE_COMMAND: ${{ inputs.command }}
         PLUMBLINE_TARGET: ${{ inputs.target }}
@@ -67,11 +90,6 @@ runs:
         echo "report=$report" >> "$GITHUB_OUTPUT"
         case "$PLUMBLINE_COMMAND" in
           gate)
-            case "$PLUMBLINE_FAIL_ON" in
-              fail|unavailable) ;;
-              *) echo "::error::fail-on must be fail or unavailable"; exit 2 ;;
-            esac
-            if [ -z "$PLUMBLINE_TARGET" ]; then echo "::error::command gate needs a target"; exit 2; fi
             # The exit code is read straight from the command: 0 passed by fail-on, 1 failed by it (or nothing was
             # checked), 2 usage. The gate never gets --allow-local here: CI checks public https sites only.
             set +e
@@ -96,4 +114,51 @@ runs:
             node "$GITHUB_ACTION_PATH/report.mjs" watch "$report" "$RUNNER_TEMP/plumbline-issue.md"
             ;;
           *) echo "::error::command must be gate or watch"; exit 2 ;;
+        esac
+
+    # The drift issue, with `issues: true` (the input check allows that with watch only). report.mjs's issuePlan decides
+    # from the count, this run's body (which carries the findings' digest) and the open issues; the next step only
+    # carries the decision out.
+    - name: Decide on the drift issue
+      id: issue-plan
+      if: inputs.issues == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        FINDINGS: ${{ steps.run.outputs.findings }}
+        BODY: ${{ steps.run.outputs.issue-body }}
+      run: |
+        title=$(node "$GITHUB_ACTION_PATH/report.mjs" title)
+        open="$RUNNER_TEMP/plumbline-open-issues.json"
+        gh issue list --state open --search "\"$title\" in:title" --json number,title,body --limit 50 > "$open"
+        node "$GITHUB_ACTION_PATH/report.mjs" issue "$FINDINGS" "$BODY" "$open" "$RUNNER_TEMP/plumbline-issue-comment.md"
+
+    - name: Open, edit or close the drift issue
+      if: inputs.issues == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        ISSUE_ACTION: ${{ steps.issue-plan.outputs.action }}
+        NUMBER: ${{ steps.issue-plan.outputs.number }}
+        COMMENT: ${{ steps.issue-plan.outputs.comment }}
+        BODY: ${{ steps.run.outputs.issue-body }}
+      run: |
+        case "$ISSUE_ACTION" in
+          create)
+            gh issue create --title "$(node "$GITHUB_ACTION_PATH/report.mjs" title)" --body-file "$BODY"
+            ;;
+          edit)
+            # A body edit notifies nobody, so findings that changed also get a comment naming what is new.
+            gh issue edit "$NUMBER" --body-file "$BODY"
+            if [ -n "$COMMENT" ]; then gh issue comment "$NUMBER" --body-file "$COMMENT"; fi
+            echo "Updated issue #$NUMBER"
+            ;;
+          close)
+            gh issue close "$NUMBER" --comment "$(cat "$COMMENT")"
+            echo "Closed issue #$NUMBER"
+            ;;
+          none) echo "The drift issue needs nothing." ;;
+          *) echo "::error::no decision on the drift issue"; exit 2 ;;
         esac

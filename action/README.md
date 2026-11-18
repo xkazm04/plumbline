@@ -26,14 +26,38 @@ peer drift; outputs `report` (the JSON path), `findings` (how many are `warn` or
 Markdown file with the drift issue's text). Exit 1 from the CLI (findings) does not fail the step; a real error does,
 and so does a report that cannot be read, so a broken run is never taken for a clean one.
 
-The Action reads its report once, with `action/report.mjs` (plain Node, no dependencies); `node --test
-"action/*.test.mjs"` tests it and the template's issue handling.
+```yaml
+- uses: xkazm04/plumbline/action@COMMIT_SHA
+  with:
+    command: watch
+    root: site                              # a folder in the workspace
+    issues: true                            # keep the drift issue; the job needs `issues: write`
+```
+
+**The drift issue** (`issues: true`, watch only). The Action keeps ONE open issue titled `Plumbline drift` with the
+job's token (input `token`, default `github.token`), so the job needs `permissions: issues: write` (and `contents: read`
+for the checkout); it never pushes or opens a pull request. On `warn` or `block` findings it opens the issue, or edits
+the open one. Editing a body notifies nobody, so when the findings themselves change (a severity, kind or ref, not a
+summary's wording) it also comments, naming what is new and what is no longer reported, and a new `block` comes first.
+The body carries the findings in a hidden `<!-- plumbline:digest ... -->` marker, which is how the next run tells what
+is new. An unchanged run writes nothing. The next clean run closes the issue with a comment linking that run. Output
+`issue-action` says which it did: `create`, `edit`, `close` or `none`. Without `issues: true` the Action touches no
+issue, and you can keep your own with `findings` and `issue-body`.
+
+**Refusals.** Before the build, the Action refuses a `command` other than `gate` or `watch`, a gate without `target`, a
+`fail-on` other than `fail` or `unavailable`, an `issues` other than `true` or `false`, `issues: true` with the gate,
+and a watch `root` that is not a folder in the workspace. Each fails the step with its reason.
+
+Every decision is in `action/report.mjs` (plain Node, no dependencies): the input check, the one read of the report, and
+what to do with the drift issue; the Action's shell only carries them out. `node --test "action/*.test.mjs"` tests them,
+and runs the Action's two issue steps through bash against a stub `gh` (on Windows, set `PLUMBLINE_TEST_BASH` to Git
+Bash, or that one test is skipped).
 
 **The watch template** (`action/templates/plumbline-watch.yml`) uses the Action pinned by commit SHA. Copy it to
 `.github/workflows/plumbline-watch.yml`. Once, in a clone of this repository at the pinned commit, run
 `npm ci && node dist/cli/index.js watch --root <your site> --init`, then sign the site (the lock is a signed file) and
-commit both. It runs daily and on demand with `contents: read` and `issues: write` only. On a `warn` or `block` finding
-it creates, or edits, ONE open issue titled `Plumbline drift`; it never pushes or opens a pull request. `info` findings
+commit both. It runs daily and on demand with `contents: read` and `issues: write` only, and passes `issues: true`, so
+the Action keeps the drift issue as above. `info` findings
 (upstream runtime is ahead, upstream could not be asked) stay in the job log. When you have reviewed a drift and accept
 it, run `node dist/cli/index.js watch --root <your site> --relock` in that clone: it rewrites the lock from the current
 state and prints what changed. Sign the site again (the lock is a signed file) and commit both. The next run that
@@ -44,7 +68,8 @@ place of the pinned SHA so every commit's Action is the one that runs.
 
 A test (`src/test/action-pin.test.ts`) holds this: the Action builds itself, nothing installs Plumbline by name, and
 the template's pinned commit exists in this repository's history and holds the self-building Action. The
-`Action smoke` workflow runs both commands through the Action on a GitHub runner every Monday and on demand.
+`Action smoke` workflow runs both commands through the Action on a GitHub runner every Monday and on demand, and checks
+that each refusal above fails the step before the build.
 
 Third-party actions are pinned by commit SHA (`actions/checkout` v7.0.1, `actions/setup-node` v7.1.0, resolved from
 GitHub's tag refs on 2026-11-17). What each adapter and detector does, and what a clean report does not mean:
