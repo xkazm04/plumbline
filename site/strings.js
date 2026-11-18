@@ -306,6 +306,16 @@ export const STRINGS = {
     checking: "Checking…",
     reachable: "{name} answered just now",
     unreachable: "{name} could not be reached",
+    // the load-path check (D3, lib/plumbline/browser/preload.js): its signature, then this Desk's lock
+    signatureVerified: "Its signature is verified: a publisher in your trust list signed what it serves.",
+    signatureInvalid: "Its signature is invalid: {reason}.",
+    signatureUnverifiable: "Its signature is unverifiable, which is not a failure: {detail}",
+    lock: {
+      matches: "Its network matches the pin in this Desk's lock.",
+      differs: "Its network differs from the pin in this Desk's lock, so the assistant declines it.",
+      unread: "Its network could not be compared with this Desk's lock.",
+      "not-locked": "This Desk's lock does not pin it.",
+    },
   },
 
   assistant: {

@@ -13,6 +13,7 @@
 //   watch/observe.js     the one fetcher-injected peer and published-file reader (pure)
 //   watch/anchors.js     the facts a grounding page states, for the anchor count (pure)
 //   watch/outline.js     a peer's definition in outline, hashed (pure)
+//   browser/*.js         checkPeerBeforeLoad: a peer's signature and lock pin before it loads (pure)
 //   watch/published.js   the reader of a published lock: the CLI's `watch --url` and the Desk's drift.js (pure)
 //
 // After copying, every module is scanned: a node:* import, a require() or an import that does not resolve inside
@@ -79,6 +80,8 @@ async function main() {
   await copy(path.join(DIST, "net"), ["address.js", "canonical.js", "locate.js", "fetch-types.js"], path.join(OUT, "net"));
   // the drift decisions the CLI watch and the Desk share (pure: no node:* import)
   await copy(path.join(DIST, "watch"), ["anchors.js", "decide.js", "observe.js", "outline.js", "published.js"], path.join(OUT, "watch"));
+  // the load-path check of a peer (pure, fetcher-injected): the Desk's partner check runs it
+  await copy(path.join(DIST, "browser"), await jsFiles(path.join(DIST, "browser")), path.join(OUT, "browser"));
   const { errors, warnings, count } = await scan();
   for (const w of warnings) console.log(`WARNING: ${w}`);
   for (const e of errors) console.log(`ERROR: ${e}`);

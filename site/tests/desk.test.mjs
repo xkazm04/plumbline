@@ -2359,10 +2359,16 @@ test("p-6b5393: the partner check says in words who answered and who could not b
     document.getElementById("partners-check").dispatch("click");
     assert.ok(JSON.stringify(StubDocument.describe(document.getElementById("partners-result"))).includes(STRINGS.partners.checking));
     await settle();
-    assert.deepEqual(App.page.partners.results, [
-      { name: PARTNERS[0].name, reachable: true },
-      { name: PARTNERS[1].name, reachable: false },
-    ]);
+    assert.deepEqual(
+      App.page.partners.results.map((r) => [r.name, r.reachable]),
+      [
+        [PARTNERS[0].name, true],
+        [PARTNERS[1].name, false],
+      ],
+    );
+    // D3: a reachable partner also gets the load-path check; its signature could not be read here, so unverifiable
+    assert.equal(App.page.partners.results[0].verdict, "unverifiable");
+    assert.equal(App.page.partners.results[1].verdict, undefined, "an unreachable partner is not checked further");
     const shown = JSON.stringify(StubDocument.describe(document.getElementById("partners-result")));
     assert.ok(shown.includes(STRINGS.partners.reachable.replace("{name}", PARTNERS[0].name)), shown);
     assert.ok(shown.includes(STRINGS.partners.unreachable.replace("{name}", PARTNERS[1].name)), shown);
@@ -2371,6 +2377,45 @@ test("p-6b5393: the partner check says in words who answered and who could not b
     const results = await App.page.checkPartners();
     assert.deepEqual(results.map((r) => r.reachable), [false, false]);
     assert.equal(document.getElementById("partners-status").textContent, "");
+  } finally {
+    App.page.partners = null;
+    App.page.render("partners");
+    restore();
+  }
+});
+
+test("D3: the partner check runs the load-path check: an unsigned partner reads unverifiable in words, a changed one differs from the Desk's lock", async () => {
+  wireOnce();
+  const site = await atlasWeb();
+  const networkText = await fixture("atlas-site-network.json");
+  site.set(`${ATLAS}links.json`, "not found", 404);
+  site.set(`${ATLAS}plumbline-revocation.json`, "not found", 404);
+  site.set(new URL("agent-manifest.json", PARTNERS[1].page).href, "oops", 502);
+  const lockUrl = `${BASE}/plumbline.lock.json`;
+  const lockOf = async (text) =>
+    JSON.stringify({
+      version: 1,
+      runtime: { source: "nsdeploy", commit: "53a787c", files: {} },
+      grounding: { sources: [], builtAt: NOW.toISOString() },
+      peers: { [ATLAS_NET]: { sha256: await hashBytes(new TextEncoder().encode(text)), links: "absent", checkedAt: NOW.toISOString() } },
+    });
+  site.set(lockUrl, await lockOf(networkText));
+  App.page.configure({ fetch: site.fetch, ownLockUrl: lockUrl });
+  try {
+    const [atlas] = await App.page.checkPartners();
+    assert.deepEqual([atlas.verdict, atlas.lock, atlas.refuse], ["unverifiable", "matches", false]);
+    let shown = JSON.stringify(StubDocument.describe(document.getElementById("partners-result")));
+    assert.ok(shown.includes(STRINGS.partners.signatureUnverifiable.replace("{detail}", "")), shown);
+    assert.ok(shown.includes(STRINGS.partners.lock.matches), shown);
+    // the partner changes its network after the Desk's lock pinned it: the page says it differs, in words
+    site.set(lockUrl, await lockOf(`${networkText} `));
+    const [changed] = await App.page.checkPartners();
+    assert.deepEqual([changed.lock, changed.refuse], ["differs", true]);
+    shown = JSON.stringify(StubDocument.describe(document.getElementById("partners-result")));
+    assert.ok(shown.includes(STRINGS.partners.lock.differs), shown);
+    // no lock the Desk can read: the partner is simply not pinned
+    site.routes.delete(lockUrl);
+    assert.equal((await App.page.checkPartners())[0].lock, "not-locked");
   } finally {
     App.page.partners = null;
     App.page.render("partners");

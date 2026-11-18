@@ -9,7 +9,8 @@
 
 import { t, STRINGS } from "./strings.js";
 import { fetchableUrl, makeBrowserFetcher } from "./fetcher.js";
-import { publishedUrl, readDrift, siteBase } from "./drift.js";
+import { lockProblem, publishedUrl, readDrift, siteBase } from "./drift.js";
+import { checkPeerBeforeLoad } from "./lib/plumbline/browser/preload.js";
 import { openReviewDialog } from "./review-dialog.js";
 import { runGateWith, ALL_ADAPTERS } from "./lib/plumbline/gate/run.js";
 import { DEFAULT_TIMEOUT_MS } from "./lib/plumbline/net/fetch-types.js";
@@ -429,6 +430,8 @@ export class DeskPage {
     this.fetch = deps.fetch || makeBrowserFetcher();
     this.now = deps.now || (() => new Date());
     this.ownOrigin = deps.ownOrigin || (typeof location !== "undefined" && location.origin ? location.origin : null);
+    // This Desk's own lock, beside this module: the pins the partner check compares with (as site.js's consent check).
+    this.ownLockUrl = deps.ownLockUrl || new URL(LOCK_FILE, new URL("./", import.meta.url)).href;
     // Origins the visitor typed or picked in the page's own address fields this session (D1).
     this.visitorOrigins = new Set();
     this.trust = new TrustBook(deps.storage === undefined ? defaultStorage() : deps.storage);
@@ -459,6 +462,7 @@ export class DeskPage {
   configure(deps = {}) {
     if (deps.fetch) this.fetch = deps.fetch;
     if (deps.ownOrigin) this.ownOrigin = deps.ownOrigin;
+    if (deps.ownLockUrl) this.ownLockUrl = deps.ownLockUrl;
     if (deps.now) this.now = deps.now;
     if (deps.storage !== undefined) this.trust = new TrustBook(deps.storage);
     if (deps.framed !== undefined) this.framed = deps.framed;
@@ -1285,9 +1289,27 @@ export class DeskPage {
 
   // ---- partners (page only) ----
 
+  /** This Desk's own published lock, parsed and held to the lock's shape, or undefined when it cannot be read. */
+  async #ownLock() {
+    try {
+      const response = await this.fetch(this.ownLockUrl);
+      if (!response.ok) return undefined;
+      const parsed = JSON.parse(response.text());
+      return lockProblem(parsed) === null ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   async checkPartners() {
     this.partners = { checking: true, results: [] };
     this.render("partners");
+    // D3: before a partner's network would run, what a load-path check says of it (lib/plumbline/browser/preload.js,
+    // src/browser/preload.ts): its signature against the visitor's trust list, and whether it matches this Desk's own
+    // lock. The consent card is the runtime's and is not touched; the result is shown here, beside the partner list. An
+    // unsigned partner reads unverifiable, in words, and is not blocked by this check (the consent-time pin check in
+    // site.js still declines a partner whose definition differs from the lock).
+    const lock = await this.#ownLock();
     const results = [];
     for (const p of PARTNERS) {
       let reachable = false;
@@ -1297,7 +1319,21 @@ export class DeskPage {
       } catch {
         reachable = false;
       }
-      results.push({ name: p.name, reachable });
+      if (!reachable) {
+        results.push({ name: p.name, reachable });
+        continue;
+      }
+      const check = await checkPeerBeforeLoad(p.network, { trust: this.trust.entries, fetcher: this.fetch, now: this.now(), ...(lock ? { lock } : {}) });
+      const s = check.signature;
+      results.push({
+        name: p.name,
+        reachable,
+        verdict: s.verdict,
+        ...(s.reason ? { reason: s.reason } : {}),
+        ...(s.detail ? { detail: s.detail } : {}),
+        lock: check.lock,
+        refuse: check.refuse,
+      });
     }
     this.partners = { checking: false, results };
     this.render("partners");
@@ -1712,8 +1748,14 @@ function renderPartners(page) {
   }
   const list = el("ul", null, "partner-status");
   for (const r of p.results) {
-    // Reachable is not a verdict, so it gets no check mark; unreachable is said in words.
-    list.append(el("li", r.reachable ? t("partners.reachable", { name: r.name }) : t("partners.unreachable", { name: r.name }), r.reachable ? "reachable" : "unreachable"));
+    // Reachable is not a verdict, so it gets no check mark; unreachable is said in words. Then the load-path check (D3):
+    // the signature verdict in words (unverifiable is not a failure) and what this Desk's lock says of the partner.
+    const words = [r.reachable ? t("partners.reachable", { name: r.name }) : t("partners.unreachable", { name: r.name })];
+    if (r.verdict === "verified") words.push(t("partners.signatureVerified"));
+    else if (r.verdict === "invalid") words.push(t("partners.signatureInvalid", { reason: t(`verify.reasons.${r.reason}`) }));
+    else if (r.verdict === "unverifiable") words.push(t("partners.signatureUnverifiable", { detail: r.detail || "" }));
+    if (r.lock) words.push(t(`partners.lock.${r.lock}`));
+    list.append(el("li", words.join(" "), r.reachable ? "reachable" : "unreachable"));
   }
   out.replaceChildren(list);
 }

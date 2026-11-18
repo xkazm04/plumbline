@@ -219,6 +219,7 @@
       "category": "ui",
       "description": "The Desk page: gate, drift, verify, key generation and signing, each from a page button and as a site action for the agent; strings, styles, the build of the browser modules, its tests and submission text.",
       "file_paths": [
+        "docs/proposals/runtime-preload-hook.md",
         "scripts/build-site.mjs",
         "site/.assetsignore",
         "site/PORT.md",
@@ -250,6 +251,8 @@
         "site/tests/stub_document.mjs",
         "site/tests/stub_element.mjs",
         "site/tests/stub_option.mjs",
+        "src/browser/preload.ts",
+        "src/test/preload.test.ts",
         "wrangler.jsonc"
       ],
       "entry_points": [

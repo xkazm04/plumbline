@@ -259,7 +259,16 @@ partner's network file and `links.json` and compares their SHA-256 with the pins
 "Declined by the Desk". Limits of that check, from the runtime's hook: it receives a host, not the network address, so it
 checks every pinned network on that host; a host the lock pins nothing on (Agent Customs' own peer, an MCP service) gets
 the card only; and the runtime fetches the partner again itself after the check, so a partner that serves different
-bytes to that second request is not caught here. Only a runtime change that hashes what it runs could close that. The assistant is told to
+bytes to that second request is not caught here. Only a runtime change that hashes what it runs could close that
+(`docs/proposals/runtime-preload-hook.md` proposes one).
+
+**The partner check on the page** (the peer ports' "Check the partners now") also runs the load-path check a runtime hook
+would run, `checkPeerBeforeLoad` (`src/browser/preload.ts`, copied to `lib/plumbline/browser/`): each reachable partner's
+signature against the visitor's trust list, in words (`verified`, `invalid` with its reason, or `unverifiable`, which is
+not a failure: neither partner signs today), and whether its network still matches the pin in this Desk's own
+`plumbline.lock.json` (`matches`, `differs`, `unread`, or not pinned). It is shown beside the partner list, not on the
+consent card, because the card is drawn by the vendored runtime, which the Desk does not edit. The check blocks nothing
+itself; the consent-time pin check above still declines a partner whose network differs. The assistant is told to
 ask only what the partner can answer (what it offers) and never to include names, emails, phone numbers or codes; the
 runtime does not filter the request, so check it on the card. A partner's network runs in this browser on the visitor's
 key, with none of its own site tools, so it cannot run its own checks from here, and a call costs more than the card's
