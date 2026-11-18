@@ -1310,10 +1310,14 @@ test("D3: drift verifies the signature first; a lock no verified signature cover
   App.page.noteVisitorTarget(`${SITE}/`);
   const shown = () => JSON.stringify(StubDocument.describe(document.getElementById("drift-result")));
   try {
-    // Signed, but by a key this browser does not trust: unsigned as far as the visitor can tell.
+    // Signed, but by a key this browser does not trust: "signed by a key you have not trusted", never "unsigned" (UAT-7)
     const stranger = await callTool("read_drift", { target: `${SITE}/` });
-    assert.deepEqual([stranger.lockFound, stranger.findings, stranger.lockSigned, stranger.lock], [true, [], false, STRINGS.drift.unsignedLock]);
-    assert.ok(shown().includes(STRINGS.drift.unsignedLock) && shown().includes(STRINGS.drift.cleanUnsigned));
+    assert.deepEqual([stranger.lockFound, stranger.findings, stranger.lockSigned, stranger.lock], [true, [], false, STRINGS.drift.untrustedLock]);
+    assert.ok(shown().includes(STRINGS.drift.untrustedLock) && shown().includes(STRINGS.drift.cleanUntrusted));
+    assert.ok(!shown().includes(STRINGS.drift.unsignedLock), "a signed lock is never called unsigned");
+    assert.equal(stranger.lockCover, "untrusted");
+    assert.equal(desk.doneSentence("drift", stranger), "Drift read: nothing differs from the lock. Lock signed by a key you have not trusted.");
+    assert.equal(desk.doneSentence("drift", { lockState: "found", lockFound: true, lockSigned: false, lockCover: "untrusted", findings: [] }), "Drift read: nothing differs from the lock. Lock signed by a key you have not trusted.");
     assert.ok(!shown().includes(STRINGS.drift.clean), "an unsigned lock's clean reading said plain No drift");
     // Trusted: the lock is covered by a verified signature.
     App.page.trust.add({ kid: signer.key.kid, origin: SITE, publicKey: signer.key.publicKey });
@@ -1321,14 +1325,15 @@ test("D3: drift verifies the signature first; a lock no verified signature cover
     assert.deepEqual([trusted.lockSigned, trusted.lock, trusted.findings], [true, STRINGS.drift.signedLock, []]);
     assert.ok(shown().includes(STRINGS.drift.clean));
     assert.deepEqual(App.page.getState().trustedPublishers, [{ kid: signer.key.kid, origin: SITE }], "drift changed the trust store");
-    // A lock rewritten by the host: the signature no longer verifies, so the drift is labelled unsigned.
+    // A lock rewritten by the host: the signature over it no longer holds, and the label says so.
     site.set(`${SITE}/plumbline.lock.json`, (await cleanLock()).replace('"peers":{}', '"peers": {}'));
     const rewritten = await callTool("read_drift", { target: `${SITE}/` });
     assert.equal(rewritten.lockSigned, false);
-    assert.equal(rewritten.lock, STRINGS.drift.unsignedLock);
-    // No signature at all: unsigned.
+    assert.equal(rewritten.lock, STRINGS.drift.invalidLock);
+    // No signature at all: unsigned, the only case that word is used for.
     site.set(`${SITE}/plumbline.signature.json`, "not found", 404);
-    assert.equal((await callTool("read_drift", { target: `${SITE}/` })).lockSigned, false);
+    const none = await callTool("read_drift", { target: `${SITE}/` });
+    assert.deepEqual([none.lockSigned, none.lock], [false, STRINGS.drift.unsignedLock]);
   } finally {
     restore();
   }

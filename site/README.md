@@ -80,7 +80,7 @@ of `npm run test:site`.
 | --- | --- | --- |
 | `get_desk_state` | read | the page state: partner links, last results, the files chosen for signing (paths and digests), the key id of a chosen key, trusted publishers. Never key material |
 | `run_gate` | read | `src/gate/run.ts` with the browser's `fetch`: the validator port, Agent Atlas, Agent Customs |
-| `read_drift` | read | verifies the target's signature first (the trust store as it is, nothing written), then `drift.js` reads the same `plumbline.lock.json` bytes and re-checks runtime files, grounding sources and peers. A lock no verified signature covers is labelled "unsigned lock: the host can rewrite it" |
+| `read_drift` | read | verifies the target's signature first (the trust store as it is, nothing written), then `drift.js` reads the same `plumbline.lock.json` bytes and re-checks runtime files, grounding sources and peers. A lock no signature covers is labelled "unsigned lock: the host can rewrite it"; one the site's signature covers reads "Signed lock, by a key you have not trusted" while that signature is unverifiable here, and "The signature over this lock does not hold" when it is invalid |
 | `verify_site` | read | core's `verifySignature` against the visitor's trust store (localStorage, this origin only), over the exact bytes of every file core's `signedPathsOf` names: the manifest, its networks at their `hocon` paths, its action module, bridge and coded-tools bundle, and `links.json` and the lock whenever the site serves them |
 | `generate_key` | write (undo: Discard) | core's `generateKey`; offers `plumbline.private.json` (the CLI's format) and `.well-known/plumbline-key.json` as downloads; returns the key id only. A second after the visitor uses the private key's download link, the page revokes its object URL, drops the Blob and shows a sentence in its place, so the key stays in page memory only as long as its download needs. Refused while a key made earlier has not been downloaded, so the assistant never throws one away |
 | `sign_files` | irreversible (asks first) | core's `signSubjects` over the exact bytes of the files the visitor picked on the page, with the key file they picked there; offers `plumbline.signature.json` as a download |
@@ -148,7 +148,10 @@ the key. The page's own Sign button opens the same dialog.
 - Drift says "no lock" only when the site answers 404 or 410. A lock the browser is refused (no CORS header, offline)
   reads "Could not read this site's plumbline.lock.json (the browser was refused)", which is not the same thing.
 - A lock is only as good as its signature. Unless a signature that verifies under a publisher you trust covers it,
-  every drift reading says "unsigned lock: the host can rewrite it", and a clean one never reads as plain "No drift".
+  every drift reading labels it, and a clean one never reads as plain "No drift": "unsigned lock: the host can rewrite
+  it" when no signature covers it, "Signed lock, by a key you have not trusted" when the site's signature covers it but
+  you have not trusted its key (never "unsigned": UAT-7), and "The signature over this lock does not hold" when it is
+  invalid.
 - The gate's `customs` adapter verifies Agent Customs' receipts in the browser with WebCrypto, as it does in Node.
   `npm run build:site` fails if any module copied into `lib/plumbline/` uses Node's `Buffer`.
 - Verify passes `links.json` and the lock to core whenever the site answers 2xx for them and leaves them out on 404 or

@@ -581,7 +581,11 @@ export class DeskPage {
     const lockSigned = check.result !== undefined && check.result.verdict === "verified" && check.subjects.includes(LOCK_FILE);
     const result = await readDrift(target, this.fetch, { timeoutMs: DEFAULT_TIMEOUT_MS, base, lockFetch: check.lockFetch });
     result.lockSigned = lockSigned;
-    result.lockLabel = lockSigned ? t("drift.signedLock") : t("drift.unsignedLock");
+    // UAT-7 (MAR-L1-10, TOM-L2-04, REC-4): "unsigned" is said only of a lock no signature covers. A lock the site's
+    // signature covers reads "signed by a key you have not trusted" while that signature is unverifiable here, and
+    // "its signature does not hold" when it is invalid; only a verified one is "Signed lock".
+    result.lockCover = lockCoverOf(check);
+    result.lockLabel = t(`drift.${result.lockCover}Lock`);
     if (run === this.runs.drift) {
       this.drift = result;
       this.render("drift");
@@ -592,6 +596,7 @@ export class DeskPage {
       lockFound: result.lockFound,
       lockState: result.lockState,
       lockSigned,
+      lockCover: result.lockCover,
       lock: result.lockLabel,
       findings: result.findings.map(safeFinding),
       unreachablePeers: result.unreachablePeers.map(safeRef),
@@ -1435,7 +1440,7 @@ function renderDrift(page) {
   // D3: a lock not covered by a signature verified under a publisher you trust is labelled, and a clean reading of one
   // never reads as plain "No drift".
   if (d.lockFound) nodes.push(el("p", d.lockLabel || t("drift.unsignedLock"), d.lockSigned ? "note" : "notice lock-unsigned"));
-  if (d.lockFound && d.findings.length === 0) nodes.push(el("p", d.lockSigned ? t("drift.clean") : t("drift.cleanUnsigned"), "notice"));
+  if (d.lockFound && d.findings.length === 0) nodes.push(el("p", d.lockSigned ? t("drift.clean") : t(`drift.clean${capital(d.lockCover || "unsigned")}`), "notice"));
   for (const kind of ["grounding", "runtime", "peer"]) {
     const group = d.findings.filter((f) => f.kind === kind);
     if (!group.length) continue;
@@ -1808,6 +1813,26 @@ async function handle(statusId, runningText, work, done) {
   }
 }
 
+/** "untrusted" -> "Untrusted": the strings key of a lock's cover in a sentence. */
+function capital(word) {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+/**
+ * What covers a published lock, from the signature check drift ran first: "signed" (a verified signature lists it),
+ * "untrusted" (a signature lists it and is unverifiable here: a key the visitor has not trusted, or a check that could
+ * not finish), "invalid" (a signature lists it and does not hold) or "unsigned" (no signature, or one that does not
+ * list the lock).
+ */
+export function lockCoverOf(check) {
+  const listed = Array.isArray(check.subjects) && check.subjects.includes(LOCK_FILE);
+  if (!check.signed || check.result === undefined) return "unsigned";
+  // an invalid signature is invalid whatever it lists (a lock it should cover and does not is itself `tampered`)
+  if (check.result.verdict === "invalid") return "invalid";
+  if (!listed) return "unsigned";
+  return check.result.verdict === "verified" ? "signed" : "untrusted";
+}
+
 /**
  * The sentence the status line says when a check, a drift reading or a verify ends, so a screen reader hears the
  * verdict, not silence. Only the page's own words and verdicts: nothing a site wrote.
@@ -1821,7 +1846,7 @@ export function doneSentence(kind, result) {
     if (result.lockState === "absent") return t("drift.doneNoLock");
     if (result.lockState === "refused") return t("drift.doneRefused");
     if (!result.lockFound) return t("drift.doneNotRead");
-    const lock = result.lockSigned ? t("drift.doneSigned") : t("drift.doneUnsigned");
+    const lock = result.lockSigned ? t("drift.doneSigned") : t(`drift.done${capital(result.lockCover || "unsigned")}`);
     if (!result.findings.length) return t("drift.doneClean", { lock });
     const worst = result.findings.reduce((w, f) => (SEVERITY_ORDER[f.severity] > SEVERITY_ORDER[w] ? f.severity : w), "info");
     const words = { n: result.findings.length, worst: t(`drift.severity.${worst}`), lock };
