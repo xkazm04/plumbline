@@ -130,6 +130,19 @@ may run in parallel, because it adds no claim.
 - Size: M.
 - Must not break: guardrails 3 and 6; the watch still needs no trust store (comparing the signature's subject hashes
   with the current files needs none).
+- State: fixed (commits bc0064b, 6468e3d, pin aa10ad6), awaiting recertify. Causes confirmed. Design: the relock does
+  not refuse; it keeps the earlier record of a page that dropped a fact the network still states (no other locked page
+  stating it), so the stale-fact finding survives the accept. Live, larch-house arm W through `run-action.mjs --harness
+  --relock-pr true`: after `raise-price`, draft PR #2's body opens with "What this relock does not accept, or keeps as
+  it was": "warn grounding rooms.html: Not accepted: the network still states 1 fact this page no longer states (1
+  price), and no other locked page states it, so the agent may answer with an old fact. ..." (rooms.html is not in its
+  change list and not under "The findings this accepts"); a person merged it unsigned; the next run (r2) kept issue #1
+  open with a comment led by "**A new `block` finding.**": "block grounding plumbline.signature.json: The site's
+  signature no longer covers its files: 1 of 3 signed files differs from the signed version or is missing
+  (plumbline.lock.json), so verifiers now answer invalid (tampered) ..." beside the still-reported rooms.html stale
+  fact; no close. Ceiling: the coverage check is the checkout watch's only (`watch --url` and the Desk use `verify`); an
+  unsigned site has no signature to break, so there only the kept stale fact keeps the issue open; a publisher who
+  really means the network to keep a fact no page states must `--drop` the page (there is no per-fact accept).
 
 ### UAT-3. A relock never forgets what it could not re-read
 
