@@ -61,6 +61,28 @@ const MAX_DAYS = 3650;
 const RELEASE_AFTER_MS = 1000;
 const DAY_MS = 86_400_000;
 
+/**
+ * The most partners of one site a page check reads (UAT-26). Derivation: each check reads about eight files of the
+ * partner plus the files its signature lists; the largest lock in the UAT worlds pins four sellers and a card, the
+ * Desk's own two; 24 is several times a real marketplace page's partners and keeps one check to a few hundred reads
+ * of the page's fetcher. The page says when it checked only the first ones.
+ */
+const MAX_SITE_PEERS = 24;
+
+/** Which part of a partner a lock finding is about, by its code (UAT-17): its definition, its links.json or its signer. */
+function partOf(finding) {
+  const code = String(finding.code || "");
+  if (code === "peer-changed") return "definition";
+  if (code.startsWith("peer-links-")) return "links";
+  if (code.startsWith("signer-")) return "signer";
+  return "other";
+}
+
+/** A stranger's string made safe for a line of text: control and bidi-override characters become `?`. */
+function printable(text) {
+  return String(text).replace(/[\u0000-\u001f\u007f-\u009f\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "?");
+}
+
 export const PARTNERS = [
   { name: STRINGS.partners.atlasName, page: STRINGS.partners.atlasLink, network: "https://agent-atlas-phi.vercel.app/agent_atlas" },
   { name: STRINGS.partners.customsName, page: STRINGS.partners.customsLink, network: "https://montbaga.github.io/agent-customs/agent_customs" },
@@ -445,6 +467,7 @@ export class DeskPage {
     this.key = null;
     this.signature = null;
     this.partners = null;
+    this.sitePeers = null;
     this.signing = { version: 0, busy: false, origin: "", days: 90, keyFile: null, siteFiles: [], subjects: [], ignored: [], problem: null };
     this.notices = {};
     // In another site's frame, nothing that adds trust or makes or uses a key runs (isFramed).
@@ -454,7 +477,7 @@ export class DeskPage {
     this.ed25519 = null;
     this.ed25519Probe = null;
     // Each read tool's run number: a slower answer to an earlier question never replaces the newer one on the page.
-    this.runs = { gate: 0, drift: 0, verify: 0 };
+    this.runs = { gate: 0, drift: 0, verify: 0, sitePeers: 0 };
     this.trustImport = null;
     this.trustExport = null;
     this.revocation = null;
@@ -1376,6 +1399,67 @@ export class DeskPage {
     return results;
   }
 
+  // ---- a site's own partners (page only), UAT-26 ----
+
+  /**
+   * UAT-26 (TOM-L1-12): another site's own partners, checked before they load. The lock the site publishes names its
+   * peers; each pinned one gets the load-path check (checkPeerBeforeLoad: its signature against the visitor's trust list,
+   * its network against that lock's pin), and what differs from the pin is said by part (network definition, links.json,
+   * signer) from the check's lockFindings, in Plumbline's own sentences. A pending peer was never pinned and is counted,
+   * not fetched. Reads only; nothing is trusted or written.
+   */
+  async checkSitePeers(args) {
+    const target = checkTarget(args && args.target);
+    if (target === null) return refuse(t("sitePeers.badTarget"), "target");
+    const run = ++this.runs.sitePeers;
+    this.sitePeers = { checking: true };
+    this.render("sitePeers");
+    const base = await siteBase(target, this.fetch);
+    let lock;
+    let lockState = "found";
+    try {
+      const response = await this.fetch(`${base}${LOCK_FILE}`);
+      if (response.status === 404 || response.status === 410) lockState = "absent";
+      else if (!response.ok) lockState = "unreadable";
+      else {
+        try {
+          const parsed = JSON.parse(response.text());
+          if (lockProblem(parsed) === null) lock = parsed;
+          else lockState = "unusable";
+        } catch {
+          lockState = "unusable";
+        }
+      }
+    } catch (error) {
+      lockState = error && error.name === "SafeFetchError" && error.code === "network" ? "refused" : "unreadable";
+    }
+    const result = { target, lockState, results: [], pending: 0, count: 0 };
+    if (lock !== undefined) {
+      const peers = Object.keys(lock.peers).sort();
+      result.count = peers.length;
+      result.pending = Object.keys(lock.pendingPeers || {}).length;
+      for (const peer of peers.slice(0, MAX_SITE_PEERS)) {
+        const check = await checkPeerBeforeLoad(peer, { trust: this.trust.entries, fetcher: this.fetch, now: this.now(), lock });
+        const s = check.signature;
+        result.results.push({
+          peer: printable(peer),
+          verdict: s.verdict,
+          ...(s.reason ? { reason: s.reason } : {}),
+          ...(s.detail ? { detail: s.detail } : {}),
+          lock: check.lock,
+          refuse: check.refuse,
+          ...(check.refused ? { refused: check.refused } : {}),
+          differs: (check.lockFindings || []).filter((f) => f.severity !== "info" || check.lock === "differs").map((f) => ({ part: partOf(f), severity: f.severity, code: f.code, summary: f.summary })),
+        });
+      }
+    }
+    if (run === this.runs.sitePeers) {
+      this.sitePeers = result;
+      this.render("sitePeers");
+    }
+    return { ok: true, ...result };
+  }
+
   // ---- rendering ----
 
   render(part) {
@@ -1778,6 +1862,48 @@ function renderRevoke(page) {
   out.replaceChildren(made, downloadLink(r.offer, t("revoke.download")), el("p", t("revoke.next"), "note"));
 }
 
+function renderSitePeers(page) {
+  const out = byId("site-peers-result");
+  const p = page.sitePeers;
+  if (!p) {
+    out.replaceChildren();
+    return;
+  }
+  if (p.checking) {
+    out.replaceChildren(el("p", t("sitePeers.checking"), "status"));
+    return;
+  }
+  if (p.lockState !== "found") {
+    out.replaceChildren(el("p", t(`sitePeers.noLock.${p.lockState}`), "notice"));
+    return;
+  }
+  const parts = [];
+  if (p.count === 0) parts.push(el("p", t("sitePeers.none"), "note"));
+  const list = el("ul", null, "partner-status");
+  for (const r of p.results) {
+    const item = el("li", null, r.refuse ? "unreachable" : "reachable");
+    item.append(el("code", r.peer));
+    const words = [];
+    if (r.refused) words.push(t("sitePeers.notContacted", { why: r.refused }));
+    else if (r.verdict === "verified") words.push(t("partners.signatureVerified"));
+    else if (r.verdict === "invalid") words.push(t("partners.signatureInvalid", { reason: t(`verify.reasons.${r.reason}`) }));
+    else if (r.verdict === "unverifiable") words.push(t("partners.signatureUnverifiable", { detail: r.detail || "" }));
+    if (!r.refused && t(`sitePeers.lock.${r.lock}`) !== `sitePeers.lock.${r.lock}`) words.push(t(`sitePeers.lock.${r.lock}`));
+    item.append(el("span", ` ${words.join(" ")}`));
+    if (r.differs.length > 0) {
+      const sub = el("ul", null, "partner-differs");
+      for (const d of r.differs) sub.append(el("li", `${t(`sitePeers.part.${d.part}`)}: ${d.summary}`, d.severity));
+      item.append(sub);
+    }
+    if (r.refuse) item.append(el("p", t("sitePeers.refuse"), "note"));
+    list.append(item);
+  }
+  parts.push(list);
+  if (p.count > p.results.length) parts.push(el("p", t("sitePeers.capped", { max: p.results.length, count: p.count }), "note"));
+  if (p.pending > 0) parts.push(el("p", t("sitePeers.pending", { count: p.pending }), "note"));
+  out.replaceChildren(...parts);
+}
+
 function renderPartners(page) {
   const out = byId("partners-result");
   const p = page.partners;
@@ -1812,6 +1938,7 @@ const VIEWS = {
   sign: renderSign,
   revoke: renderRevoke,
   partners: renderPartners,
+  sitePeers: renderSitePeers,
 };
 
 /** The one page object. site-actions.js and site.js import it by this module's URL. */
@@ -1880,6 +2007,10 @@ export function lockCoverOf(check) {
  */
 export function doneSentence(kind, result) {
   if (kind === "gate") return t("gate.done", { state: t(`states.${result.state}`) });
+  if (kind === "sitePeers") {
+    if (result.lockState !== "found") return t(`sitePeers.noLock.${result.lockState}`);
+    return result.results.length === 1 ? t("sitePeers.doneOne") : t("sitePeers.done", { n: result.results.length });
+  }
   if (kind === "drift") {
     if (result.lockState === "absent") return t("drift.doneNoLock");
     if (result.lockState === "refused") return t("drift.doneRefused");
@@ -1978,6 +2109,7 @@ export function wirePage() {
   byId("trust-export").addEventListener("click", () => void handle("trust-io-status", "", () => page.exportTrust()));
   byId("trust-import").addEventListener("change", (event) => void handle("trust-io-status", "", () => page.chooseTrustImport(event.target.files && event.target.files[0])));
   byId("partners-check").addEventListener("click", () => void handle("partners-status", "", () => page.checkPartners()));
+  wireForm("site-peers-form", "site-peers-target", "site-peers-run", "site-peers-status", "sitePeers.checking", "checkSitePeers", "sitePeers");
 }
 
 if (typeof window !== "undefined" && typeof document !== "undefined" && typeof document.querySelectorAll === "function" && !globalThis.__deskNoWire) {

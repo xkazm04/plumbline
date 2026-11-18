@@ -689,6 +689,15 @@ The IPv4 ranges are not a second list: `peerAddressProblem` and `destinationProb
 `src/net/address.ts`, the table `safeFetch` enforces (the page's fetcher allows `http` to `localhost`, so a lock could
 otherwise aim the visitor's browser at their own machine).
 
+**A site's own partners, before they load** (UAT-26). Below the drift reading, the Desk takes a site's address, reads
+the lock it publishes and runs the load-path check (`checkPeerBeforeLoad`, `src/browser/preload.ts`) over every peer
+that lock pins, at most 24 (`MAX_SITE_PEERS`, its derivation beside it in `site/desk.js`): each peer's signature against
+the visitor's trust list (verified, invalid with its reason, unverifiable), and its network against that lock's pin.
+What differs is said by part from the check's `lockFindings`, in Plumbline's own sentences ("network definition: A
+peer's network definition changed ...", "links.json: ...", "signer: ..."), and a peer a runtime that enforces the check
+would not load says so. A pending peer was never pinned and is counted, not fetched; a peer address the address rule
+refuses is "not contacted", in its words. It reads only: nothing is trusted or written.
+
 ## `safeFetch` (`src/net/safe-fetch.ts`)
 
 Every fetch of an address we do not own goes through this one function. Its rules:

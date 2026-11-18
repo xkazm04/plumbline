@@ -148,6 +148,16 @@
             <p class="note" data-s="drift.lead"></p>
             <h3 class="panel-h" data-s="drift.resultHeading"></h3>
             <div id="drift-result" class="result"></div>
+            <!-- UAT-26: a site's own partners, before they load (lib/plumbline/browser/preload.js) -->
+            <h3 class="panel-h" data-s="sitePeers.heading"></h3>
+            <p class="note" data-s="sitePeers.lead"></p>
+            <form id="site-peers-form" class="field">
+              <label for="site-peers-target" data-s="sitePeers.label"></label>
+              <input id="site-peers-target" name="target" type="url" required autocomplete="url" spellcheck="false" data-placeholder="sitePeers.placeholder">
+              <div class="btnrow"><button id="site-peers-run" class="btn" type="submit" data-s="sitePeers.button"></button></div>
+            </form>
+            <p id="site-peers-status" class="msg" role="status" aria-live="polite"></p>
+            <div id="site-peers-result" class="result"></div>
           </div>
         </div>
       </section>

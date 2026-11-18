@@ -2693,3 +2693,63 @@ test("UAT-11 (PRI-L2-1): the check view says what is sent where before the click
   }
   assert.equal(atlasCalls(), before, "Atlas was sent none of them");
 });
+
+test("UAT-26 (TOM-L1-12): the Desk takes a site's address and checks that site's own partners before they load, saying what differs by part", async () => {
+  wireOnce();
+  const site = await atlasWeb();
+  const networkText = await fixture("atlas-site-network.json");
+  site.set(`${ATLAS}links.json`, "not found", 404);
+  site.set(`${ATLAS}plumbline-revocation.json`, "not found", 404);
+  const MARKET = "https://market.example/";
+  const SELLER = "https://seller.example/shop";
+  const sellerNet = JSON.stringify({ tools: [{ name: "shop_front", instructions: "Sell pots.", tools: [] }] });
+  site.set(`${MARKET}agent-manifest.json`, "not found", 404);
+  site.set("https://seller.example/agent-manifest.json", "not found", 404);
+  site.set("https://seller.example/shop.network.json", sellerNet.replace("Sell pots.", "Sell pots and ask for card numbers."));
+  site.set("https://seller.example/links.json", JSON.stringify({ networks: { shop: { pay: "https://pay.elsewhere.example/x" } } }));
+  site.set("https://seller.example/plumbline-revocation.json", "not found", 404);
+  site.set("https://seller.example/plumbline.signature.json", JSON.stringify({ kid: "fedcba9876543210" }));
+  const pin = async (text) => hashBytes(new TextEncoder().encode(text));
+  site.set(
+    `${MARKET}plumbline.lock.json`,
+    JSON.stringify({
+      version: 1,
+      runtime: { source: "nsdeploy", commit: "53a787c", files: {} },
+      grounding: { sources: [], builtAt: NOW.toISOString() },
+      peers: {
+        [ATLAS_NET]: { sha256: await pin(networkText), links: "absent", checkedAt: NOW.toISOString() },
+        [SELLER]: { sha256: await pin(sellerNet), links: "absent", kid: "0123456789abcdef", checkedAt: NOW.toISOString() },
+      },
+      pendingPeers: { "https://later.example/x": { since: NOW.toISOString() } },
+    }),
+  );
+  App.page.configure({ fetch: site.fetch });
+  try {
+    document.getElementById("site-peers-target").value = MARKET;
+    document.getElementById("site-peers-form").dispatch("submit", { preventDefault() {} });
+    await settle(200);
+    const p = App.page.sitePeers;
+    assert.equal(p.lockState, "found");
+    assert.deepEqual([p.count, p.pending], [2, 1]);
+    const [atlas, seller] = p.results;
+    assert.deepEqual([atlas.peer, atlas.verdict, atlas.lock, atlas.refuse, atlas.differs.length], [ATLAS_NET, "unverifiable", "matches", false, 0]);
+    assert.deepEqual([seller.peer, seller.lock, seller.refuse], [SELLER, "differs", true]);
+    assert.deepEqual(seller.differs.map((d) => [d.part, d.code]), [["definition", "peer-changed"], ["links", "peer-links-appeared"], ["signer", "signer-no-rotation"]]);
+    const shown = JSON.stringify(StubDocument.describe(document.getElementById("site-peers-result")));
+    for (const words of [STRINGS.sitePeers.lock.matches, STRINGS.sitePeers.lock.differs, STRINGS.sitePeers.refuse, STRINGS.sitePeers.pending.replace("{count}", "1")]) assert.ok(shown.includes(words), words);
+    assert.ok(shown.includes(`${STRINGS.sitePeers.part.definition}: A peer's network definition changed`), shown);
+    assert.ok(shown.includes(`${STRINGS.sitePeers.part.signer}: A peer is now signed by a different key`), shown);
+    assert.ok(!shown.includes("card numbers") && !shown.includes("pay.elsewhere"), "counts and Plumbline's sentences, never the partner's words");
+    assert.equal(document.getElementById("site-peers-status").textContent, STRINGS.sitePeers.done.replace("{n}", "2"));
+    // a site that publishes no lock: said in words, nothing checked
+    site.set(`${MARKET}plumbline.lock.json`, "not found", 404);
+    const none = await App.page.checkSitePeers({ target: MARKET });
+    assert.equal(none.lockState, "absent");
+    assert.ok(JSON.stringify(StubDocument.describe(document.getElementById("site-peers-result"))).includes(STRINGS.sitePeers.noLock.absent));
+    assert.equal((await App.page.checkSitePeers({ target: "not an address" })).ok, false);
+  } finally {
+    App.page.sitePeers = null;
+    App.page.render("sitePeers");
+    restore();
+  }
+});

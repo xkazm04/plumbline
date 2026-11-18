@@ -330,6 +330,41 @@ export const STRINGS = {
     },
   },
 
+  // UAT-26 (TOM-L1-12): another site's own partners, checked as they would be before they load
+  sitePeers: {
+    heading: "A site's own partners",
+    lead: "Give a site's address: each partner its published lock pins is checked as it would be before it loads, its signature against your trust list and its network against that lock's pin.",
+    label: "Site address",
+    placeholder: "https://site.example/",
+    button: "Check its partners",
+    checking: "Checking its partners…",
+    badTarget: "Give a full https address, such as https://site.example/.",
+    noLock: {
+      absent: "This site publishes no plumbline.lock.json, so it pins no partner to check.",
+      refused: "The browser was refused this site's plumbline.lock.json, so its partners could not be read.",
+      unreadable: "This site's plumbline.lock.json could not be read, so its partners could not be read.",
+      unusable: "This site's plumbline.lock.json is not a Plumbline lock, so its partners could not be read.",
+    },
+    none: "Its lock pins no partner.",
+    pending: "Its lock holds {count} more as pending: never pinned, so not checked.",
+    capped: "Only the first {max} of the {count} partners its lock pins were checked.",
+    notContacted: "It was not contacted: {why}.",
+    lock: {
+      matches: "Its network matches the pin in that site's lock.",
+      differs: "It differs from the pin in that site's lock:",
+      unread: "Its network could not be compared with that site's lock.",
+    },
+    part: {
+      definition: "network definition",
+      links: "links.json",
+      signer: "signer",
+      other: "also",
+    },
+    refuse: "A runtime that enforces this check would not load it.",
+    done: "{n} partners checked.",
+    doneOne: "1 partner checked.",
+  },
+
   assistant: {
     heading: "Ask the Plumbline Desk",
     lead: "The assistant can run the gate, read drift, verify a signature, make a key and, after you confirm, sign the files you picked on the page. It never sees your private key.",
