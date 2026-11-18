@@ -30,7 +30,10 @@ Treat it as provenance and integrity, never as endorsement.
 publishes one it is one of the signed files (below). Its wire shape is `PlumblineLock` in `types.ts`; since 2026-11-18 a
 peer record may carry `outline` (`PeerOutline`: `agents`, `hosts`, `front`, every string a lowercase hex SHA-256, so no
 peer's names or hosts are written in clear), omitted when absent, never `null`. A reader older than this change ignores
-the member; a lock that carries a malformed one is `unusable`.
+the member; a lock that carries a malformed one is `unusable`. Likewise a grounding source may carry `anchors`
+(`GroundingSource.anchors`, since 2026-11-18): the sorted SHA-256 of each normalised literal (a price, a time, a date, a
+phone number, an e-mail address, a percentage) that the network's instructions and that page both state, so no literal
+is written in clear; omitted when there are none.
 
 ### `plumbline.signature.json`
 

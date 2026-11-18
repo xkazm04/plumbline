@@ -7,7 +7,8 @@
 //                    repository, folder and commit; omitted otherwise. The upstream check then asks that folder.
 //   grounding        what discover.ts names (the root's agent files and every manifest-named network file), plus
 //                    the extra sources (--source, and on --relock every ref the previous lock held), less the refs
-//                    --relock --drop names.
+//                    --relock --drop names. Each source that is not an agent file itself (a page given with --source)
+//                    gets `anchors`: the facts the networks' instructions state that it states too (anchors.ts).
 //   peers            every peer discover.ts names, fetched through safeFetch: the hash of its network definition, the
 //                    state of its links.json and its signer kid. A peer that cannot be captured goes into
 //                    `pendingPeers` with the time, and every watch reports it until a re-lock fills it in.
@@ -15,9 +16,10 @@
 // is never mistaken for a complete one.
 
 import { join } from "node:path";
-import { FORMAT_VERSION, type DriftFinding } from "../core/types.js";
+import { FORMAT_VERSION, LINKS_FILE, MANIFEST_FILE, type DriftFinding, type GroundingSource } from "../core/types.js";
+import { anchorsOf, networkLiterals } from "./anchors.js";
 import type { Lock, PendingPeer, RuntimeVia } from "./decide.js";
-import { hashLocal, hashRef, type DetectorEnv } from "./detectors.js";
+import { hashLocal, readRef, type DetectorEnv } from "./detectors.js";
 import { discover } from "./discover.js";
 import { listFiles, readUnderRoot, toPosix } from "./lock.js";
 import { observePeer } from "./observe.js";
@@ -100,13 +102,35 @@ export async function captureLock(
     });
   }
   const refs = [...new Set([...found.refs, ...(options.extraSources ?? [])])].filter((r) => !drop.has(r));
-  const sources: { ref: string; sha256: string }[] = [];
-  for (const ref of refs) {
+  // the facts the networks' instructions state (anchors.ts), to anchor on every page that states them too
+  const literals = new Set<string>();
+  for (const ref of found.networks) {
     try {
-      sources.push({ ref, sha256: await hashRef(env, ref) });
+      for (const l of networkLiterals(new TextDecoder("utf-8").decode(await readUnderRoot(root, ref)))) literals.add(l);
+    } catch {
+      // a network that cannot be read is the grounding check's finding; it states nothing to anchor
+    }
+  }
+  const agentFiles = new Set([...found.networks, MANIFEST_FILE, LINKS_FILE]);
+  const sources: GroundingSource[] = [];
+  for (const ref of refs) {
+    let read;
+    try {
+      read = await readRef(env, ref);
     } catch (error) {
       findings.push({ kind: "grounding", severity: "warn", ref, summary: `A grounding source could not be locked: it ${(error as Error).message}.` });
+      continue;
     }
+    if (agentFiles.has(ref) || literals.size === 0) {
+      sources.push({ ref, sha256: read.sha256 });
+      continue;
+    }
+    const anchored = await anchorsOf([...literals], read.bytes);
+    if ("problem" in anchored) {
+      findings.push({ kind: "grounding", severity: "info", ref, summary: `A grounding source could not be reduced to text (it ${anchored.problem}), so no fact the network states is anchored on it; its bytes are still locked.` });
+    }
+    const anchors = "anchors" in anchored ? anchored.anchors : [];
+    sources.push({ ref, sha256: read.sha256, ...(anchors.length > 0 ? { anchors } : {}) });
   }
   if (refs.length === 0) {
     findings.push({ kind: "grounding", severity: "info", ref: ".", summary: "No grounding sources were found at the root; pass --source to lock some." });

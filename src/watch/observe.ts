@@ -43,7 +43,7 @@ export async function observePublished(fetcher: Fetcher, url: string, options: O
   }
   if (response.status === 404 || response.status === 410) return { ok: false, missing: true, sentence: `is not published (HTTP ${response.status})` };
   if (!response.ok) return { ok: false, missing: false, sentence: `could not be fetched (HTTP ${response.status})` };
-  return { ok: true, sha256: await hashBytes(response.bytes) };
+  return { ok: true, sha256: await hashBytes(response.bytes), bytes: response.bytes };
 }
 
 /**

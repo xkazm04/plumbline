@@ -100,7 +100,7 @@ a lock the browser was refused), so a drift count is a count of drift.
 
 | Detector | What it re-checks | Finding and severity |
 | --- | --- | --- |
-| `grounding` | each `grounding.sources[].ref` (a path under the root, or an https URL through `safeFetch`), hashed again | changed: `warn`. Unreadable, missing or outside the root: `warn`, saying so |
+| `grounding` | each `grounding.sources[].ref` (a path under the root, or an https URL through `safeFetch`), hashed again | changed: `warn`. Unreadable, missing or outside the root: `warn`, saying so. A changed page with `anchors` is re-read and the summary counts them: "all N facts the network states from it are still on it" or "K of N facts the network states are no longer on it" (still `warn`; below) |
 | `runtime` (a) | each file in `runtime.files`, under the root | changed or missing: `block` (the vendored runtime is copy-do-not-change) |
 | `runtime` added | the locked runtime folder (the deepest folder holding every `runtime.files` key, such as `runtime` or `site/runtime`), listed | a file in it the lock does not hold: `block`, with its hash as `actual`, "added to the vendored runtime folder after the lock was written". Remove it, or review it and `--relock`. CLI only: a browser cannot list a folder |
 | `runtime` (b) | the runtime's upstream, from the GitHub API, unauthenticated (see "Which upstream the runtime check asks") | upstream moved on: `info` "Upstream is ahead" with both short SHAs. Cannot ask (timeout, rate limit, HTTP error, odd answer): `info` "Could not check upstream". Never `block` |
@@ -200,6 +200,41 @@ watch reported it as info, and the copy was refreshed to `7ee54a3` on 2026-11-18
 `..` is refused: it would climb the API's path), `path` a safe relative path, `commit` 7 to 40 hex characters; anything
 else makes the lock `unusable`, and `--init` does not record such a `via` from a NOTICE.
 
+### What a grounding page still states: anchors
+
+Hashing a page's bytes says that it changed, not whether the network now states something the page no longer does. An
+**anchor** turns that into a check, with no model. At `--init` and `--relock`, the watch takes the literals the
+networks' instructions state (every agent's `instructions`), found with fixed patterns (`src/watch/anchors.ts`):
+
+| Kind | Found | Normalised |
+| --- | --- | --- |
+| money | a currency symbol or code (`$ € £ ¥`, `USD EUR GBP JPY CHF CZK`, `Kč`) before or after a number | the currency code and the number: thousands separators removed, the decimal mark `.`, a zero fraction dropped (`€1.250,00` and `EUR 1250` are `eur 1250`) |
+| time | `H:MM` (24-hour, with or without am/pm) and `H am`/`H pm` | `HH:MM`, 24-hour |
+| date | ISO `YYYY-MM-DD`, `24 December 2026`, `Dec. 24, 2026`, `D.M.YYYY` or `M/D/YYYY` | ISO for the first three; numeric dates keep their order (the writer's), separators unified |
+| phone | an international number (`+` or `00`) or a grouped national one, 7 to 15 digits | the digits, with `+` for an international one |
+| e-mail | `name@host.tld` | lowercased |
+| percentage | a number with `%`, `percent` or `per cent` | the number with `%` |
+
+The text is lowercased and its whitespace collapsed first, and the kinds are taken in the order of the table's rows as
+the code lists them (e-mail, date, money, percentage, time, phone), each match masked before the next kind looks, so a
+date is not also a phone number and a price is not also a percentage. A literal that a grounding page also states (the
+page reduced to its text by a small tag stripper: script, style and template contents and comments dropped, every tag a
+space, the common entities decoded; no parser dependency) is an anchor, and the lock records SHA-256 of each one in
+`grounding.sources[].anchors`. The network and manifest files themselves are not anchored on themselves.
+
+When an anchored page changes, the watch reduces it again, takes its literals by the same patterns, and counts the
+anchors that are no longer among them: "changed; all N facts the network states from it are still on it" or "changed;
+K of N facts the network states are no longer on it, so the network may now state an old fact". The severity is `warn`
+either way, and no literal is quoted. A page that cannot be reduced (binary, not UTF-8, or larger than the 512 KiB fetch
+ceiling) says so ("its N facts the network states could not be checked: it ..."); at capture it is an `info` and the
+page's bytes are still locked. The Desk counts the same (`watch/published.js` calls the same module).
+
+What an anchor is **not**: it is the presence of the same literal in two texts, not truth. A page can state a price in
+a sentence that says it no longer applies; a fact written in words ("nine in the morning") or split by markup is not
+seen; and the count is against the facts the network stated when the lock was written (if the network changed too, its
+own grounding finding says so). A page becomes a grounding source with `--source <page>` at `init`, `--init` or
+`--relock`: that is what turns byte hashing into a check of the facts the network states.
+
 ### What changed in a peer: the outline
 
 A peer's changed bytes are changed code, so the finding is `block` whatever changed. The outline says what changed
@@ -251,7 +286,13 @@ error. Only grounding refs are dropped; a peer leaves the lock when no network n
     "via": { "repo": "cognizant-ai-labs/agentic-web", "path": "skills/agentify-website/runtime", "commit": "7817c1f75b8d4f497c869540212be17dda94dcae" },
     "files": { "runtime/engine.js": "<sha256>" }
   },
-  "grounding": { "sources": [{ "ref": "agent-manifest.json", "sha256": "<sha256>" }], "builtAt": "<ISO UTC>" },
+  "grounding": {
+    "sources": [
+      { "ref": "agent-manifest.json", "sha256": "<sha256>" },
+      { "ref": "pages/prices.html", "sha256": "<sha256>", "anchors": ["<sha256 of a normalised literal>"] }
+    ],
+    "builtAt": "<ISO UTC>"
+  },
   "peers": {
     "https://peer.example/partner": {
       "sha256": "<sha256>", "links": "<sha256> or absent", "kid": "<kid>",

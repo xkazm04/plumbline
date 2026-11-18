@@ -64,7 +64,11 @@ export function lockProblem(value: unknown): string | null {
   if (!isObject(grounding) || !Array.isArray(grounding.sources) || typeof grounding.builtAt !== "string") {
     return "the lock's grounding section is malformed";
   }
-  if (!grounding.sources.every((s) => isObject(s) && typeof s.ref === "string" && isHex(s.sha256))) {
+  if (
+    !grounding.sources.every(
+      (s) => isObject(s) && typeof s.ref === "string" && isHex(s.sha256) && (s.anchors === undefined || (Array.isArray(s.anchors) && s.anchors.every(isHex))),
+    )
+  ) {
     return "the lock's grounding sources are malformed";
   }
   if (!isObject(peers)) return "the lock's peers section is malformed";
@@ -90,22 +94,34 @@ export function lockProblem(value: unknown): string | null {
 
 // ---- what a read means ----
 
-/** One thing a driver tried to read and hash: its SHA-256, or a sentence completing "it ..." saying why not. */
-export type Observed = { ok: true; sha256: string } | { ok: false; missing: boolean; sentence: string };
+/**
+ * One thing a driver tried to read and hash: its SHA-256 (and its bytes, for a re-read of a grounding page's anchors;
+ * never serialised), or a sentence completing "it ..." saying why not.
+ */
+export type Observed = { ok: true; sha256: string; bytes?: Uint8Array } | { ok: false; missing: boolean; sentence: string };
 
-export function groundingFinding(source: { ref: string; sha256: string }, seen: Observed): DriftFinding | null {
+/**
+ * What a changed page still states of the facts the network stated from it when the lock was written (anchors.ts):
+ * how many of its `total` anchors are on it now, or the sentence ("it ...") for why it could not be reduced to text.
+ */
+export type AnchorCheck = { total: number; present: number } | { total: number; problem: string };
+
+export function groundingFinding(source: { ref: string; sha256: string }, seen: Observed, anchors?: AnchorCheck): DriftFinding | null {
   if (!seen.ok) {
     return { kind: "grounding", severity: "warn", ref: source.ref, expected: source.sha256, summary: `A grounding source could not be checked: it ${seen.sentence}.` };
   }
   if (seen.sha256 === source.sha256) return null;
-  return {
-    kind: "grounding",
-    severity: "warn",
-    ref: source.ref,
-    expected: source.sha256,
-    actual: seen.sha256,
-    summary: "A grounding source changed since the lock was written; the agent now answers from different facts.",
-  };
+  const facts = (n: number) => `${n} fact${n === 1 ? "" : "s"}`;
+  // the severity is warn whatever the anchors say: a count is a reading aid, never a reason to soften or harden it
+  const summary =
+    anchors === undefined || anchors.total === 0
+      ? "A grounding source changed since the lock was written; the agent now answers from different facts."
+      : "problem" in anchors
+        ? `A grounding source changed since the lock was written; its ${facts(anchors.total)} the network states could not be checked: it ${anchors.problem}.`
+        : anchors.present === anchors.total
+          ? `A grounding source changed since the lock was written; all ${facts(anchors.total)} the network states from it are still on it.`
+          : `A grounding source changed since the lock was written; ${anchors.total - anchors.present} of ${facts(anchors.total)} the network states are no longer on it, so the network may now state an old fact.`;
+  return { kind: "grounding", severity: "warn", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary };
 }
 
 export function runtimeFinding(file: string, expected: string, seen: Observed): DriftFinding | null {

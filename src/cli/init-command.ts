@@ -43,7 +43,7 @@ export function nextSteps(rootArg: string, workflow: boolean): string[] {
     workflow
       ? "The workflow runs daily and keeps one drift issue (it needs issues: write)."
       : `Run the watch: plumbline watch --root ${rootArg} (or add --workflow to write the daily CI workflow).`,
-    `Name the pages whose facts your network states (a price list, opening hours): plumbline watch --root ${rootArg} --relock --source <page>. A changed page is then drift, and the facts the network quotes from it are counted.`,
+    `Name the pages whose facts your network states (a price list, opening hours): plumbline watch --root ${rootArg} --relock --source <page>. A changed page is then drift, and the prices, times, dates, phone numbers, e-mail addresses and percentages the network states from it are anchored: the watch counts the ones no longer on it.`,
     `Upgrade, when you are ready: sign the agent files. plumbline keygen --out <a folder outside the site>, then plumbline sign --root ${rootArg} --key <that folder>/plumbline.private.json --origin <https origin>. The lock is a signed file: sign again after every --relock.`,
   ];
 }

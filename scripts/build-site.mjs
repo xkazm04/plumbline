@@ -11,6 +11,7 @@
 //   net/address.js       the address rules safeFetch and the Desk's peer check share (pure)
 //   watch/decide.js      the drift decisions the CLI watch and the Desk share (pure)
 //   watch/observe.js     the one fetcher-injected peer and published-file reader (pure)
+//   watch/anchors.js     the facts a grounding page states, for the anchor count (pure)
 //   watch/outline.js     a peer's definition in outline, hashed (pure)
 //   watch/published.js   the reader of a published lock: the CLI's `watch --url` and the Desk's drift.js (pure)
 //
@@ -77,7 +78,7 @@ async function main() {
   await copy(path.join(DIST, "gate"), gate, path.join(OUT, "gate"));
   await copy(path.join(DIST, "net"), ["address.js", "canonical.js", "locate.js", "fetch-types.js"], path.join(OUT, "net"));
   // the drift decisions the CLI watch and the Desk share (pure: no node:* import)
-  await copy(path.join(DIST, "watch"), ["decide.js", "observe.js", "outline.js", "published.js"], path.join(OUT, "watch"));
+  await copy(path.join(DIST, "watch"), ["anchors.js", "decide.js", "observe.js", "outline.js", "published.js"], path.join(OUT, "watch"));
   const { errors, warnings, count } = await scan();
   for (const w of warnings) console.log(`WARNING: ${w}`);
   for (const e of errors) console.log(`ERROR: ${e}`);

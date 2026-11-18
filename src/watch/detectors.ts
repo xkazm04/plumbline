@@ -7,10 +7,10 @@ import { SIGNATURE_FILE, type DriftFinding } from "../core/types.js";
 import { hashBytes } from "../net/canonical.js";
 import type { Fetcher } from "../net/locate.js";
 import type { SafeFetchOptions } from "../net/safe-fetch.js";
+import { groundingFindingWithAnchors } from "./anchors.js";
 import {
   addedRuntimeFinding,
   coverageFindings,
-  groundingFinding,
   isRuntimeVia,
   peerFindings,
   pendingPeerFindings,
@@ -44,14 +44,20 @@ export async function hashLocal(env: DetectorEnv, ref: string): Promise<string> 
 
 /** Hashes a local file under the root, or an https document through safeFetch. Throws an Error ("it ...") when unreadable. */
 export async function hashRef(env: DetectorEnv, ref: string): Promise<string> {
+  return (await readRef(env, ref)).sha256;
+}
+
+/** A local file under the root, or an https document through safeFetch: its hash and bytes. Throws ("it ...") when unreadable. */
+export async function readRef(env: DetectorEnv, ref: string): Promise<{ sha256: string; bytes: Uint8Array }> {
   const seen = await observeRef(env, ref);
   if (!seen.ok) throw new ReadProblem(seen.sentence, seen.missing);
-  return seen.sha256;
+  return { sha256: seen.sha256, bytes: seen.bytes ?? new Uint8Array(0) };
 }
 
 async function observeLocal(env: DetectorEnv, ref: string): Promise<Observed> {
   try {
-    return { ok: true, sha256: await hashLocal(env, ref) };
+    const bytes = await readUnderRoot(env.root, ref);
+    return { ok: true, sha256: await hashBytes(bytes), bytes };
   } catch (error) {
     const problem = error instanceof ReadProblem ? error : new ReadProblem("could not be read");
     return { ok: false, missing: problem.missing, sentence: problem.message };
@@ -66,7 +72,7 @@ async function observeRef(env: DetectorEnv, ref: string): Promise<Observed> {
 export async function detectGrounding(lock: Lock, env: DetectorEnv): Promise<DriftFinding[]> {
   const out: DriftFinding[] = [];
   for (const source of lock.grounding.sources) {
-    const finding = groundingFinding(source, await observeRef(env, source.ref));
+    const finding = await groundingFindingWithAnchors(source, await observeRef(env, source.ref));
     if (finding) out.push(finding);
   }
   return out;

@@ -90,6 +90,16 @@ test("the lock's peer record: links is a sha256 or the literal string absent", (
   assert.equal(PEER_LINKS_ABSENT, "absent");
 });
 
+test("a lock's grounding source (since 2026-11-18): ref, sha256 and anchors, the anchors only when there are some, each a SHA-256", async () => {
+  const { anchorsOf } = await import("../watch/anchors.js");
+  const found = await anchorsOf(["money:eur 120"], new TextEncoder().encode("<p>EUR 120</p>"));
+  assert.ok("anchors" in found);
+  assert.equal(found.anchors.length, 1);
+  assert.match(found.anchors[0] ?? "", /^[0-9a-f]{64}$/);
+  const none = await anchorsOf(["money:eur 120"], new TextEncoder().encode("<p>EUR 130</p>"));
+  assert.deepEqual(none, { anchors: [] }, "capture then omits the member");
+});
+
 test("the lock's peer outline (since 2026-11-18): agents, hosts and front, every string a SHA-256, front only when there is one", async () => {
   const { peerOutline, isPeerOutline } = await import("../watch/outline.js");
   const withFront = await peerOutline('{ "tools": [{ "name": "a", "instructions": "x", "tools": ["https://h.example/p"] }] }');

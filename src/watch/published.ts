@@ -22,9 +22,9 @@
 import { LOCK_FILE, type DriftFinding, type LockState } from "../core/types.js";
 import type { SafeFetchOptions, SafeFetchResponse } from "../net/fetch-types.js";
 import { locateTarget, type Fetcher } from "../net/locate.js";
+import { groundingFindingWithAnchors } from "./anchors.js";
 import {
   destinationProblem,
-  groundingFinding,
   lockProblem,
   peerAddressProblem,
   peerFindings,
@@ -123,7 +123,8 @@ async function groundingOf(lock: Lock, base: string, ctx: Ctx): Promise<DriftFin
       const url = publishedUrl(source.ref, base);
       seen = url === null ? OUTSIDE : await observePublished(ctx.fetcher, url, read);
     }
-    const finding = groundingFinding(source, seen);
+    // a changed page with anchors is re-read for the facts the network states (anchors.ts); the CLI counts the same
+    const finding = await groundingFindingWithAnchors(source, seen);
     if (finding) out.push(finding);
   }
   return out;

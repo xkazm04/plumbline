@@ -193,9 +193,22 @@ export interface PendingPeer {
 export interface PlumblineLock {
   version: typeof FORMAT_VERSION;
   runtime: { source: "nsdeploy"; commit: string; files: Record<string, string>; via?: RuntimeVia };
-  grounding: { sources: { ref: string; sha256: string }[]; builtAt: string };
+  grounding: { sources: GroundingSource[]; builtAt: string };
   peers: Record<string, PeerRecord>;
   pendingPeers?: Record<string, PendingPeer>;
+}
+
+/** One grounding source the lock holds: its ref, the SHA-256 of its exact bytes, and the facts anchored on it. */
+export interface GroundingSource {
+  ref: string;
+  sha256: string;
+  /**
+   * Since 2026-11-18: SHA-256 of each literal the network's instructions state that this page states too (a price, a
+   * time, a date, a phone number, an e-mail address, a percentage; src/watch/anchors.ts), sorted. When the page
+   * changes, the watch counts how many are no longer on it. Omitted when there are none, for the network and manifest
+   * files themselves, and in every lock written before.
+   */
+  anchors?: string[];
 }
 
 export interface PeerRecord {
