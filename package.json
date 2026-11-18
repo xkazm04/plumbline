@@ -3,7 +3,18 @@
   "version": "0.1.0",
   "description": "Keep an agentic website true after it ships: publisher-signed agent files, a CI gate and a scheduled drift watch.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xkazm04/plumbline.git"
+  },
+  "homepage": "https://github.com/xkazm04/plumbline#readme",
+  "bugs": {
+    "url": "https://github.com/xkazm04/plumbline/issues"
+  },
   "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -19,7 +30,8 @@
     "check": "npm run typecheck && npm test",
     "build:site": "node scripts/build-site.mjs",
     "test:site": "node scripts/build-site.mjs && node --test \"site/tests/*.test.mjs\"",
-    "prepare": "tsc"
+    "prepare": "tsc",
+    "prepack": "node scripts/clean-dist.mjs && tsc"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -28,6 +40,8 @@
   "files": [
     "dist",
     "!dist/test",
+    "!dist/**/*.map",
+    "action/templates/plumbline-watch.yml",
     "README.md",
     "LICENSE"
   ]

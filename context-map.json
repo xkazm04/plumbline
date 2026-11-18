@@ -75,7 +75,8 @@
         "src/test/cli-verify-url.test.ts",
         "src/test/cli.test.ts",
         "src/test/gate-watch-cli.test.ts",
-        "src/test/no-network.ts"
+        "src/test/no-network.ts",
+        "src/test/pack.test.ts"
       ],
       "entry_points": [
         "src/cli/index.ts"
@@ -179,6 +180,7 @@
         "action/report.mjs",
         "action/report.test.mjs",
         "action/templates/plumbline-watch.yml",
+        "scripts/clean-dist.mjs",
         "src/test/action-pin.test.ts"
       ],
       "entry_points": [

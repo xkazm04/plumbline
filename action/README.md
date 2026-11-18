@@ -11,6 +11,21 @@ builds Plumbline from its own checkout (`npm ci`, then the build) and runs `node
 Action by commit SHA pins the code that runs**: no package registry is involved. (The npm name `plumbline` belongs to
 an unrelated package, and `npx`'s git installs fail on the runner's npm.)
 
+**What the build costs.** Measured 2026-11-18 on a Windows 11 workstation (Node 24.22, npm 11.19) in a fresh folder
+holding `package.json`, `package-lock.json`, `tsconfig.json` and `src/`: `npm ci --offline` 4.6 s (it installs only the
+dev dependencies, TypeScript and `@types/node`, 26 MB; Plumbline has no runtime dependency) and `npm run build` 2.9 s,
+7.5 s together. The runner downloads those 26 MB instead of reading a local cache, which adds seconds, not tens of
+seconds. The roadmap's threshold for caching `~/.npm` is 30 s, so the Action does not cache: a cache key, a restore and
+a save would add steps and a cache to trust for a few seconds at most. The `Action smoke` workflow's log shows the
+runner's own number; if it ever passes 30 s, cache `~/.npm` keyed on `package-lock.json`. `dist/` is never committed:
+the code that runs stays the commit you pin.
+
+**As a package.** `npm pack` makes a tarball with the built CLI (`bin: plumbline`), the watch template `init --workflow`
+writes from, the README and the licence, and nothing else (no tests, no source maps, no key); `prepack` empties `dist/`
+and builds again, so nothing stale rides along. A test packs it, unpacks it and runs its `init`. It stays
+`"private": true` until the owner chooses a scoped name and publishes; then `npx <that name> watch --url <site>` works
+with no clone.
+
 **Gate.**
 
 ```yaml
