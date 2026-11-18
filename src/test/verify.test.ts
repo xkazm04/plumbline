@@ -345,3 +345,56 @@ test("the signed bytes are canonical JSON of the signature without sig (verified
   const reSigned: PlumblineSignature = { ...unsigned, sig: await signText(g.privateKey, canonicalJson(unsigned)) };
   assert.equal(reSigned.sig, base.sig);
 });
+
+// ---- p-11613d: a signature may list at most MAX_SUBJECTS files ----
+
+test("a signature listing more than MAX_SUBJECTS files is invalid / malformed; exactly MAX_SUBJECTS is a shape it accepts", async () => {
+  const { MAX_SUBJECTS } = await import("../core/index.js");
+  const g = await generateKey(T0);
+  const sig = await signed(g);
+  const many = (n: number): PlumblineSignature => ({
+    ...sig,
+    subjects: Array.from({ length: n }, (_, i) => ({ path: `f/${String(i).padStart(4, "0")}.json`, sha256: "0".repeat(64) })),
+  });
+  const over = await verifySignature(many(MAX_SUBJECTS + 1), baseFiles(), trustOf([g, ORIGIN]), { now: after(1) });
+  assert.deepEqual([over.verdict, over.reason], ["invalid", "malformed"]);
+  assert.match(over.detail ?? "", new RegExp(`more than ${MAX_SUBJECTS} files`));
+  // at the cap the shape passes and the check moves on (the made-up files are missing: tampered, not malformed)
+  const at = await verifySignature(many(MAX_SUBJECTS), baseFiles(), trustOf([g, ORIGIN]), { now: after(1) });
+  assert.deepEqual([at.verdict, at.reason], ["invalid", "tampered"]);
+  // and signSubjects never makes a signature a verifier would call malformed
+  const files = [...baseFiles(), ...Array.from({ length: MAX_SUBJECTS }, (_, i) => ({ path: `f/${i}.json`, content: "{}" }))];
+  await assert.rejects(signed(g, files), new RegExp(`at most ${MAX_SUBJECTS} files`));
+});
+
+// ---- p-4234f3: one kid-derivation check and one unsigned-bytes rule in core ----
+
+test("isDerivedKid: true only for a well-formed kid derived from a 32-byte key; never throws", async () => {
+  const { isDerivedKid } = await import("../core/index.js");
+  const g = await generateKey(T0);
+  const other = await generateKey(T0);
+  assert.equal(await isDerivedKid(g.key.kid, g.key.publicKey), true);
+  assert.equal(await isDerivedKid(other.key.kid, g.key.publicKey), false);
+  assert.equal(await isDerivedKid(g.key.kid.toUpperCase(), g.key.publicKey), false);
+  for (const key of [g.key.publicKey + "A", "AAAA", "not base64!", 5, undefined, null]) assert.equal(await isDerivedKid(g.key.kid, key), false);
+  assert.equal(await isDerivedKid(undefined, g.key.publicKey), false);
+});
+
+test("unsignedBytesOf: canonical JSON without sig, the bytes signatures, rotations and revocations are signed over", async () => {
+  const { unsignedBytesOf, revokeKey, rotateKey } = await import("../core/index.js");
+  const g = await generateKey(T0);
+  const next = await generateKey(T0);
+  const sig = await signed(g);
+  const { sig: _s, ...rest } = sig;
+  void _s;
+  assert.equal(unsignedBytesOf(sig), canonicalJson(rest));
+  for (const statement of [
+    sig,
+    await rotateKey({ oldPrivateKey: g.privateKey, oldKey: g.key, newKey: next.key, now: T0 }),
+    await revokeKey({ privateKey: g.privateKey, key: g.key, now: T0, reason: "test" }),
+  ]) {
+    const { verifyText } = await import("../core/keys.js");
+    assert.equal(await verifyText(g.key.publicKey, unsignedBytesOf(statement), statement.sig), true);
+  }
+  assert.throws(() => unsignedBytesOf({ sig: "x", n: Infinity }), /non-finite/);
+});

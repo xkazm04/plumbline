@@ -1,7 +1,7 @@
 // Verification. Pure: no node:* imports. Three-state verdicts; the key inside the artifact is never trusted for identity.
 
-import { canonicalJson } from "./canonical.js";
-import { keyId, verifyText } from "./keys.js";
+import { unsignedBytesOf } from "./canonical.js";
+import { isDerivedKid, verifyText } from "./keys.js";
 import { isAcceptableOrigin, subjectDigest } from "./sign.js";
 import { isSafeSubjectPath, parseManifest, signedPathsOf } from "./signed-paths.js";
 import {
@@ -11,6 +11,7 @@ import {
   LINKS_FILE,
   LOCK_FILE,
   MANIFEST_FILE,
+  MAX_SUBJECTS,
   PUBLIC_KEY_PATTERN,
   SHA256_PATTERN,
   SIGNATURE_TYPE,
@@ -88,6 +89,7 @@ function shapeProblem(sig: unknown): string | undefined {
   if (Date.parse(sig.expiresAt) <= Date.parse(sig.signedAt)) return "expiresAt is not after signedAt";
   if (!isBase64Url(sig.sig)) return "the signature value is not base64url";
   if (!Array.isArray(sig.subjects) || sig.subjects.length === 0) return "the subject list is missing or empty";
+  if (sig.subjects.length > MAX_SUBJECTS) return `the subject list names more than ${MAX_SUBJECTS} files`;
   const paths = new Set<string>();
   for (const subject of sig.subjects as unknown[]) {
     if (!isRecord(subject)) return "a subject entry is not an object";
@@ -102,11 +104,9 @@ function shapeProblem(sig: unknown): string | undefined {
   return undefined;
 }
 
-/** The signed bytes: canonical JSON of the signature object without `sig`. Throws on a value canonical JSON refuses. */
+/** The signed bytes: canonical JSON of the signature object without `sig` (core's unsignedBytesOf). Throws on a value canonical JSON refuses. */
 export function signedBytesOf(signature: PlumblineSignature): string {
-  const { sig: _sig, ...rest } = signature;
-  void _sig;
-  return canonicalJson(rest);
+  return unsignedBytesOf(signature);
 }
 
 /** Resolves a signer in the trust store, and refuses a trust entry whose own kid is not derived from its key. */
@@ -117,11 +117,8 @@ export async function resolveTrusted(
 ): Promise<{ entry: TrustEntry } | { poisoned: true } | undefined> {
   const entry = trust.find(kid, origin);
   if (!entry) return undefined;
-  try {
-    if (entry.kid === kid && isPublicKey(entry.publicKey) && (await keyId(entry.publicKey)) === kid) return { entry };
-  } catch {
-    // an unreadable key in a trust entry is the same defect as a mismatched one
-  }
+  // an unreadable key in a trust entry is the same defect as a mismatched one
+  if (entry.kid === kid && (await isDerivedKid(kid, entry.publicKey))) return { entry };
   return { poisoned: true };
 }
 
@@ -230,13 +227,8 @@ async function verifyAgainstTrust(
   // 6. a stranger: never verified. Say whether the math holds under the published key, for the person deciding.
   const published = options.publishedKey;
   let consistent = false;
-  if (published && isRecord(published) && published.kid === kid && isPublicKey(published.publicKey)) {
-    try {
-      consistent =
-        (await keyId(published.publicKey)) === kid && (await verifyText(published.publicKey, signed, signature.sig));
-    } catch {
-      consistent = false;
-    }
+  if (published && isRecord(published) && published.kid === kid && (await isDerivedKid(kid, published.publicKey))) {
+    consistent = await verifyText(published.publicKey, signed, signature.sig);
   }
   return {
     verdict: "unverifiable",

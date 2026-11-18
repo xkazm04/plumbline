@@ -23,6 +23,17 @@ export function canonicalJson(value: unknown): string {
   return "{" + keys.map((k) => JSON.stringify(k) + ":" + canonicalJson(record[k])).join(",") + "}";
 }
 
+/**
+ * The bytes a Plumbline statement is signed over: canonical JSON of the object without its `sig` member. The one rule
+ * signatures, rotations and revocations share (sign, verify, rotate, revoke). Throws on a value canonical JSON refuses
+ * (a non-finite number); a verifier reports that as `invalid malformed`.
+ */
+export function unsignedBytesOf(statement: object): string {
+  const { sig: _sig, ...rest } = statement as Record<string, unknown>;
+  void _sig;
+  return canonicalJson(rest);
+}
+
 const encoder = new TextEncoder();
 
 /** The UTF-8 bytes of a string. */

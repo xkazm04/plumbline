@@ -107,3 +107,26 @@ test("plumbline-revocation.json carries exactly these fields; `reason` only when
   const noted = await revokeKey({ privateKey: k.privateKey, key: k.key, reason: "leaked" });
   assert.deepEqual(Object.keys(noted).sort(), ["alg", "kid", "reason", "revokedAt", "sig", "type", "version"]);
 });
+
+test("statement files (since 2026-11-18): one statement, or a JSON array of 1..64 statements; a signature lists at most 256 files", async () => {
+  const { MAX_STATEMENTS_PER_FILE, MAX_SUBJECTS, applyRevocationText, generateKey, revokeKey, rotateKey, walkRotationChain } = await import(
+    "../core/index.js"
+  );
+  assert.equal(MAX_STATEMENTS_PER_FILE, 64);
+  assert.equal(MAX_SUBJECTS, 256);
+  const t = new Date("2026-11-18T12:00:00.000Z");
+  const [a, b, c] = [await generateKey(t), await generateKey(t), await generateKey(t)];
+  const entry = (k: typeof a) => ({ kid: k.key.kid, origin: "https://w.example", publicKey: k.key.publicKey });
+  // a revocation file: the single statement every earlier file holds, or an array of the same statements, unchanged
+  const ra = await revokeKey({ privateKey: a.privateKey, key: a.key, now: t });
+  const rb = await revokeKey({ privateKey: b.privateKey, key: b.key, now: t });
+  assert.equal((await applyRevocationText(JSON.stringify(ra), [entry(a)])).applied, true);
+  const list = await applyRevocationText(JSON.stringify([ra, rb]), [entry(a), entry(b)]);
+  assert.deepEqual(list.entries.map((e) => e.revokedAt !== undefined), [true, true]);
+  // a rotation file: the single statement, or the chain oldest first, each statement's from the previous one's to
+  const ab = await rotateKey({ oldPrivateKey: a.privateKey, oldKey: a.key, newKey: b.key, now: t });
+  const bc = await rotateKey({ oldPrivateKey: b.privateKey, oldKey: b.key, newKey: c.key, now: t });
+  assert.deepEqual(Object.keys(bc).sort(), ["from", "sig", "signedAt", "to", "toPublicKey", "type", "version"], "a chain adds no member to a statement");
+  const walk = await walkRotationChain([ab, bc], [entry(a)], "https://w.example");
+  assert.deepEqual(walk.entries.map((e) => [e.kid, e.adoptedVia]), [[b.key.kid, a.key.kid], [c.key.kid, b.key.kid]]);
+});

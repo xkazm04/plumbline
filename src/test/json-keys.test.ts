@@ -28,3 +28,11 @@ test("countDuplicateKeys agrees with JSON.parse about what is JSON, and survives
   const deepObjects = '{"a":'.repeat(20_000) + "1" + "}".repeat(20_000);
   assert.equal(countDuplicateKeys(deepObjects), 0);
 });
+
+test("a number literal of any length is read whole (no 512-character window)", () => {
+  const long = "1" + "0".repeat(599);
+  assert.equal(countDuplicateKeys(`{"a":${long},"b":2}`), 0);
+  assert.equal(countDuplicateKeys(`{"a":${long},"a":2}`), 1);
+  assert.equal(countDuplicateKeys(`[${"9".repeat(2000)}.5e10]`), 0);
+});
+

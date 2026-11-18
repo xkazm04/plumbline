@@ -6,7 +6,8 @@
 // another to the runtime. Keys are compared after unescaping, so `"a"` and `"a"` are the same key.
 
 const ESCAPES: Record<string, string> = { '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
-const LITERAL = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/;
+// sticky over the whole text: a literal of any length is read whole (a 512-character window cut long numbers in half)
+const LITERAL = /(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/y;
 
 type Frame = { kind: "object"; keys: Set<string> } | { kind: "array" };
 type Expect = "value" | "value-or-close" | "key" | "key-or-close" | "after";
@@ -81,7 +82,8 @@ export function countDuplicateKeys(text: string): number {
         readString();
         expect = "after";
       } else {
-        const m = LITERAL.exec(text.slice(i, i + 512));
+        LITERAL.lastIndex = i;
+        const m = LITERAL.exec(text);
         if (!m) fail();
         i += (m as RegExpExecArray)[0].length;
         expect = "after";

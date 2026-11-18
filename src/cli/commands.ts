@@ -10,6 +10,7 @@ import {
   keyRecordOf,
   loadSubject,
   markRevoked,
+  privateKeyInRootProblem,
   readPrivateKeyFile,
   readTextIfPresent,
   readTrustFile,
@@ -26,26 +27,34 @@ import {
   LINKS_FILE,
   LOCK_FILE,
   MANIFEST_FILE,
+  MAX_STATEMENTS_PER_FILE,
+  MAX_SUBJECTS,
   REVOCATION_FILE,
+  REVOCATION_TYPE,
   ROTATION_FILE,
+  ROTATION_TYPE,
   SIGNATURE_FILE,
   applyRevocationText,
   generateKey,
   isAcceptableOrigin,
+  isKid,
   isSafeSubjectPath,
   parseManifest,
   revokeKey,
   rotateKey,
   signSubjects,
   signedPathsOf,
+  statementsOf,
   verifySignature,
   type PlumblineKey,
   type PlumblineRevocation,
+  type PlumblineRotation,
   type PlumblineSignature,
   type SubjectFile,
   type VerifyResult,
+  subjectDigest,
 } from "../core/index.js";
-import { safeFetch, SafeFetchError } from "../net/safe-fetch.js";
+import { DEFAULT_TIMEOUT_MS, safeFetch, SafeFetchError, type SafeFetchOptions } from "../net/safe-fetch.js";
 
 export type Out = (line: string) => void;
 
@@ -54,11 +63,13 @@ export const USAGE = {
   keygen: "usage: plumbline keygen --out <dir> [--now <iso>] [--json]",
   sign: "usage: plumbline sign --root <site dir> --key <plumbline.private.json> --origin <https origin> [--days N] [--now <iso>] [--json]",
   verify:
-    "usage: plumbline verify --trust <plumbline.trust.json> (--root <site dir> [--origin <https origin>] | --url <https site base> [--allow-local]) [--now <iso>] [--json]",
+    "usage: plumbline verify --trust <plumbline.trust.json> (--root <site dir> [--origin <https origin>] | --url <https site base> [--allow-local] [--timeout <seconds>]) [--now <iso>] [--json]",
   rotate: "usage: plumbline rotate --root <site dir> --old-key <old private file> --new-key <new private file> [--now <iso>] [--json]",
   revoke: "usage: plumbline revoke --root <site dir> --key <private file> [--reason <text>] [--now <iso>] [--json]",
-  trust: "usage: plumbline trust --key <plumbline-key.json> --origin <https origin> --file <plumbline.trust.json> [--yes] [--json]",
-  adopt: "usage: plumbline adopt --root <site dir> --trust <plumbline.trust.json> --origin <https origin> [--yes] [--json]",
+  trust:
+    "usage: plumbline trust --file <plumbline.trust.json> (--key <plumbline-key.json> --origin <https origin> | --url <https site base> [--allow-local]) [--yes] [--json]",
+  adopt:
+    "usage: plumbline adopt --trust <plumbline.trust.json> (--root <site dir> --origin <https origin> | --url <https site base> [--allow-local]) [--yes] [--json]",
 } as const;
 
 export const ORIGIN_RULE =
@@ -95,6 +106,8 @@ export async function keygen(argv: string[], out: Out): Promise<number> {
   if ((await exists(privatePath)) || (await exists(publicPath))) {
     throw new CliError(`refusing to overwrite an existing key in ${dir}`);
   }
+  // keygen's layout puts .well-known/ under --out, which invites --out <site root>; the private key would then be published
+  const looksLikeSite = (await exists(path.join(dir, MANIFEST_FILE))) || (await exists(path.join(dir, SIGNATURE_FILE)));
   const { key, privateKey } = await generateKey(nowFrom(args));
   const privateFile: PrivateKeyFile = {
     type: PRIVATE_KEY_TYPE,
@@ -106,16 +119,17 @@ export async function keygen(argv: string[], out: Out): Promise<number> {
   await mkdir(path.dirname(publicPath), { recursive: true });
   await writeNew(privatePath, JSON.stringify(privateFile, null, 2) + "\n", 0o600);
   await writeNew(publicPath, JSON.stringify(key, null, 2) + "\n", 0o644);
+  const warnings: string[] = [...KEY_CUSTODY_WARNINGS];
+  if (looksLikeSite) {
+    warnings.unshift(
+      `${dir} looks like a site folder (it holds ${MANIFEST_FILE} or ${SIGNATURE_FILE}): move ${PRIVATE_KEY_FILE} out of it before you publish, or the key is published with the site; sign refuses a key inside the site root.`,
+    );
+  }
   emit(
     args,
     out,
-    { kid: key.kid, privateKeyFile: privatePath, publicKeyRecord: publicPath, warnings: KEY_CUSTODY_WARNINGS },
-    [
-      `kid ${key.kid}`,
-      `private key: ${privatePath}`,
-      `public record: ${publicPath}`,
-      ...KEY_CUSTODY_WARNINGS.map((w) => `WARNING: ${w}`),
-    ],
+    { kid: key.kid, privateKeyFile: privatePath, publicKeyRecord: publicPath, warnings },
+    [`kid ${key.kid}`, `private key: ${privatePath}`, `public record: ${publicPath}`, ...warnings.map((w) => `WARNING: ${w}`)],
   );
   return 0;
 }
@@ -133,6 +147,9 @@ export async function sign(argv: string[], out: Out): Promise<number> {
     lifetimeDays = Number(days);
     if (!Number.isFinite(lifetimeDays) || lifetimeDays <= 0) throw new UsageError("--days must be a positive number");
   }
+  // A private key inside the folder that gets published is a published key (p-1c7bd9).
+  const inRoot = await privateKeyInRootProblem(root, keyPath);
+  if (inRoot !== undefined) throw new CliError(`refusing to sign: ${inRoot}`);
   const privateFile = await readPrivateKeyFile(keyPath);
   const keyRecord = await keyRecordOf(privateFile, now);
 
@@ -192,13 +209,44 @@ export async function sign(argv: string[], out: Out): Promise<number> {
   }
   const target = path.join(root, SIGNATURE_FILE);
   await writeFile(target, JSON.stringify(signature, null, 2) + "\n", "utf8");
+  // First-contact verifiers fetch the site's key record: after a rotation or a new key the old one may still be there.
+  const keyRecordState = await publishedKeyRecordState(root, keyRecord);
+  const lines = [`signed ${signature.subjects.length} files as ${signature.kid} for ${origin}, expires ${signature.expiresAt}`, `wrote ${target}`];
+  if (keyRecordState === "absent") {
+    lines.push(
+      `WARNING: ${root} publishes no ${KEY_FILE}; first-contact verifiers need this key's record (keygen wrote it beside the private key): publish it, unless the site serves it from elsewhere`,
+    );
+  } else if (keyRecordState === "mismatch") {
+    lines.push(
+      `WARNING: the ${KEY_FILE} in ${root} is not the record of the key that signed (${signature.kid}); publish this key's record, or first-contact verifiers will be shown the wrong key`,
+    );
+  }
   emit(
     args,
     out,
-    { kid: signature.kid, origin, signatureFile: target, expiresAt: signature.expiresAt, subjects: signature.subjects.map((s) => s.path) },
-    [`signed ${signature.subjects.length} files as ${signature.kid} for ${origin}, expires ${signature.expiresAt}`, `wrote ${target}`],
+    {
+      kid: signature.kid,
+      origin,
+      signatureFile: target,
+      expiresAt: signature.expiresAt,
+      subjects: signature.subjects.map((s) => s.path),
+      keyRecord: keyRecordState,
+    },
+    lines,
   );
   return 0;
+}
+
+/** Whether the root's published key record is the signing key's: `match`, `mismatch` (another key, or unreadable) or `absent`. */
+async function publishedKeyRecordState(root: string, key: PlumblineKey): Promise<"match" | "mismatch" | "absent"> {
+  const text = await readTextIfPresent(path.join(root, ...KEY_FILE.split("/")));
+  if (text === undefined) return "absent";
+  try {
+    const record = JSON.parse(text) as { kid?: unknown; publicKey?: unknown } | null;
+    return record !== null && record.kid === key.kid && record.publicKey === key.publicKey ? "match" : "mismatch";
+  } catch {
+    return "mismatch";
+  }
 }
 
 /** What `verify` and `adopt` did with a `plumbline-revocation.json` found beside the site. */
@@ -268,19 +316,27 @@ export function formatResult(result: VerifyResult): string {
   return result.detail ? `${head} - ${result.detail}` : head;
 }
 
-/** One site file as `verify` reads it: its exact bytes, absent (no file, or HTTP 404/410), or unreadable. */
-type SiteRead = { state: "present"; bytes: Uint8Array } | { state: "absent" } | { state: "unknown"; why: string };
+/**
+ * One site file as `verify`, `adopt` and `trust` read it: its exact bytes, absent (no file, or HTTP 404/410), or
+ * unreadable. `overCeiling`: it was refused because it is larger than the byte ceiling for one file.
+ */
+export type SiteRead = { state: "present"; bytes: Uint8Array } | { state: "absent" } | { state: "unknown"; why: string; overCeiling?: true };
 
-/** Where `verify` reads a site from: a folder on disk, or a site base fetched through safeFetch. */
-interface SiteSource {
+/** How one file is read: `subject` files (signed code and networks) may be as large as a runtime file. */
+export interface ReadOptions {
+  subject?: boolean;
+}
+
+/** Where `verify`, `adopt` and `trust` read a site from: a folder on disk, or a site base fetched through safeFetch. */
+export interface SiteSource {
   /** The folder or the base URL, for messages. */
   where: string;
   /** The path or URL of one site file, for messages and reports. */
   label(rel: string): string;
-  read(rel: string): Promise<SiteRead>;
+  read(rel: string, options?: ReadOptions): Promise<SiteRead>;
 }
 
-function localSite(root: string): SiteSource {
+export function localSite(root: string): SiteSource {
   return {
     where: root,
     label: (rel) => path.join(root, ...rel.split("/")),
@@ -299,24 +355,53 @@ function localSite(root: string): SiteSource {
 }
 
 /**
- * A site base fetched through safeFetch: https only (http and loopback with `allowLocal`), every address checked after
- * DNS, a capped body and an absolute timeout. Each file is its exact bytes as served; 404 and 410 mean absent; any
- * other answer or a failure is `unknown`, never absent.
+ * The overall time `verify --url` (and `adopt`, `trust` by URL) may spend fetching one site, in seconds, unless
+ * `--timeout` says otherwise. Derivation: a real site is about 10 files (the Desk signs 6, plus the signature, the key
+ * record, the revocation, links.json and the lock), each answering in well under a second; 60 s is several times that
+ * on a slow link, and it bounds a hostile site that answers every file at the 10 s per-file limit.
  */
-function remoteSite(base: URL, allowLocal: boolean): SiteSource {
+export const SITE_DEADLINE_SECONDS = 60;
+
+/**
+ * The options safeFetch gets for one signed file: the runtime-file ceiling (`MAX_RUNTIME_FILE_BYTES`, 4 MiB, in
+ * src/net/fetch-types.ts), because a signed action module or coded-tools bundle can be larger than the 512 KiB a
+ * network definition needs. `ceiling: "runtime"` is the option the Desk's fetcher already reads (site/fetcher.js);
+ * safeFetch honours it once src/net adds it (until then it keeps the 512 KiB ceiling, and a larger file is reported as
+ * over the ceiling, never as absent).
+ */
+type SubjectFetchOptions = SafeFetchOptions & { ceiling?: "runtime" };
+
+/**
+ * A site base fetched through safeFetch: https only (http and loopback with `allowLocal`), every address checked after
+ * DNS, a capped body and an absolute timeout per file, and one overall deadline (`deadlineMs` from the first read) for
+ * every file together. Each file is its exact bytes as served; 404 and 410 mean absent; any other answer, a failure or
+ * a passed deadline is `unknown`, never absent.
+ */
+export function remoteSite(base: URL, allowLocal: boolean, deadlineMs: number = SITE_DEADLINE_SECONDS * 1000): SiteSource {
   const urlOf = (rel: string): string => new URL(rel, base).toString();
+  let deadline: number | undefined;
   return {
     where: base.toString(),
     label: urlOf,
-    async read(rel) {
+    async read(rel, options = {}) {
       if (!isSafeSubjectPath(rel)) return { state: "absent" }; // never fetched: it could leave the site base
+      deadline ??= Date.now() + deadlineMs;
+      const left = deadline - Date.now();
+      if (left <= 0) return { state: "unknown", why: "the overall time limit for this site passed" };
+      const fetchOptions: SubjectFetchOptions = {
+        allowLocal,
+        timeoutMs: Math.min(DEFAULT_TIMEOUT_MS, left),
+        ...(options.subject ? { ceiling: "runtime" as const } : {}),
+      };
       try {
-        const response = await safeFetch(urlOf(rel), { allowLocal });
+        const response = await safeFetch(urlOf(rel), fetchOptions);
         if (response.ok) return { state: "present", bytes: response.bytes };
         if (response.status === 404 || response.status === 410) return { state: "absent" };
         return { state: "unknown", why: `HTTP ${response.status}` };
       } catch (error) {
-        if (error instanceof SafeFetchError) return { state: "unknown", why: `${error.code}: ${error.message}` };
+        if (error instanceof SafeFetchError) {
+          return { state: "unknown", why: `${error.code}: ${error.message}`, ...(error.code === "body-too-large" ? { overCeiling: true as const } : {}) };
+        }
         throw error;
       }
     },
@@ -324,7 +409,7 @@ function remoteSite(base: URL, allowLocal: boolean): SiteSource {
 }
 
 /** `--url`: an https site base (http only with --allow-local), its query and fragment dropped, read as a folder. */
-function siteBaseOf(text: string, allowLocal: boolean): URL {
+export function siteBaseOf(text: string, allowLocal: boolean): URL {
   let url: URL;
   try {
     url = new URL(text);
@@ -340,10 +425,21 @@ function siteBaseOf(text: string, allowLocal: boolean): URL {
   return url;
 }
 
-const decode = (bytes: Uint8Array): string => new TextDecoder("utf-8").decode(bytes);
+export const decode = (bytes: Uint8Array): string => new TextDecoder("utf-8").decode(bytes);
+
+/** `--timeout <seconds>` for a site read by URL: a positive number, at most an hour. */
+function deadlineOf(args: ParsedArgs): number {
+  const raw = args.values.get("timeout");
+  if (raw === undefined) return SITE_DEADLINE_SECONDS * 1000;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 3600) {
+    throw new UsageError("--timeout must be a number of seconds, more than 0 and at most 3600");
+  }
+  return seconds * 1000;
+}
 
 export async function verify(argv: string[], out: Out): Promise<number> {
-  const args = parseArgs(argv, ["root", "url", "trust", "now", "origin"], ["allow-local"]);
+  const args = parseArgs(argv, ["root", "url", "trust", "now", "origin", "timeout"], ["allow-local"]);
   const root = args.values.get("root");
   const url = args.values.get("url");
   if ((root === undefined) === (url === undefined)) throw new UsageError("give exactly one of --root and --url");
@@ -351,7 +447,9 @@ export async function verify(argv: string[], out: Out): Promise<number> {
     throw new UsageError("--url checks the files as the URL's own origin; leave out --origin");
   }
   if (root !== undefined && args.flags.has("allow-local")) throw new UsageError("--allow-local goes with --url");
+  if (root !== undefined && args.values.has("timeout")) throw new UsageError("--timeout goes with --url");
   const allowLocal = args.flags.has("allow-local");
+  const deadlineMs = deadlineOf(args);
   const base = url !== undefined ? siteBaseOf(url, allowLocal) : undefined;
   const expectedOrigin = base !== undefined ? base.origin : args.values.get("origin");
   if (base === undefined && expectedOrigin !== undefined && !isAcceptableOrigin(expectedOrigin)) {
@@ -360,7 +458,7 @@ export async function verify(argv: string[], out: Out): Promise<number> {
   const trustPath = required(args, "trust");
   const trust = await readTrustFile(trustPath);
   if (allowLocal) process.stderr.write("WARNING: --allow-local: http and loopback addresses are allowed for this run (private ranges stay refused)\n");
-  const site = base !== undefined ? remoteSite(base, allowLocal) : localSite(root as string);
+  const site = base !== undefined ? remoteSite(base, allowLocal, deadlineMs) : localSite(root as string);
 
   // Files the site did not serve cleanly (an error, not a 404): a verified verdict is never claimed over them.
   const unread: string[] = [];
@@ -391,13 +489,16 @@ export async function verify(argv: string[], out: Out): Promise<number> {
     // unsigned one is `tampered`, because the runtime (links) and the Desk (lock) read them.
     const files: SubjectFile[] = [];
     let unreadSubjects = 0;
+    let oversizeSubjects = 0;
     const subjects = (signature as { subjects?: unknown } | null)?.subjects;
-    if (Array.isArray(subjects)) {
+    // A signature listing more files than any real site is malformed (core's shape check says so): none is fetched.
+    if (Array.isArray(subjects) && subjects.length <= MAX_SUBJECTS) {
       for (const subject of subjects) {
         const rel = (subject as { path?: unknown } | null)?.path;
         if (typeof rel !== "string" || files.some((f) => f.path === rel)) continue;
-        const read = await site.read(rel);
+        const read = await site.read(rel, { subject: true });
         if (read.state === "present") files.push({ path: rel, content: read.bytes });
+        else if (read.state === "unknown" && read.overCeiling) oversizeSubjects += 1;
         else if (read.state === "unknown") unreadSubjects += 1;
       }
     }
@@ -426,27 +527,84 @@ export async function verify(argv: string[], out: Out): Promise<number> {
       ...(expectedOrigin !== undefined ? { expectedOrigin } : {}),
     });
     // A file that could not be read might be the one that makes the difference: not verified, and not tampered either.
-    if (unread.length > 0 && (result.verdict === "verified" || result.reason === "tampered")) {
+    // But a file that WAS read and does not match its signed digest is proof of tampering whatever else is unread: keep
+    // `tampered` then (the Desk's rule too, site/desk.js).
+    let readMismatch = false;
+    if (result.reason === "tampered") {
+      const signed = (signature as PlumblineSignature).subjects ?? [];
+      for (const s of signed) {
+        const f = files.find((x) => x.path === s.path);
+        if (f && (await subjectDigest(f.content as Uint8Array | string)) !== s.sha256) { readMismatch = true; break; }
+      }
+    }
+    if ((unread.length > 0 || oversizeSubjects > 0) && (result.verdict === "verified" || (result.reason === "tampered" && !readMismatch))) {
+      const parts: string[] = [];
+      if (unread.length > 0) parts.push(`The site did not serve ${unread.join(", ")} (an error, not a 404)`);
+      if (oversizeSubjects > 0) {
+        const n = `${oversizeSubjects} signed ${oversizeSubjects === 1 ? "file is" : "files are"} over the size ceiling for one fetched file`;
+        parts.push(parts.length > 0 ? n : n.charAt(0).toUpperCase() + n.slice(1));
+      }
+      const revocationUnknown = unread.includes(REVOCATION_FILE) ? ", and whether its key has been revoked," : "";
       result = {
         verdict: "unverifiable",
         ...(result.kid ? { kid: result.kid } : {}),
         ...(result.origin ? { origin: result.origin } : {}),
-        detail: `The site did not serve ${unread.join(", ")} (an error, not a 404), so whether the signature covers everything the runtime loads, and whether its key has been revoked, cannot be told.`,
+        detail: `${parts.join(", and ")}, so whether the signature covers everything the runtime loads${revocationUnknown} cannot be told.`,
       };
     }
   }
 
   const lines = revocation ? revocationLines(revocation, trust, true) : [];
   // A published rotation is the way to an unknown signer that an old trusted key named: point at adopt, never adopt here.
-  if (result.verdict === "unverifiable" && root !== undefined && (await readTextIfPresent(path.join(root, ROTATION_FILE))) !== undefined) {
-    lines.push(
-      `hint: ${ROTATION_FILE} is present; if you trust the key it rotates from, check it with plumbline adopt --root ${root} --trust ${trustPath} --origin <origin>`,
-    );
+  // Read through the same source as everything else, so `--url` gets the hint too (p-58cf7d).
+  if (result.verdict === "unverifiable" && (await site.read(ROTATION_FILE)).state === "present") {
+    const how =
+      base !== undefined
+        ? `plumbline adopt --url ${base.toString()} --trust ${trustPath}${allowLocal ? " --allow-local" : ""}`
+        : `plumbline adopt --root ${root} --trust ${trustPath} --origin ${expectedOrigin ?? "<origin>"}`;
+    lines.push(`hint: ${ROTATION_FILE} is present; if you trust a key it rotates from, check it with ${how}`);
   }
   // The verdict line stays last, so a reader of the text output finds it in the same place with or without a revocation.
   lines.push(formatResult(result));
   emit(args, out, { results: [result], ...(revocation ? { revocation } : {}) }, lines);
   return result.verdict === "verified" ? 0 : 1;
+}
+
+/** The origin of the self-check entry rotate and revoke apply a revocation file to: a revocation names no origin. */
+const SELF_ORIGIN = "https://self.invalid";
+
+/**
+ * The statements an existing `plumbline-rotation.json` or `plumbline-revocation.json` holds, so a new one is appended
+ * and never overwrites them: one statement or a list (statementsOf), each an object of the expected `type` whose kid
+ * fields (`fields`) hold well-formed kids. Anything else is refused (exit 2) rather than overwritten: it may be the
+ * only copy of a statement the publisher made.
+ */
+function existingStatements(file: string, text: string, type: string, fields: readonly string[]): Record<string, unknown>[] {
+  const refuse = (): never => {
+    throw new CliError(`refusing to overwrite ${file}: it holds neither a ${type} statement nor a list of them; move it aside, keeping any statement in it`);
+  };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return refuse();
+  }
+  const listed = statementsOf(parsed);
+  if ("problem" in listed) return refuse();
+  for (const s of listed.statements) {
+    const o = s as Record<string, unknown> | null;
+    if (typeof o !== "object" || o === null || Array.isArray(o) || o.type !== type || fields.some((f) => !isKid(o[f]))) return refuse();
+  }
+  return listed.statements as Record<string, unknown>[];
+}
+
+/** Refuses (exit 2) when the site's revocation file holds a revocation of `key` that verifies under that key. */
+async function refuseRevoked(root: string, key: PlumblineKey, sentence: (kid: string) => string): Promise<void> {
+  const text = await readTextIfPresent(path.join(root, REVOCATION_FILE));
+  if (text === undefined) return;
+  if ((await applyRevocationText(text, [{ kid: key.kid, origin: SELF_ORIGIN, publicKey: key.publicKey }])).applied) {
+    throw new CliError(sentence(key.kid));
+  }
 }
 
 export async function rotate(argv: string[], out: Out): Promise<number> {
@@ -455,26 +613,71 @@ export async function rotate(argv: string[], out: Out): Promise<number> {
   const oldPath = required(args, "old-key");
   const newPath = required(args, "new-key");
   const now = nowFrom(args) ?? new Date();
+  for (const keyPath of [oldPath, newPath]) {
+    const inRoot = await privateKeyInRootProblem(root, keyPath);
+    if (inRoot !== undefined) throw new CliError(`refusing to rotate: ${inRoot}`);
+  }
   const oldFile = await readPrivateKeyFile(oldPath);
   const newFile = await readPrivateKeyFile(newPath);
-  let statement;
+  const oldKey = await keyRecordOf(oldFile, now);
+  const newKey = await keyRecordOf(newFile, now);
+
+  // A rotation from a key the site has revoked is refused by every verifier (p-a4ae28), and a successor the site has
+  // revoked is never trusted again: the publisher learns it here. Only a revocation that verifies under that key counts.
+  await refuseRevoked(
+    root,
+    oldKey,
+    (kid) =>
+      `the old key (${kid}) is revoked by the site's ${REVOCATION_FILE}, so every verifier refuses a rotation from it: ` +
+      "make a new key with plumbline keygen, sign with it, and re-establish trust through the first-contact ceremony",
+  );
+  await refuseRevoked(
+    root,
+    newKey,
+    (kid) => `the new key (${kid}) is revoked by the site's ${REVOCATION_FILE}, and a revoked key is never trusted again: rotate to a key that is not revoked`,
+  );
+
+  let statement: PlumblineRotation;
   try {
-    statement = await rotateKey({
-      oldPrivateKey: oldFile.privateKey,
-      oldKey: await keyRecordOf(oldFile, now),
-      newKey: await keyRecordOf(newFile, now),
-      now,
-    });
+    statement = await rotateKey({ oldPrivateKey: oldFile.privateKey, oldKey, newKey, now });
   } catch (error) {
     if (error instanceof CliError) throw error;
     throw new CliError(`cannot rotate: ${(error as Error).message}`);
   }
+
+  // The file keeps the chain (p-86391a): a verifier several rotations behind follows it from the newest key it trusts.
   const target = path.join(root, ROTATION_FILE);
+  const existingText = await readTextIfPresent(target);
+  let chain: Record<string, unknown>[] = [];
+  if (existingText !== undefined) {
+    chain = existingStatements(target, existingText, ROTATION_TYPE, ["from", "to"]);
+    const last = chain[chain.length - 1] as { from: string; to: string };
+    if (last.from === statement.from && last.to === statement.to) {
+      emit(args, out, { from: statement.from, to: statement.to, rotationFile: target, written: false, chainLength: chain.length }, [
+        `already published: ${target} already ends with the rotation ${statement.from} -> ${statement.to}; nothing written`,
+      ]);
+      return 0;
+    }
+    if (last.to !== statement.from) {
+      throw new CliError(
+        `refusing to rotate: ${target} holds a rotation chain that ends at key ${last.to}, and this rotation starts from ${statement.from}; ` +
+          `a chain continues from its newest key so verifiers can follow it: rotate from ${last.to}, or, if that chain belongs to an identity you retired, move ${ROTATION_FILE} aside first`,
+      );
+    }
+    if (chain.some((s) => s.from === statement.to || s.to === statement.to)) {
+      throw new CliError(`refusing to rotate: the new key ${statement.to} already appears in the chain in ${target}, and a chain never returns to a key it left`);
+    }
+    if (chain.length >= MAX_STATEMENTS_PER_FILE) {
+      throw new CliError(`refusing to rotate: ${target} already holds ${chain.length} statements, the most one file may hold`);
+    }
+  }
+  const body = chain.length === 0 ? statement : [...chain, statement];
   await mkdir(root, { recursive: true });
-  await writeFile(target, JSON.stringify(statement, null, 2) + "\n", "utf8");
-  emit(args, out, { from: statement.from, to: statement.to, rotationFile: target }, [
+  await writeFile(target, JSON.stringify(body, null, 2) + "\n", "utf8");
+  const chainLength = chain.length + 1;
+  emit(args, out, { from: statement.from, to: statement.to, rotationFile: target, written: true, chainLength }, [
     `rotation ${statement.from} -> ${statement.to}`,
-    `wrote ${target}`,
+    chainLength === 1 ? `wrote ${target}` : `appended to ${target} (a chain of ${chainLength} rotations; verifiers follow it from the newest key they trust)`,
     "next: publish the new key record, then run sign with the new key so the site is signed by it.",
   ]);
   return 0;
@@ -486,12 +689,15 @@ export async function revoke(argv: string[], out: Out): Promise<number> {
   const keyPath = required(args, "key");
   const now = nowFrom(args) ?? new Date();
   const reason = args.values.get("reason");
+  // A key kept inside the site may well be the leak being revoked: revoking is never refused, but the person is told.
+  const inRoot = await privateKeyInRootProblem(root, keyPath);
   const privateFile = await readPrivateKeyFile(keyPath);
+  const key = await keyRecordOf(privateFile, now);
   let statement: PlumblineRevocation;
   try {
     statement = await revokeKey({
       privateKey: privateFile.privateKey,
-      key: await keyRecordOf(privateFile, now),
+      key,
       now,
       ...(reason !== undefined ? { reason } : {}),
     });
@@ -499,12 +705,33 @@ export async function revoke(argv: string[], out: Out): Promise<number> {
     if (error instanceof CliError) throw error;
     throw new CliError(`cannot revoke: ${(error as Error).message}`);
   }
+
+  // Every revocation the site ever made stays published (p-c30007): a second one is appended, never written over the
+  // first, so a verifier that missed the first still finds it.
   const target = path.join(root, REVOCATION_FILE);
+  const existingText = await readTextIfPresent(target);
+  let list: Record<string, unknown>[] = [];
+  if (existingText !== undefined) {
+    list = existingStatements(target, existingText, REVOCATION_TYPE, ["kid"]);
+    const self = { kid: key.kid, origin: SELF_ORIGIN, publicKey: key.publicKey };
+    if ((await applyRevocationText(existingText, [self])).applied) {
+      emit(args, out, { kid: key.kid, revocationFile: target, written: false, revocations: list.length }, [
+        `already revoked: ${target} already holds a revocation of ${key.kid} made by this key; nothing written`,
+      ]);
+      return 0;
+    }
+    if (list.length >= MAX_STATEMENTS_PER_FILE) {
+      throw new CliError(`refusing to revoke: ${target} already holds ${list.length} statements, the most one file may hold`);
+    }
+  }
+  const body = list.length === 0 ? statement : [...list, statement];
   await mkdir(root, { recursive: true });
-  await writeFile(target, JSON.stringify(statement, null, 2) + "\n", "utf8");
-  emit(args, out, { kid: statement.kid, revokedAt: statement.revokedAt, revocationFile: target }, [
+  await writeFile(target, JSON.stringify(body, null, 2) + "\n", "utf8");
+  const revocations = list.length + 1;
+  emit(args, out, { kid: statement.kid, revokedAt: statement.revokedAt, revocationFile: target, written: true, revocations }, [
     `revoked ${statement.kid} at ${statement.revokedAt}`,
-    `wrote ${target}`,
+    revocations === 1 ? `wrote ${target}` : `appended to ${target} (${revocations} revocations; every one stays published)`,
+    ...(inRoot !== undefined ? [`WARNING: ${inRoot}`] : []),
     "next: publish it at the site base, make a NEW key with keygen, re-sign the site with it, and re-establish trust " +
       "with your verifiers through the first-contact ceremony. Never rotate from the revoked key: verifiers refuse it.",
   ]);

@@ -24,6 +24,24 @@ export const MANIFEST_FILE = "agent-manifest.json" as const;
 /** The runtime lays this file over every network's links, so it is signed whenever the site publishes one. */
 export const LINKS_FILE = "links.json" as const;
 
+/**
+ * The most statements one `plumbline-rotation.json` (a chain) or `plumbline-revocation.json` (a list) may hold; a file
+ * with more is malformed. Derivation: a publisher rotates or revokes a handful of times in a site's life (a yearly
+ * planned rotation for a decade is 10 statements); 64 is that order of magnitude with room to spare, and 64 statements
+ * of about 300 bytes each (measured 2026-11-18 as the CLI writes them: a revocation with a 10-character reason is 269
+ * bytes, a rotation 313) is about 20 KB, far under the 512 KiB fetch ceiling. The cap bounds the signature checks one
+ * untrusted file can ask a verifier for.
+ */
+export const MAX_STATEMENTS_PER_FILE = 64;
+
+/**
+ * The most subjects one signature may list; a signature with more is malformed, and `verify --url` fetches none of
+ * them. Derivation: the Plumbline Desk signs 6 files (measured 2026-11-18, site/plumbline.signature.json), and a site's
+ * manifest, networks, action modules, pages and bundle are tens of files at most; 256 is an order of magnitude above a
+ * large real site, while a hostile 512 KiB signature could otherwise list thousands of paths for a verifier to fetch.
+ */
+export const MAX_SUBJECTS = 256;
+
 /** A key id: the first 16 lowercase hex characters of SHA-256 of the raw public key. */
 export const KID_PATTERN = /^[0-9a-f]{16}$/;
 /** base64url (no padding) of exactly 32 bytes: 43 characters, the last carrying 2 bits, so one of 16. */
@@ -103,7 +121,10 @@ export interface PrivateKeyFile {
   privateKey: string;
 }
 
-/** `plumbline-rotation.json`: the old key names its successor. Key loss is identity loss, so rotation is designed in. */
+/**
+ * One rotation statement: the old key names its successor. Key loss is identity loss, so rotation is designed in.
+ * `plumbline-rotation.json` holds one statement, or a chain of them (RotationFileBody).
+ */
 export interface PlumblineRotation {
   type: typeof ROTATION_TYPE;
   version: typeof FORMAT_VERSION;
@@ -132,6 +153,21 @@ export interface PlumblineRevocation {
   /** base64url Ed25519 by the REVOKED key over canonicalJson(the object without `sig`). */
   sig: string;
 }
+
+/**
+ * What `plumbline-rotation.json` holds: one statement (every file written before 2026-11-18, and the first rotation a
+ * site makes), or a JSON array of 1..MAX_STATEMENTS_PER_FILE statements in chain order, oldest first, where each
+ * statement's `from` is the previous statement's `to` (each is signed by the previous key). Every statement is the
+ * unchanged PlumblineRotation; the array adds no member of its own.
+ */
+export type RotationFileBody = PlumblineRotation | PlumblineRotation[];
+
+/**
+ * What `plumbline-revocation.json` holds: one statement (every file written before 2026-11-18, and a site's first
+ * revocation), or a JSON array of 1..MAX_STATEMENTS_PER_FILE statements, oldest first, one per revoked key, so a second
+ * revocation never unpublishes the first. Every statement is the unchanged PlumblineRevocation.
+ */
+export type RevocationFileBody = PlumblineRevocation | PlumblineRevocation[];
 
 /**
  * `plumbline.lock.json`, written by `watch --init`, read by the three drift detectors. Every hash is SHA-256 of the

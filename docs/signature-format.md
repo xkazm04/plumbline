@@ -21,8 +21,8 @@ Treat it as provenance and integrity, never as endorsement.
 | --- | --- | --- | --- |
 | `plumbline.signature.json` | site root | `plumbline sign` | the signature over the agent files |
 | `.well-known/plumbline-key.json` | site root | `plumbline keygen` | the public key record (a convenience; never trusted on its own say-so) |
-| `plumbline-rotation.json` | site root | `plumbline rotate` | the old key naming its successor (a planned change only) |
-| `plumbline-revocation.json` | site root | `plumbline revoke` | a key declaring itself dead (after a leak) |
+| `plumbline-rotation.json` | site root | `plumbline rotate` | the old key naming its successor (a planned change only); after more than one rotation, the chain of them |
+| `plumbline-revocation.json` | site root | `plumbline revoke` | a key declaring itself dead (after a leak); after more than one revocation, every one of them |
 | `plumbline.private.json` | the publisher's private custody, **never** the site | `plumbline keygen` | the private key (git-ignored by `*.private.json`) |
 | `plumbline.trust.json` | the verifier's own machine | the verifier: `plumbline trust` (first contact), `plumbline adopt` (a rotation), `plumbline verify` (an accepted revocation), or by hand | who this verifier trusts, per origin |
 
@@ -76,9 +76,20 @@ before anything else is done with it, and a string that fails its pattern is nev
 
 ### `plumbline-rotation.json`
 
+One statement:
+
 `{ "type": "plumbline-rotation", "version": 1, "from": "<old kid>", "to": "<new kid>", "toPublicKey": "<base64url raw>", "signedAt": "<ISO UTC>", "sig": "<base64url>" }`
 
 `sig` is made by the **old** key over `canonicalJson(the object without sig)`.
+
+**A chain (since 2026-11-18).** The file holds either one statement (the form above, which every file written before
+2026-11-18 has and which `plumbline rotate` still writes for a site's first rotation), or a JSON **array** of
+1 to `MAX_STATEMENTS_PER_FILE` (64) statements in chain order, oldest first: `[A -> B, B -> C, ...]`, where each
+statement's `from` is the previous statement's `to`, so each is signed by the key before it. The statements are
+unchanged; the array adds no member of its own (`RotationFileBody` in `types.ts`). A verifier still on `A` follows the
+whole chain (see "Rotation"). An empty array or one longer than 64 is `invalid malformed`. A verifier older than this
+change reads an array as a malformed statement and adopts nothing, which is the safe failure: it can still be brought
+forward by first contact.
 
 ### `plumbline-revocation.json`
 
@@ -97,6 +108,14 @@ before anything else is done with it, and a string that fails its pattern is nev
 `sig` is made by the **revoked** key over `canonicalJson(the object without sig)`. `reason` is optional and omitted when
 absent, never `null`; it is covered by the signature. There is no `origin`: a revoked key is dead for every origin a
 verifier trusts it for. See "Revocation" below for what a verifier does with it.
+
+**Every revocation stays published (since 2026-11-18).** The file holds either one statement (the form above, which
+every file written before 2026-11-18 has and which `plumbline revoke` still writes for a site's first revocation), or a
+JSON **array** of 1 to `MAX_STATEMENTS_PER_FILE` (64) statements, oldest first, one per revoked key (`RevocationFileBody`
+in `types.ts`). Each statement is unchanged and is checked on its own: a statement that does not verify changes nothing
+and does not stop the others. Before this, a second `revoke` overwrote the first statement, so a verifier that had missed
+the first revocation never saw it. A verifier older than this change reads an array as a malformed revocation and
+applies none of it; a site whose only revocation is one statement is read the same by both.
 
 ### `plumbline.private.json` (CLI format)
 
@@ -119,10 +138,14 @@ An entry may also carry:
 - `"adoptedVia": "<kid>"`, the key whose verified rotation statement this entry was adopted through (see "Rotation").
   Absent for an entry made by first contact.
 
+An entry's `origin` is held to the same rule as a signature's (`https://host[:port]`, no path, no trailing slash; `http`
+only for `localhost` and `127.0.0.1`): an entry with `https://example.com/` would never equal any signature's origin and
+would silently trust nothing, so the CLI refuses the whole file instead (since 2026-11-18).
+
 An entry means: "for files published from `origin`, I accept signatures by this key", unless it carries `revokedAt`. The entry's `kid` must equal the
 key id derived from its own `publicKey`; an entry where it does not is a defect in the trust store, reported as
 `invalid kid-mismatch`, not treated as a stranger. An entry whose `kid`, `publicKey` or `adoptedVia` fails its pattern
-makes the whole file unreadable to the CLI (exit 2).
+makes the whole file unreadable to the CLI (exit 2), as does an `origin` that breaks the origin rule.
 
 **When the CLI writes the trust file** (`trust`, `adopt`, `verify` recording a revocation) it writes a temporary file
 beside it and renames it over the original, so a reader never sees half a file, and it keeps every member it does not
@@ -164,6 +187,11 @@ revocation statements, each signed over `canonicalJson(the object without sig)`:
 
 On every finite value it is byte-identical to the `canonicalJson` of Agent Customs (Apache-2.0), and a differential
 test holds it to that.
+
+Core has one function for these bytes, `unsignedBytesOf(statement)` (canonical JSON of the object without `sig`), and
+one identity check, `isDerivedKid(kid, publicKey)` (the kid is well formed, the key is 32 bytes of base64url, and the kid
+is derived from it; never throws). Signatures, rotations, revocations and the CLI's `trust` all use them, so a change to
+either rule is made in one place.
 
 The signature is over `canonicalJson(signature without sig)`, so every field above, including `origin`, the
 timestamps and every digest, is covered.
@@ -218,7 +246,7 @@ Three states, never two. Folding the third into either of the others is a bug.
 | Verdict | Reason | Meaning |
 | --- | --- | --- |
 | `verified` | | the signer is in the verifier's trust store for this origin, every signed file matches, the signature covers every file the runtime loads, the signature is current and the math checks under the **trust store's** key |
-| `invalid` | `malformed` | not a well-formed signature (wrong type, version or algorithm, missing or mistyped fields, a `kid` or subject path outside its pattern, duplicate paths, `expiresAt` not after `signedAt`, a value canonical JSON refuses), `signedAt` more than 5 minutes in the future, or a signed manifest whose `networks[].hocon` or code file path (above) is not a safe site-relative path |
+| `invalid` | `malformed` | not a well-formed signature (wrong type, version or algorithm, missing or mistyped fields, a `kid` or subject path outside its pattern, duplicate paths, more than `MAX_SUBJECTS` (256) subjects, `expiresAt` not after `signedAt`, a value canonical JSON refuses), `signedAt` more than 5 minutes in the future, or a signed manifest whose `networks[].hocon` or code file path (above) is not a safe site-relative path |
 | `invalid` | `kid-mismatch` | a trust store entry's `kid` is not derived from its own key (or its key is not a 32-byte base64url): the trust store is defective |
 | `invalid` | `tampered` | a signed file differs from what was signed, a signed path is missing from the files checked, or the signature does not cover a file the runtime loads: `agent-manifest.json`, a network or code file (action module, bridge, coded-tools bundle) the **signed** manifest names, or a `links.json` or `plumbline.lock.json` that is present |
 | `invalid` | `expired` | `now >= expiresAt` |
@@ -275,7 +303,11 @@ because nothing in the artifact can vouch for itself.
 - **Key loss is identity loss.** There is no recovery: nobody else holds the private key. Back up
   `plumbline.private.json` to somewhere offline, and keep a second copy apart from the first.
 - **Never commit the private key.** `*.private.json` is git-ignored here; do the same in your site's repository, and
-  never put it in the published site directory.
+  never put it in the published site directory. `plumbline sign` and `plumbline rotate` refuse (exit 2) when the
+  private key file resolves inside `--root` (symlinks followed), or when the root holds a `plumbline.private.json` at
+  all: a folder deploy would publish it. `plumbline revoke` never refuses (the key in the site may be the leak being
+  revoked) but warns. `plumbline keygen` warns when `--out` already looks like a site (it holds `agent-manifest.json` or
+  `plumbline.signature.json`).
 - **A leaked key lets anyone sign as you, and rotate as you.** Do not rotate after a leak: revoke (below).
 - **A key held in browser memory is exposed to every script running on that origin.** Anything on the page can use it
   or export it. Keep signing keys on a build machine or a hardware-backed store, not in the page.
@@ -291,9 +323,15 @@ The old key signs a statement naming the new key:
 
 1. `plumbline keygen --out <new dir>` makes the successor.
 2. `plumbline rotate --root <site> --old-key <old private file> --new-key <new private file>` writes
-   `plumbline-rotation.json`. It refuses a new key that is the old key, and a key file whose `kid` does not match its key.
+   `plumbline-rotation.json`. It refuses a new key that is the old key, a key file whose `kid` does not match its key,
+   a key file inside the site root, and (exit 2, pointing at `keygen` and first contact) an old key, or a new key, that
+   the root's `plumbline-revocation.json` revokes, checked under that key: every verifier refuses such a rotation. When
+   the file already holds a rotation, the new statement is **appended**, making a chain: it must continue from the
+   chain's newest key (otherwise exit 2: rotate from that key, or move the file aside if the chain belongs to an identity
+   you retired), it may not return to a key the chain already left, and the same rotation twice writes nothing.
 3. Publish the new key record at `.well-known/plumbline-key.json`, publish `plumbline-rotation.json`, and re-sign the
-   site with the new key.
+   site with the new key. `plumbline sign` warns when the root's `.well-known/plumbline-key.json` is absent or is not
+   the signing key's record (it does not refuse: the record may be served from elsewhere).
 
 A verifier checks the statement with `verifyRotation(rotation, trust, origin)`:
 
@@ -309,16 +347,33 @@ A verifier checks the statement with `verifyRotation(rotation, trust, origin)`:
 `adoptRotation(rotation, trustEntries, origin)` (core), only after `verifyRotation` returned `verified` for that origin.
 It returns `{ kid: to, origin, publicKey: toPublicKey, adoptedVia: from }`; the `adoptedVia` field records that this
 entry exists on the old key's word, so revoking the old key later revokes this entry too (next section). It throws
-when the statement is malformed, when `from` is not trusted for that origin, or when `from` is revoked anywhere; it
-does not check the signature, which is `verifyRotation`'s job. **Plumbline's CLI and Desk never adopt a successor
+when the statement is malformed, when `from` is not trusted for that origin, when `from` is revoked anywhere, or when
+`to` is recorded as revoked anywhere (a revoked key is never trusted again, the rule first contact follows); it does
+not check the signature, which is `verifyRotation`'s job.
+
+**Following a chain.** `walkRotationChain(statements, trustEntries, origin)` (core) takes the statements of a rotation
+file (one statement is a chain of one) and starts at the **newest** key the verifier holds for that origin: the last
+statement whose `from` has an entry there. From that statement to the end, each must continue from the previous one's
+`to`, verify under the key trusted so far (`verifyRotation`, each successor already walked counting as trusted) and
+name a successor `adoptRotation` accepts. It returns `{ result, hops, entries, brokenAt?, newest? }`: `entries` are the
+successors to add, in chain order, each with `adoptedVia` naming the key before it, so a revocation of any key up the
+chain revokes every key after it. The first statement that breaks the chain, does not verify, or names a revoked key
+**stops the walk**: `brokenAt` is its index (0 is the oldest), `result` is its verdict, and `entries` is empty: a broken
+chain adopts nothing, not even the hops before the break. Statements before the starting point are checked for shape
+only. No trusted key in the chain is `unverifiable`. **Plumbline's CLI and Desk never adopt a successor
 automatically**: adopting is the verifier's own decision. From the CLI it is
-`plumbline adopt --root <site> --trust <trust file> --origin <origin> [--yes]`: it applies a `plumbline-revocation.json`
-in the same folder first (a rotation from a revoked key is refused), runs `verifyRotation` against the trust file for
-that origin, and prints the verdict, `from -> to` and the successor's public key. Without `--yes` it writes nothing and
-exits 1; with `--yes` it appends `adoptRotation`'s entry (and records a revocation it accepted) and exits 0. A rotation
-that does not verify is refused (exit 1), and a successor already trusted for that origin is not added twice (exit 0).
-`plumbline verify` never adopts; when the signer is unknown and a `plumbline-rotation.json` sits in the root, it prints a
-hint that names `plumbline adopt`.
+`plumbline adopt --trust <trust file> (--root <site> --origin <origin> | --url <site base> [--allow-local]) [--yes]`: it
+applies the site's `plumbline-revocation.json` first (a rotation from a revoked key is refused), walks the rotation file
+with `walkRotationChain` against the trust file for that origin, and prints each hop's `from -> to` and verdict and each
+successor's public key. Without `--yes` it writes nothing and exits 1; with `--yes` it appends every successor's entry
+(and records a revocation it accepted) and exits 0. A rotation that does not verify, a chain that breaks (the line names
+the statement, and `--json` carries `brokenAt` and `chainLength`), and a successor the trust file records as revoked
+(with `trust`'s own sentence) are refused (exit 1); a rotation file that is not JSON is `invalid malformed` (exit 1); a
+successor already trusted for that origin is not added twice (exit 0). With `--url` the site is read through the same
+guarded fetch as `verify --url` and the origin is the URL's own (`--origin` is refused beside it); a revocation the site
+does not serve cleanly (an error, not a 404) refuses the adoption (exit 2), because it might revoke the key the rotation
+comes from. `plumbline verify` never adopts; when the signer is unknown and the site (folder or URL) serves a
+`plumbline-rotation.json`, it prints a hint that names the matching `plumbline adopt --root ...` or `--url ...` command.
 
 A rotation only helps a verifier that still trusts the old key. If the old key is lost and was never trusted anywhere
 else, the publisher starts over with a new identity and the first-contact ceremony below.
@@ -331,7 +386,9 @@ one, the thief included, and that is fine: a revocation can only take trust away
 After a leak, the publisher:
 
 1. `plumbline revoke --root <site> --key <leaked private file> [--reason <text>]` writes `plumbline-revocation.json`.
-   Publish it at the site base.
+   Publish it at the site base. When the file already holds a revocation of another key, the new statement is
+   **appended** (the file becomes a list), so the earlier revocation stays published; a revocation of the same key that
+   already verifies in the file writes nothing; a file that holds no statement is never overwritten (exit 2).
 2. `plumbline keygen --out <new dir>` makes a **new** key. Re-sign the site with it and publish its key record.
 3. Re-establish trust with every verifier through the **first-contact ceremony** below: the new key reaches them out of
    band, like the first one did. Do not publish a rotation from the leaked key; verifiers refuse it.
@@ -346,9 +403,12 @@ A verifier checks the statement with `applyRevocation(revocation, entry, trustEn
   The verifier replaces its store with it.
 
 `applyRevocationText(text, entries)` (core) is the same rule over a revocation file's text, as read or fetched: it
-parses it (text that is not JSON is `invalid malformed`, "The revocation file is not valid JSON."), checks it against
-every entry held for its kid, and returns `{ applied, kid?, results, entries }`, the entries in the order given with
-the revocation spread when it verified. The CLI and the Desk both apply revocations through it; the caller decides
+parses it (text that is not JSON is `invalid malformed`, "The revocation file is not valid JSON."), takes its statements
+(one, or a list), checks each against every entry held for its kid, and returns `{ applied, kid?, kids?, results,
+entries }`: `applied` when at least one statement verified, the entries in the order given with every verified
+revocation spread, and one result per entry checked, statement by statement. `kid` is the single statement's kid, or the
+last well-formed kid of a list (the newest, since `revoke` appends); `kids` (since 2026-11-18) names every well-formed
+kid in the file once, in file order: read it to ask "does this site revoke key X". The CLI and the Desk both apply revocations through it; the caller decides
 whether to keep the result in memory or write it to its store (`plumbline verify` writes it).
 - no trust entry for that `kid`: `unverifiable`, and nothing changes. A key this verifier never trusted needs no revoking.
 - a bad signature (someone else's statement), a malformed statement, or a defective trust entry: `invalid`, and
@@ -383,7 +443,10 @@ not something the artifact can announce about itself. The ceremony:
 5. Verify again. Now `verified` means something.
 
 From the CLI, steps 3 and 4 are `plumbline trust --key <the fetched plumbline-key.json> --origin <origin> --file
-<plumbline.trust.json>`. It refuses a record whose `kid` is not derived from its `publicKey` (exit 2), a bad origin
+<plumbline.trust.json>`, or, folding step 1 in, `plumbline trust --url <site base> [--allow-local] --file
+<plumbline.trust.json>`: it fetches `.well-known/plumbline-key.json` through the same guarded fetch as `verify --url`
+and takes the origin from the URL (`--origin` is refused beside it). Fetching the record from the site adds no trust:
+the kid is still compared out of band, and the same warning is printed. It refuses a record whose `kid` is not derived from its `publicKey` (exit 2), a bad origin
 (exit 2), and a kid this trust file records as revoked at any origin (exit 2: a revoked key is never trusted again).
 Otherwise it prints the kid and the first-contact warning and, **without `--yes`, adds nothing and exits 1** ("confirm
 out of band, then rerun with --yes"). With `--yes` it appends `{ kid, origin, publicKey }` (creating the file when it
@@ -404,16 +467,21 @@ prints no usage line. The commands are `keygen`, `sign`, `verify`, `rotate`, `re
 | Command | Does |
 | --- | --- |
 | `plumbline keygen --out <dir>` | writes `plumbline.private.json` and `.well-known/plumbline-key.json` under `<dir>`, prints the `kid` and the custody warnings; refuses to overwrite |
-| `plumbline sign --root <site> --key <private file> --origin <origin> [--days N]` | signs the files above (the lock too, when it exists: run `watch --init` first), writes `plumbline.signature.json`. Refuses (exit 2, pointing at `keygen`) when the root's `plumbline-revocation.json` revokes the signing key, checked under that key; a revocation of another key, one that does not verify under this key, or one that is not JSON does not stop it |
-| `plumbline verify --trust <trust file> (--root <site> [--origin <origin>] \| --url <site base> [--allow-local])` | prints the verdict line, `verified`, `invalid <reason>` or `unverifiable`, then the kid, origin and detail; exit 0 only for `verified`, 1 for `invalid` or `unverifiable`, 2 for I/O or usage errors (including a trust file with a malformed entry, and no `plumbline.signature.json`). Reads `.well-known/plumbline-key.json` only to say whether the math holds for an unknown signer. With `--origin`, a signature made for another origin is `unverifiable` (above). When a `plumbline-revocation.json` is found beside the site, it is applied first with `applyRevocationText`, spread to every origin and to every entry adopted through the revoked key, and **recorded in the trust file** when it verified: the text output says `revocation applied` or `revocation not applied` with one line per trust entry checked, then `revocation recorded in <file> (N entries)` or `revocation already recorded in <file>`, before the verdict line; `--json` adds `revocation: { file, applied, recorded, trustFile?, recordedEntries?, results }`. When the signer is unknown and the root holds a `plumbline-rotation.json`, a hint names `plumbline adopt` |
-| `plumbline rotate --root <site> --old-key <file> --new-key <file>` | writes `plumbline-rotation.json` (a planned change only) |
-| `plumbline revoke --root <site> --key <file> [--reason <text>]` | writes `plumbline-revocation.json`, signed by that key |
-| `plumbline trust --key <plumbline-key.json> --origin <origin> --file <trust file> [--yes]` | first contact (above): prints the kid and the warning; adds `{ kid, origin, publicKey }` only with `--yes` (exit 0), otherwise exit 1 and nothing written. `--json`: `{ kid, origin, publicKey, trustFile, added, alreadyTrusted, warning }` |
-| `plumbline adopt --root <site> --trust <trust file> --origin <origin> [--yes]` | a published rotation (see "Rotation"): `verifyRotation`, then with `--yes` `adoptRotation`'s entry is appended (exit 0); without `--yes`, or when the rotation does not verify, exit 1 and nothing written. `--json`: `{ results, revocation?, added, ... }` |
+| `plumbline sign --root <site> --key <private file> --origin <origin> [--days N]` | signs the files above (the lock too, when it exists: run `watch --init` first), writes `plumbline.signature.json`. Refuses (exit 2, pointing at `keygen`) when the root's `plumbline-revocation.json` revokes the signing key, checked under that key; a revocation of another key, one that does not verify under this key, or one that is not JSON does not stop it. Refuses (exit 2) a private key file inside the root, or a root holding `plumbline.private.json`. Warns when the root's `.well-known/plumbline-key.json` is absent or another key's; `--json` carries `keyRecord: "match" \| "mismatch" \| "absent"` |
+| `plumbline verify --trust <trust file> (--root <site> [--origin <origin>] \| --url <site base> [--allow-local] [--timeout <seconds>])` | prints the verdict line, `verified`, `invalid <reason>` or `unverifiable`, then the kid, origin and detail; exit 0 only for `verified`, 1 for `invalid` or `unverifiable`, 2 for I/O or usage errors (including a trust file with a malformed entry, and no `plumbline.signature.json`). Reads `.well-known/plumbline-key.json` only to say whether the math holds for an unknown signer. With `--origin`, a signature made for another origin is `unverifiable` (above). When a `plumbline-revocation.json` is found beside the site, it is applied first with `applyRevocationText`, spread to every origin and to every entry adopted through the revoked key, and **recorded in the trust file** when it verified: the text output says `revocation applied` or `revocation not applied` with one line per trust entry checked, then `revocation recorded in <file> (N entries)` or `revocation already recorded in <file>`, before the verdict line; `--json` adds `revocation: { file, applied, recorded, trustFile?, recordedEntries?, results }`. When the signer is unknown and the site holds a `plumbline-rotation.json`, a hint names `plumbline adopt` (with `--url` for a site read by URL) |
+| `plumbline rotate --root <site> --old-key <file> --new-key <file>` | writes `plumbline-rotation.json` (a planned change only), or appends to the chain it holds; refuses a revoked old or new key and a key file inside the root (see "Rotation"). `--json`: `{ from, to, rotationFile, written, chainLength }` |
+| `plumbline revoke --root <site> --key <file> [--reason <text>]` | writes `plumbline-revocation.json`, signed by that key, or appends to the list it holds (see "Revocation"). `--json`: `{ kid, revokedAt?, revocationFile, written, revocations }` |
+| `plumbline trust --file <trust file> (--key <plumbline-key.json> --origin <origin> \| --url <site base> [--allow-local]) [--yes]` | first contact (above): prints the kid and the warning; adds `{ kid, origin, publicKey }` only with `--yes` (exit 0), otherwise exit 1 and nothing written. `--json`: `{ kid, origin, publicKey, trustFile, added, alreadyTrusted, warning, keyRecord? }` (`keyRecord`: the URL the record was fetched from) |
+| `plumbline adopt --trust <trust file> (--root <site> --origin <origin> \| --url <site base> [--allow-local]) [--yes]` | a published rotation or chain (see "Rotation"): `walkRotationChain`, then with `--yes` every successor's entry is appended (exit 0); without `--yes`, or when the chain breaks or does not verify, exit 1 and nothing written. `--json`: `{ results, revocation?, chainLength, brokenAt?, from?, to, added, adopted?, ... }` |
 
 **`verify --url <site base>`** fetches the site instead of reading a folder, through the same guarded fetch as the gate
 and the watch (`src/net/safe-fetch.ts`: https only, every resolved address public, at most 3 redirects, a 512 KiB body
-ceiling and a 10 s timeout per file). The base is read as a folder (a missing trailing `/` is added; query and
+ceiling and a 10 s timeout per file). A signed file (a subject) is asked for with the runtime-file ceiling
+(`ceiling: "runtime"`, `MAX_RUNTIME_FILE_BYTES`, 4 MiB), because a signed action module or coded-tools bundle can be
+larger than a network definition, and one over the ceiling is reported as over it, never as not served or tampered.
+The whole run has one overall deadline, 60 s unless `--timeout <seconds>` (at most 3600) says otherwise; a file asked
+for after it passed is not served. A signature that lists more than `MAX_SUBJECTS` (256) files is `invalid malformed`
+and **none** of its files is fetched, so a hostile signature cannot hold a verifier for hours. The base is read as a folder (a missing trailing `/` is added; query and
 fragment are dropped), and the files are checked **as the URL's origin**: `--url` binds `expectedOrigin` itself, so
 `--origin` is refused beside it, and a signature made for another origin is `unverifiable`. It fetches, as exact bytes:
 `plumbline-revocation.json` (first), `plumbline.signature.json`, every signed path (a path that is not a safe

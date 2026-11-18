@@ -223,3 +223,49 @@ test("isPrivateKeyFile: the exact private key file shape, nothing else", async (
     assert.equal(isPrivateKeyFile(bad), false, JSON.stringify(bad));
   }
 });
+
+// ---- p-c30007: a revocation file may hold every revocation the site made ----
+
+test("applyRevocationText: a list of statements applies each; a forged one changes nothing and does not stop the others", async () => {
+  const { applyRevocationText } = await import("../core/index.js");
+  const a = await generateKey(T0);
+  const b = await generateKey(T0);
+  const thief = await generateKey(T0);
+  const bystander = await generateKey(T0);
+  const entries = [entryOf(a), entryOf(b, "https://b.example"), entryOf(bystander)];
+  const first = await revokeKey({ privateKey: a.privateKey, key: a.key, now: T0 });
+  const forged = { ...(await revokeKey({ privateKey: thief.privateKey, key: thief.key })), kid: bystander.key.kid };
+  const second = await revokeKey({ privateKey: b.privateKey, key: b.key, now: LATER });
+  const outcome = await applyRevocationText(JSON.stringify([first, forged, second]), entries);
+  assert.equal(outcome.applied, true);
+  assert.deepEqual(outcome.results.map((r) => [r.verdict, r.reason, r.kid]), [
+    ["verified", undefined, a.key.kid],
+    ["invalid", "bad-signature", bystander.key.kid],
+    ["verified", undefined, b.key.kid],
+  ]);
+  assert.deepEqual(outcome.entries.map((e) => e.revokedAt), [T0.toISOString(), LATER.toISOString(), undefined]);
+  // kid stays the single-statement field (the newest statement's kid); kids names every key the file revokes
+  assert.equal(outcome.kid, b.key.kid);
+  assert.deepEqual(outcome.kids, [a.key.kid, bystander.key.kid, b.key.kid]);
+
+  // a single statement still reads exactly as before, now with kids beside kid
+  const one = await applyRevocationText(JSON.stringify(first), entries);
+  assert.deepEqual([one.applied, one.kid, one.kids], [true, a.key.kid, [a.key.kid]]);
+});
+
+test("applyRevocationText: an empty list, a list over the cap, and a list of non-statements are malformed and change nothing", async () => {
+  const { applyRevocationText, MAX_STATEMENTS_PER_FILE } = await import("../core/index.js");
+  const a = await generateKey(T0);
+  const entries = [entryOf(a)];
+  const statement = await revokeKey({ privateKey: a.privateKey, key: a.key, now: T0 });
+  for (const text of ["[]", JSON.stringify(new Array(MAX_STATEMENTS_PER_FILE + 1).fill(statement))]) {
+    const outcome = await applyRevocationText(text, entries);
+    assert.equal(outcome.applied, false, text.slice(0, 20));
+    assert.deepEqual([outcome.results.length, outcome.results[0]?.reason], [1, "malformed"]);
+    assert.deepEqual(outcome.entries, entries);
+  }
+  const junk = await applyRevocationText(JSON.stringify(["SECRET", 4, null]), entries);
+  assert.equal(junk.applied, false);
+  assert.ok(junk.results.every((r) => r.reason === "malformed"));
+  assert.ok(!JSON.stringify(junk).includes("SECRET"));
+});

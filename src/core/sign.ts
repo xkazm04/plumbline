@@ -10,6 +10,7 @@ import {
   LINKS_FILE,
   LOCK_FILE,
   MANIFEST_FILE,
+  MAX_SUBJECTS,
   SIGNATURE_TYPE,
   type PlumblineKey,
   type PlumblineSignature,
@@ -73,6 +74,8 @@ export async function signSubjects(options: SignOptions): Promise<PlumblineSigna
     throw new Error("origin must be an https:// origin with no path (http only for localhost and 127.0.0.1)");
   }
   if (!Array.isArray(files) || files.length === 0) throw new Error("nothing to sign: no files given");
+  // a verifier calls a longer subject list malformed (MAX_SUBJECTS): never make a signature that cannot verify
+  if (files.length > MAX_SUBJECTS) throw new Error(`a signature covers at most ${MAX_SUBJECTS} files`);
   const seen = new Set<string>();
   for (const file of files) {
     if (!isSafeSubjectPath(file.path)) {

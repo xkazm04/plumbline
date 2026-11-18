@@ -1,7 +1,16 @@
 // Keys: identity derivation and Ed25519 primitives over WebCrypto. Pure: no node:* imports.
 
 import { base64UrlToBytes, bytesToBase64Url, sha256Hex, webCrypto } from "./canonical.js";
-import { ALG, FORMAT_VERSION, KEY_TYPE, PRIVATE_KEY_TYPE, type PlumblineKey, type PrivateKeyFile } from "./types.js";
+import {
+  ALG,
+  FORMAT_VERSION,
+  KEY_TYPE,
+  KID_PATTERN,
+  PRIVATE_KEY_TYPE,
+  PUBLIC_KEY_PATTERN,
+  type PlumblineKey,
+  type PrivateKeyFile,
+} from "./types.js";
 
 export const RAW_PUBLIC_KEY_BYTES = 32;
 
@@ -10,6 +19,22 @@ export async function keyId(publicKey: string): Promise<string> {
   const raw = base64UrlToBytes(publicKey);
   if (raw.length !== RAW_PUBLIC_KEY_BYTES) throw new Error("a raw Ed25519 public key is 32 bytes");
   return (await sha256Hex(raw)).slice(0, 16);
+}
+
+/**
+ * True only when `kid` is a well-formed kid, `publicKey` is the base64url of exactly 32 bytes, and `kid` is the key id
+ * derived from it. Never throws. The one identity check signatures (trust entries), rotations (the successor), revocations
+ * (the trusted entry) and the CLI's first-contact `trust` share.
+ */
+export async function isDerivedKid(kid: unknown, publicKey: unknown): Promise<boolean> {
+  if (typeof kid !== "string" || !KID_PATTERN.test(kid) || typeof publicKey !== "string" || !PUBLIC_KEY_PATTERN.test(publicKey)) {
+    return false;
+  }
+  try {
+    return (await keyId(publicKey)) === kid;
+  } catch {
+    return false;
+  }
 }
 
 export interface GeneratedKey {

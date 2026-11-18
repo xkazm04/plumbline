@@ -4,9 +4,10 @@
 // publish a rotation to a key of their own and it verifies. A revocation is also signed by the old key, but it can only
 // ever take trust away, never hand it to anyone, so anyone holding the key may publish it: that is the safe direction.
 
-import { canonicalJson } from "./canonical.js";
-import { keyId, keyIdOfPrivate, signText, verifyText } from "./keys.js";
-import { KID_PATTERN, invalid, isBase64Url, isIsoUtc, isKid, isPublicKey } from "./verify.js";
+import { canonicalJson, unsignedBytesOf } from "./canonical.js";
+import { isDerivedKid, keyIdOfPrivate, signText, verifyText } from "./keys.js";
+import { statementsOf } from "./rotate.js";
+import { KID_PATTERN, invalid, isBase64Url, isIsoUtc, isKid } from "./verify.js";
 import {
   ALG,
   FORMAT_VERSION,
@@ -122,13 +123,7 @@ export async function applyRevocation(
       detail: "The revoked key is not one this verifier trusts, so the revocation cannot be checked and changes nothing here.",
     };
   }
-  let derived: string | undefined;
-  try {
-    derived = isPublicKey(entry.publicKey) ? await keyId(entry.publicKey) : undefined;
-  } catch {
-    derived = undefined;
-  }
-  if (derived !== entry.kid) {
+  if (!(await isDerivedKid(entry.kid, entry.publicKey))) {
     return invalid(
       "kid-mismatch",
       "The trust store entry for this key does not match its own key id, so the trust store itself is defective.",
@@ -136,10 +131,10 @@ export async function applyRevocation(
       entry.origin,
     );
   }
-  const { sig, ...unsigned } = revocation;
+  const { sig } = revocation;
   let signed: string;
   try {
-    signed = canonicalJson(unsigned);
+    signed = unsignedBytesOf(revocation);
   } catch {
     return invalid("malformed", "The revocation carries a value canonical JSON cannot encode.", kid, entry.origin);
   }
@@ -166,36 +161,33 @@ export async function applyRevocation(
 
 /** What applyRevocationText did with a revocation file's text. */
 export interface RevocationOutcome {
-  /** True when the revocation verified under a trusted key and `entries` carries it. */
+  /** True when at least one revocation in the file verified under a trusted key and `entries` carries it. */
   applied: boolean;
-  /** The revoked kid, only when it is a well-formed kid (anything else is never quoted). */
+  /**
+   * A revoked kid, only when it is a well-formed kid (anything else is never quoted): the kid of a single-statement
+   * file, or the kid of the LAST well-formed statement of a list (the newest: `plumbline revoke` appends). Read `kids`
+   * for every key a list revokes.
+   */
   kid?: string;
-  /** One result per trust entry for the revoked kid; one result when no entry matched or the text is not JSON. */
+  /** Every well-formed kid the file names, once each, in file order (since 2026-11-18). Absent when it names none. */
+  kids?: string[];
+  /**
+   * One result per trust entry checked for each statement, statement by statement in file order; one result for a
+   * statement whose kid no entry matched, and one result when the text is not JSON or not a statement file.
+   */
   results: VerifyResult[];
   /**
-   * The trust entries afterwards, in the order given: with the revocation applied and spread (every origin, every
-   * adoptedVia chain) when `applied`, otherwise the entries as given. Index i is the caller's entry i.
+   * The trust entries afterwards, in the order given: with every verified revocation applied and spread (every origin,
+   * every adoptedVia chain) when `applied`, otherwise the entries as given. Index i is the caller's entry i.
    */
   entries: TrustEntry[];
 }
 
-/**
- * Applies the text of a `plumbline-revocation.json` (as read or fetched) to a verifier's trust entries: parses it,
- * checks it with applyRevocation against EVERY entry the verifier holds for its kid (a revocation names no origin), and
- * returns the entries with it spread. Only a verified revocation changes anything, and only by taking trust away. The
- * one rule the CLI and the Desk share; the caller decides whether to keep the result in memory or write it back. Pure.
- */
-export async function applyRevocationText(text: string, entries: readonly TrustEntry[]): Promise<RevocationOutcome> {
-  let statement: unknown;
-  try {
-    statement = JSON.parse(text);
-  } catch {
-    return {
-      applied: false,
-      results: [{ verdict: "invalid", reason: "malformed", detail: "The revocation file is not valid JSON." }],
-      entries: [...entries],
-    };
-  }
+/** One statement applied to every trust entry for its kid, threading the entries through. */
+async function applyOne(
+  statement: unknown,
+  entries: TrustEntry[],
+): Promise<{ applied: boolean; kid?: string; results: VerifyResult[]; entries: TrustEntry[] }> {
   const raw = (statement as { kid?: unknown } | null)?.kid;
   const kid = isKid(raw) ? raw : undefined;
   const revocation = statement as PlumblineRevocation;
@@ -204,10 +196,10 @@ export async function applyRevocationText(text: string, entries: readonly TrustE
     const { entry: _none, entries: _all, ...result } = await applyRevocation(revocation, undefined);
     void _none;
     void _all;
-    return { applied: false, ...(kid !== undefined ? { kid } : {}), results: [result], entries: [...entries] };
+    return { applied: false, ...(kid !== undefined ? { kid } : {}), results: [result], entries };
   }
   const results: VerifyResult[] = [];
-  let working: TrustEntry[] = [...entries];
+  let working = entries;
   let applied = false;
   for (const entry of matching) {
     const current = working.find((e) => e.kid === entry.kid && e.origin === entry.origin) ?? entry;
@@ -220,4 +212,56 @@ export async function applyRevocationText(text: string, entries: readonly TrustE
     }
   }
   return { applied, ...(kid !== undefined ? { kid } : {}), results, entries: working };
+}
+
+/**
+ * Applies the text of a `plumbline-revocation.json` (as read or fetched) to a verifier's trust entries: parses it,
+ * takes its statements (one object, or a list of 1..MAX_STATEMENTS_PER_FILE, RevocationFileBody), checks each with
+ * applyRevocation against EVERY entry the verifier holds for its kid (a revocation names no origin), and returns the
+ * entries with every verified one spread. Only a verified revocation changes anything, and only by taking trust away; a
+ * statement in a list that does not verify changes nothing and does not stop the others. The one rule the CLI and the
+ * Desk share; the caller decides whether to keep the result in memory or write it back. Pure.
+ */
+export async function applyRevocationText(text: string, entries: readonly TrustEntry[]): Promise<RevocationOutcome> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return {
+      applied: false,
+      results: [{ verdict: "invalid", reason: "malformed", detail: "The revocation file is not valid JSON." }],
+      entries: [...entries],
+    };
+  }
+  const listed = statementsOf(parsed);
+  if ("problem" in listed) {
+    // a lone value that is not an object goes to applyRevocation, which words it as before; a bad list is ours to word
+    if (!Array.isArray(parsed)) {
+      const { entry: _none, entries: _all, ...result } = await applyRevocation(parsed as PlumblineRevocation, undefined);
+      void _none;
+      void _all;
+      return { applied: false, results: [result], entries: [...entries] };
+    }
+    return {
+      applied: false,
+      results: [{ verdict: "invalid", reason: "malformed", detail: `The revocation file is malformed: ${listed.problem}.` }],
+      entries: [...entries],
+    };
+  }
+  let working: TrustEntry[] = [...entries];
+  let applied = false;
+  let kid: string | undefined;
+  const kids: string[] = [];
+  const results: VerifyResult[] = [];
+  for (const statement of listed.statements) {
+    const one = await applyOne(statement, working);
+    results.push(...one.results);
+    working = one.entries;
+    applied ||= one.applied;
+    if (one.kid !== undefined) {
+      kid = one.kid;
+      if (!kids.includes(one.kid)) kids.push(one.kid);
+    }
+  }
+  return { applied, ...(kid !== undefined ? { kid, kids } : {}), results, entries: working };
 }

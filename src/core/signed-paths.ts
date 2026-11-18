@@ -10,10 +10,12 @@
 //   actions.module, actions.modules[]  imported as ES modules (action-transport.js `loadActionModule`:
 //                                      `import(sameOriginAsset(base, path))` for `module` and each of `modules`);
 //   actions.bridge                     the HTML the runtime frames for partner sites (action-transport.js:139);
+//   actions.catalog                    a discovered-actions catalogue (discovered-actions.js);
+//   actions.pages[]                    pages whose forms become actions (form-actions.js);
 //   coded_tools.bundle                 the executable bundle of coded tools (engine.js `_compile`, line 207).
-// Not covered, and docs/signature-format.md says so: modules those files import in turn, the page's own scripts and
-// the runtime folder (the HTTPS origin and the watch's runtime lock cover those), and the manifest's other action
-// sources, `actions.catalog` and `actions.pages[]`.
+// Not covered, and docs/signature-format.md says so: modules those files import in turn, what the signed pages load
+// in turn, the endpoints a catalogue calls, and the page's own scripts and the runtime folder (the HTTPS origin and the
+// watch's runtime lock cover those).
 
 import { LINKS_FILE, LOCK_FILE, MANIFEST_FILE, SUBJECT_PATH_PATTERN } from "./types.js";
 
@@ -44,20 +46,14 @@ export function isSafeSubjectPath(path: unknown): path is string {
  * index, never its text.
  */
 export function networkPathOf(hocon: string, index = 0): string {
-  const path = hocon.startsWith("./") ? hocon.slice(2) : hocon;
-  if (!isSafeSubjectPath(path)) {
-    throw new Error(
-      `the manifest's networks[${index}].hocon is not a safe site-relative path (absolute URLs and paths, "..", backslashes ` +
-        "and characters outside A-Z a-z 0-9 . _ / - are refused)",
-    );
-  }
-  return path;
+  return codePathOf(hocon, `networks[${index}].hocon`);
 }
 
 /**
- * The signed path for one code file the manifest names (`actions.module`, `actions.modules[i]`, `actions.bridge`,
- * `coded_tools.bundle`): the same rule as a network's `hocon` (networkPathOf). `field` names the manifest field in
- * the error; the value itself is never quoted.
+ * The signed path for one file the manifest names (`networks[i].hocon`, `actions.module`, `actions.modules[i]`,
+ * `actions.bridge`, `actions.catalog`, `actions.pages[i]`, `coded_tools.bundle`): the value as written, one leading
+ * `./` removed, held to isSafeSubjectPath. The one path rule; networkPathOf is this rule for a network. `field` names
+ * the manifest field in the error; the value itself is never quoted.
  */
 export function codePathOf(value: string, field: string): string {
   const path = value.startsWith("./") ? value.slice(2) : value;

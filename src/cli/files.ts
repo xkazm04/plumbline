@@ -1,6 +1,6 @@
 // File I/O for the CLI. Core never touches the disk; everything that does lives here.
 
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CliError } from "./args.js";
 import type { PlumblineKey, PrivateKeyFile, SubjectFile, TrustEntry, TrustStore } from "../core/index.js";
@@ -11,6 +11,7 @@ import {
   PRIVATE_KEY_FILE,
   PRIVATE_KEY_TYPE,
   derivePublicKey,
+  isAcceptableOrigin,
   isIsoUtc,
   isKid,
   isPrivateKeyFile,
@@ -116,6 +117,35 @@ export async function writeFileAtomic(file: string, text: string): Promise<void>
   }
 }
 
+/** The real path of a file or folder when it exists (symlinks resolved), else its absolute path. */
+async function realOrResolved(file: string): Promise<string> {
+  try {
+    return await realpath(file);
+  } catch {
+    return path.resolve(file);
+  }
+}
+
+/**
+ * Why a private key file must not be used with this site root, or undefined when it may: the key file resolves inside
+ * the root (a folder deploy would publish it), or the root holds a `plumbline.private.json` of any key. Never refuses a
+ * key kept outside a root that holds no private key file.
+ */
+export async function privateKeyInRootProblem(root: string, keyPath: string): Promise<string | undefined> {
+  const rootReal = await realOrResolved(root);
+  const keyReal = await realOrResolved(keyPath);
+  const fold = (p: string): string => (process.platform === "win32" ? p.toLowerCase() : p);
+  const relative = path.relative(fold(rootReal), fold(keyReal));
+  const fix = "move it out of the site folder, and if it was ever published, revoke it with plumbline revoke and make a new key with plumbline keygen";
+  if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+    return `the private key file ${keyPath} sits inside the site root ${root}, so publishing the folder publishes the key: ${fix}`;
+  }
+  if ((await readTextIfPresent(path.join(root, PRIVATE_KEY_FILE))) !== undefined) {
+    return `the site root ${root} holds a ${PRIVATE_KEY_FILE}, so publishing the folder publishes a private key: ${fix}`;
+  }
+  return undefined;
+}
+
 /** A verifier's `plumbline.trust.json` as read: the parsed file, kept whole, and its entries as core reads them. */
 export interface TrustFile {
   file: string;
@@ -141,13 +171,15 @@ export async function readTrustFile(file: string, options: { missingIsEmpty?: bo
   const read: TrustEntry[] = [];
   for (const raw of value.entries as unknown[]) {
     const e = raw as Record<string, unknown> | null;
-    // kid and publicKey are held to their exact patterns; the message never quotes what failed.
+    // kid, origin and publicKey are held to their exact patterns; the message never quotes what failed.
     if (
       typeof e !== "object" ||
       e === null ||
       Array.isArray(e) ||
       !isKid(e.kid) ||
-      typeof e.origin !== "string" ||
+      // the origin rule signatures are held to: a trailing slash or a path never equals a signature's origin, so such an
+      // entry would silently trust nothing (p-e4efa2)
+      !isAcceptableOrigin(e.origin) ||
       !isPublicKey(e.publicKey) ||
       (e.revokedAt !== undefined && !isIsoUtc(e.revokedAt)) ||
       (e.adoptedVia !== undefined && !isKid(e.adoptedVia))
