@@ -2633,3 +2633,34 @@ test("UAT-8: a swapped signer is named against the trusted key and gets no first
     restore();
   }
 });
+
+test("UAT-9: the Desk's gate result says what was checked; a site that did not answer, or nothing checked, is an alarm", async () => {
+  const shown = () => JSON.stringify(StubDocument.describe(document.getElementById("gate-result")));
+  const show = (report) => {
+    App.page.gate = report;
+    App.page.render("gate");
+  };
+  show({
+    state: "unavailable",
+    target: "https://healthy.example/",
+    findings: [
+      { adapter: "validator", state: "pass", summary: "The validator port found no problem: 1 network definition checked." },
+      { adapter: "atlas", state: "unavailable", summary: "Agent Atlas could not connect to the target, so it has no verdict about the site." },
+      { adapter: "customs", state: "unavailable", summary: "Unavailable: no receipt for this target in Agent Customs' published receipts." },
+    ],
+  });
+  assert.ok(shown().includes("Checked by 1 of 3 (validator pass); Atlas and Customs had no verdict."), shown());
+  const headClass = () => document.getElementById("gate-result").children[0].className;
+  assert.equal(headClass(), "overall");
+  show({
+    state: "unavailable",
+    target: "https://down.example/",
+    findings: [
+      { adapter: "validator", state: "unavailable", summary: "The validator port could not run: the target could not be reached (the connection failed)." },
+      { adapter: "atlas", state: "unavailable", summary: "Agent Atlas could not connect to the target, so it has no verdict about the site." },
+      { adapter: "customs", state: "unavailable", summary: "Agent Customs was not asked: the target could not be reached to learn its network address (the connection failed)." },
+    ],
+  });
+  assert.ok(shown().includes("The site could not be reached (the connection failed); nothing was checked, so this is not a pass."), shown());
+  assert.equal(headClass(), "overall is-alarm");
+});

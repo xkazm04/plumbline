@@ -13,6 +13,7 @@ import { lockProblem, publishedUrl, readDrift, siteBase } from "./drift.js";
 import { checkPeerBeforeLoad } from "./lib/plumbline/browser/preload.js";
 import { openReviewDialog } from "./review-dialog.js";
 import { runGateWith, ALL_ADAPTERS } from "./lib/plumbline/gate/run.js";
+import { gateSentence, siteUnreachable } from "./lib/plumbline/gate/context.js";
 import { DEFAULT_TIMEOUT_MS } from "./lib/plumbline/net/fetch-types.js";
 import {
   ALG,
@@ -1435,8 +1436,12 @@ function renderGate(page) {
     out.replaceChildren(el("p", t("gate.empty"), "empty"));
     return;
   }
-  const head = el("p", null, "overall");
+  // UAT-9: what was checked, in the words every surface uses; a site that did not answer, or nothing checked, is an alarm
+  const sentence = gateSentence(report);
+  const alarm = report.state === "unavailable" && (siteUnreachable(report) !== null || report.findings.every((f) => f.state === "unavailable"));
+  const head = el("p", null, alarm ? "overall is-alarm" : "overall");
   head.append(el("span", `${t("gate.overall")}: `), chip(report.state, t(`states.${report.state}`)), el("span", ` ${report.target}`, "target"));
+  head.append(el("span", ` ${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`, "gate-sentence"));
   const list = el("ul", null, "findings");
   for (const f of report.findings) {
     const item = el("li", null, `finding finding-${f.state}`);

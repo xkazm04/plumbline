@@ -11,6 +11,7 @@ import { App, PARTNERS, onRender } from "./desk.js";
 import { t } from "./strings.js";
 import { EXAMPLE_CAPTURED, EXAMPLE_RUNS } from "./examples.js";
 import * as Art from "./art.js";
+import { gateSentence, siteUnreachable } from "./lib/plumbline/gate/context.js";
 
 const PORTS = [
   { id: "check", n: 1, bearing: 0, section: "gate" },
@@ -87,6 +88,9 @@ function statesOf(report) {
 function setCart(card, o) {
   card.dataset.state = o.state || "";
   card.dataset.mode = o.mode || "verdict";
+  // UAT-9: a site that did not answer, or a run that checked nothing, is an alarm, not the grey of "no verdict"
+  if (o.alarm) card.dataset.alarm = "true";
+  else delete card.dataset.alarm;
   if (o.tool) card.dataset.tool = o.tool;
   else delete card.dataset.tool;
   const kicker = make("span", "cartouche__kicker", o.kicker);
@@ -109,8 +113,15 @@ function verdictCart(site) {
     icon: Art.glyph(state),
     kicker: site.live ? t("fix.verdictKicker", { site: site.name }) : t("fix.exampleKicker", { site: site.name }),
     word: t(`fix.short.${state}`),
-    sub: t(`fix.gateMeanings.${state}`),
+    // UAT-9: an unavailable gate says what WAS checked ("checked by 1 of 3 ...") or that nothing was, in the words every
+    // surface uses (gate/context.js); partly checked never reads as nothing checked
+    sub: state === "unavailable" ? `${capitalise(gateSentence(site.report))}. ${t("fix.gateMeanings.unavailable")}` : t(`fix.gateMeanings.${state}`),
+    alarm: state === "unavailable" && (siteUnreachable(site.report) !== null || site.report.findings.every((f) => f.state === "unavailable")),
   };
+}
+
+function capitalise(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function noFixCart() {

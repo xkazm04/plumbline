@@ -377,7 +377,7 @@ export const STRINGS = {
     gateMeanings: {
       pass: "Every checker answered and found no problem. A pass is not a guarantee about the site.",
       fail: "At least one checker found a problem. Read its sentence.",
-      unavailable: "No checker failed, but at least one could not answer. That is no verdict, never a pass.",
+      unavailable: "No checker failed, and the ones that could not answer leave no verdict overall: never a pass.",
     },
     short: {
       pass: "Passed",

@@ -157,6 +157,9 @@ code { font-family: var(--mono); overflow-wrap: anywhere; }
 [data-state="pass"], [data-state="verified"], [data-state="info"] { --state: var(--c-pass); }
 [data-state="fail"], [data-state="invalid"], [data-state="block"] { --state: var(--c-fail); }
 [data-state="unavailable"], [data-state="unverifiable"], [data-state="warn"] { --state: var(--c-unk); }
+/* UAT-9: the site could not be reached, or nothing was checked: the state stays unavailable, drawn as an alarm */
+.cartouche[data-alarm="true"], .overall.is-alarm { --state: var(--c-fail); }
+.overall.is-alarm { color: var(--c-fail); font-weight: 700; }
 
 /* ---------- glyphs and emblems ---------- */
 .glyph { display: inline-block; width: 1.4em; height: 1.4em; flex: none; vertical-align: middle; overflow: visible; }
