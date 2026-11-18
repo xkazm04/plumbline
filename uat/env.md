@@ -65,7 +65,9 @@ observed when each act was played against the real product.
 Facts, from the built CLI against running worlds on 2026-11-18 (outputs abridged to the lines that decide; the full
 transcripts were taken during the driver's verification).
 
-**Reaches a loopback site with `--allow-local`:** `gate`, `verify --url`, `trust --url`, `adopt --url`, `watch --url`.
+**Reaches a loopback site with `--allow-local`:** `gate`, `verify --url`, `trust --url`, `adopt --url`, `watch --url`, and
+since UAT-21 (2026-11-18) `init`, `watch --root` (plain, `--init`, `--relock`, with `--external a2a-card=http://127.0.0.1:...`),
+`diff --peer` and `scripts/scan-ecosystem.mjs`. Each prints the `--allow-local` warning; private ranges stay refused.
 Without the flag each refuses: `verify --url http://127.0.0.1:4100/` exits 2 with "--url must be an https:// address of
 the site base (http only with --allow-local, for a site on this machine)"; `gate http://127.0.0.1:4100/` exits 1 with
 every adapter `unavailable` ("the address is not https") and "nothing was checked: every adapter was unavailable, so
@@ -84,22 +86,20 @@ exit 0      (--fail-on unavailable: exit 1)
 The default adapters send the loopback address to Agent Atlas' public API, which cannot connect to it; for a run that
 sends nothing out, pass `--adapters validator`. Atlas and Customs are therefore always `unavailable` in a world.
 
-**Cannot reach a loopback peer at all (a rule of the product, not of the world):**
+**Without `--allow-local` a loopback peer is not reached (a rule of the product, not of the world):**
 
-- `init` and `watch --root` (and `--init`, `--relock`) take no `--allow-local` ("--allow-local goes with --url: a
-  checkout is read from disk"). Every peer of a world is `http://127.0.0.1:...`, so `init` records it as pending and
-  exits 1: `warn peer http://127.0.0.1:4101/fellside_bikes: A peer could not be captured, so the lock holds it as
-  pending and every watch reports it (the address is not https).` After that, every `watch --root` says the same peer
-  "could not be captured when the lock was written ... run watch --relock once it answers", or, for a peer already in
-  the lock, "A peer could not be reached (the address is not https), so it was not checked." No peer act of J2 or J5
-  changes this output.
+- `init` and `watch --root` (and `--init`, `--relock`) without the flag record every peer of a world
+  (`http://127.0.0.1:...`) as pending and exit 1: `warn peer http://127.0.0.1:4101/fellside_bikes: A peer could not be
+  captured, so the lock holds it as pending and every watch reports it (it is not an https address).` Before UAT-21
+  they took no `--allow-local`; with it (since 2026-11-18) the peers and the Agent Card of J2 and J5 are captured and
+  watched by the product's CLI itself.
 - `watch --url --allow-local` reads a loopback site's published lock, but refuses every non-https peer address in that
-  lock, by design (the lock is a stranger's document).
-- `--external a2a-card=http://127.0.0.1:4505/.well-known/agent-card.json` is refused, exit 2: "--external takes an https
-  address without credentials". The documented way to add the Agent Card to Kiln Row's lock cannot run in the world.
-- `scripts/scan-ecosystem.mjs` refuses a list with an http address ("is not an https address without credentials").
+  lock, by design (the lock is a stranger's document). That stays.
+- `--external a2a-card=http://127.0.0.1:4505/.well-known/agent-card.json` is refused without the flag, exit 2: "--external
+  takes an https address without credentials"; with `--allow-local` it is taken (a loopback host only).
+- `scripts/scan-ecosystem.mjs` refuses a list with an http address unless `--allow-local` is given.
 
-**The harness, `uat/driver/local-cli.mjs`.** Because of the rule above, this TEST HARNESS calls the built product
+**The harness, `uat/driver/local-cli.mjs`.** Before UAT-21, because of the rule above, this TEST HARNESS calls the built product
 modules unchanged (`runWatch`, `runRelock`, `scanList`) with the dependency the product's own tests pass
 (`fetchOptions: { allowLocal: true }`), and prints what the CLI would print:
 

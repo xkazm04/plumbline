@@ -256,7 +256,7 @@ test("watch --url (CLI, loopback): drift in a published lock, a lock aiming at p
   }
 });
 
-test("watch --url refuses a checkout's flags, a target that is not http(s), and --allow-local without --url", async () => {
+test("watch --url refuses a checkout's flags and a target that is not http(s) (--allow-local works on a checkout too since UAT-21)", async () => {
   const cases: [string[], RegExp][] = [
     [["watch", "--url", "https://site.example/", "--root", "."], /--url reads a published site/],
     [["watch", "--url", "https://site.example/", "--init"], /--url reads a published site/],
@@ -265,7 +265,6 @@ test("watch --url refuses a checkout's flags, a target that is not http(s), and 
     [["watch", "--url", "ftp://site.example/"], /--url takes an http\(s\) site address/],
     [["watch", "--url", "site.example"], /--url takes an http\(s\) site address/],
     [["watch", "--url"], /--url takes an http\(s\) site address/],
-    [["watch", "--allow-local"], /--allow-local goes with --url/],
   ];
   for (const [args, message] of cases) {
     const r = await cli(tmp, ...args);

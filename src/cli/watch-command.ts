@@ -1,4 +1,6 @@
-// plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--timeout <ms>] [--json]
+// plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--allow-local] [--timeout <ms>] [--json]
+// (--allow-local, UAT-21: http and loopback peers, cards and sources for a rehearsal on this machine; private ranges stay
+// refused, and it prints a warning)
 // plumbline watch --url <site> [--allow-local] [--timeout <ms>] [--json]
 // Dry-run: it reports, and with --init (and no lock yet) writes plumbline.lock.json, nothing else. --relock rewrites the
 // lock from the current state after a person reviewed the drift, prints what changed and reminds that the lock is a
@@ -26,7 +28,7 @@ import { printable } from "./diff-command.js";
 import { KEPT_DIR } from "../watch/kept.js";
 
 const USAGE =
-  "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]... [--accept-signer <peer>]... [--accept <ref>]...] [--source <path-or-https-url>]... [--external a2a-card=<https url>]... [--trust <trust file>] [--timeout <ms>] [--json]\n" +
+  "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]... [--accept-signer <peer>]... [--accept <ref>]...] [--source <path-or-https-url>]... [--external a2a-card=<https url>]... [--trust <trust file>] [--allow-local] [--timeout <ms>] [--json]\n" +
   "       plumbline watch --url <https site address> [--allow-local] [--timeout <ms>] [--json]\n";
 
 /** The refusal for a missing or empty value of each value-taking flag (for --timeout, also a bad one). */
@@ -101,7 +103,10 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
     }
     return printReport(report, json);
   }
-  if (allowLocal) return refuse("--allow-local goes with --url: a checkout is read from disk");
+  // UAT-21 (DEV-L1-08, TOM-L1-11): a publisher rehearses on this machine before production; safeFetch then takes http
+  // and loopback for the peers, cards and https sources it fetches, and private ranges stay refused
+  if (allowLocal) process.stderr.write(`${ALLOW_LOCAL_WARNING}\n`);
+  const local = allowLocal ? { fetchOptions: { allowLocal: true } } : {};
 
   if (init && relock) return refuse("--init and --relock do not go together: --init writes a first lock, --relock replaces one");
   if (dropSources.length > 0 && !relock) return refuse("--drop goes with --relock: it takes a ref out of the lock --relock writes");
@@ -121,7 +126,7 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
   }
   const externals: { kind: ExternalKind; url: string }[] = [];
   for (const arg of externalArgs) {
-    const parsed = parseExternalArg(arg);
+    const parsed = parseExternalArg(arg, { allowLocal });
     if ("problem" in parsed) return refuse(parsed.problem);
     externals.push(parsed);
   }
@@ -131,9 +136,9 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
   if (relock) {
     let result;
     try {
-      result = await runRelock(options, { extraSources, dropSources, externals, acceptSigners, accept, ...(trust !== undefined ? { trust } : {}) });
+      result = await runRelock(options, { extraSources, dropSources, externals, acceptSigners, accept, ...local, ...(trust !== undefined ? { trust } : {}) });
     } catch (error) {
-      if (error instanceof RelockRefused) return printRefusal(error.refusal, rootValue ?? ".", json, trust !== undefined);
+      if (error instanceof RelockRefused) return printRefusal(error.refusal, rootValue ?? ".", json, trust !== undefined, allowLocal);
       process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
     }
@@ -145,7 +150,7 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
   if (init) {
     let written;
     try {
-      written = await runInit(options, { extraSources, externals, ...(trust !== undefined ? { trust } : {}) });
+      written = await runInit(options, { extraSources, externals, ...local, ...(trust !== undefined ? { trust } : {}) });
     } catch (error) {
       process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
@@ -168,7 +173,7 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
 
   let report;
   try {
-    report = await runWatch(options, { extraSources, externals, ...(trust !== undefined ? { trust } : {}) });
+    report = await runWatch(options, { extraSources, externals, ...local, ...(trust !== undefined ? { trust } : {}) });
   } catch (error) {
     process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
     return 2;
@@ -240,11 +245,12 @@ export function keptLine(kept: readonly string[]): string {
  * leaves the relock refused for the others. Without a trust file, `--trust <your trust file>` is added, so the relock
  * says whether that file backs the new key (a peer that publishes no signature now has no new key to back).
  */
-export function refusalCommands(peers: readonly { peer: string; to?: string }[], rootArg: string, trustGiven: boolean): string[] {
+export function refusalCommands(peers: readonly { peer: string; to?: string }[], rootArg: string, trustGiven: boolean, allowLocal = false): string[] {
   return peers.map((p) => {
     const narrow = peers.length > 1 ? `--accept ${p.peer} ` : "";
     const trust = !trustGiven && p.to !== undefined ? " --trust <your trust file>" : "";
-    return `plumbline watch --root ${rootArg} --relock ${narrow}--accept-signer ${p.peer}${trust}`;
+    // UAT-21: a rehearsal's commands keep --allow-local, so they run as printed (MC-3)
+    return `plumbline watch --root ${rootArg} --relock ${narrow}--accept-signer ${p.peer}${trust}${allowLocal ? " --allow-local" : ""}`;
   });
 }
 
@@ -253,8 +259,8 @@ export function refusalCommands(peers: readonly { peer: string; to?: string }[],
  * with the kid the lock recorded and what it is signed by now, or that it publishes no signature, then one command per
  * peer that a person runs after deciding (TOM-RC-3). CI never passes --accept-signer.
  */
-export function signerRefusalOutput(peers: readonly SignerChange[], rootArg: string, json: boolean, trustGiven: boolean): string {
-  const commands = refusalCommands(peers, rootArg, trustGiven);
+export function signerRefusalOutput(peers: readonly SignerChange[], rootArg: string, json: boolean, trustGiven: boolean, allowLocal = false): string {
+  const commands = refusalCommands(peers, rootArg, trustGiven, allowLocal);
   if (json) return `${JSON.stringify({ relocked: false, refused: "signer", peers, commands }, null, 2)}\n`;
   const lines = ["relock refused: a peer's signer is not the one the lock recorded, and a relock does not accept a signer change unless a person names the peer. Nothing was written."];
   for (const p of peers) {
@@ -274,11 +280,11 @@ export function signerRefusalOutput(peers: readonly SignerChange[], rootArg: str
 }
 
 /** A relock that wrote nothing (UAT-4): a signer change exits 1; --drop naming a peer is a usage error, exit 2. */
-function printRefusal(refusal: RelockRefusal, rootArg: string, json: boolean, trustGiven: boolean): 1 | 2 {
+function printRefusal(refusal: RelockRefusal, rootArg: string, json: boolean, trustGiven: boolean, allowLocal = false): 1 | 2 {
   if (refusal.refused === "drop-peer") {
     return refuse(`--drop takes a grounding ref or an external definition the lock holds; ${refusal.refs.join(", ")} ${refusal.refs.length === 1 ? "is a peer, which leaves" : "are peers, which leave"} the lock when no network names ${refusal.refs.length === 1 ? "it" : "them"}: remove ${refusal.refs.length === 1 ? "it" : "them"} from the site's network (or links.json), then relock`);
   }
-  process.stdout.write(signerRefusalOutput(refusal.peers, rootArg, json, trustGiven));
+  process.stdout.write(signerRefusalOutput(refusal.peers, rootArg, json, trustGiven, allowLocal));
   return 1;
 }
 

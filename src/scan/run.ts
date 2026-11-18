@@ -35,8 +35,12 @@ export const DELAY_MS = 2_000;
  */
 export const MAX_SITES = 200;
 
-/** The addresses of a list file: one per line, `#` starts a comment, blank lines skipped, each https, each once. */
-export function parseList(text: string): { addresses: string[]; problems: string[] } {
+/**
+ * The addresses of a list file: one per line, `#` starts a comment, blank lines skipped, each https, each once. With
+ * `allowLocal` (UAT-21, the script's --allow-local) an http address is taken too: safeFetch then reaches only loopback
+ * over http and still refuses private ranges.
+ */
+export function parseList(text: string, options: { allowLocal?: boolean } = {}): { addresses: string[]; problems: string[] } {
   const addresses: string[] = [];
   const problems: string[] = [];
   text.split(/\r?\n/).forEach((raw, i) => {
@@ -49,8 +53,8 @@ export function parseList(text: string): { addresses: string[]; problems: string
       problems.push(`line ${i + 1} is not a URL`);
       return;
     }
-    if (url.protocol !== "https:" || url.username || url.password) {
-      problems.push(`line ${i + 1} is not an https address without credentials`);
+    if ((url.protocol !== "https:" && !(options.allowLocal === true && url.protocol === "http:")) || url.username || url.password) {
+      problems.push(`line ${i + 1} is not an https address without credentials${options.allowLocal === true ? " (or an http one, with --allow-local)" : ""}`);
       return;
     }
     if (!addresses.includes(url.toString())) addresses.push(url.toString());

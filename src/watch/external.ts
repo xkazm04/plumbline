@@ -144,8 +144,15 @@ export function externalFinding(url: string, record: ExternalRecord, seen: Exter
   };
 }
 
-/** The `--external` argument: `<kind>=<https url>`, or the reason it is refused. */
-export function parseExternalArg(arg: string): { kind: ExternalKind; url: string } | { problem: string } {
+/** A loopback host as `--allow-local` lets safeFetch reach it: `localhost`, 127.0.0.0/8 or `[::1]`. */
+const isLoopbackHost = (host: string): boolean => host === "localhost" || host === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(host);
+
+/**
+ * The `--external` argument: `<kind>=<https url>`, or the reason it is refused. With `allowLocal` (UAT-21, `--allow-local`
+ * for a rehearsal on this machine) an http address on a loopback host is taken too; safeFetch still refuses private
+ * ranges.
+ */
+export function parseExternalArg(arg: string, options: { allowLocal?: boolean } = {}): { kind: ExternalKind; url: string } | { problem: string } {
   const at = arg.indexOf("=");
   const kind = at > 0 ? arg.slice(0, at) : "";
   const url = at > 0 ? arg.slice(at + 1) : "";
@@ -153,7 +160,10 @@ export function parseExternalArg(arg: string): { kind: ExternalKind; url: string
   if (kind !== "a2a-card") return { problem: "--external takes a2a-card=<https url>" };
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password) return { problem: "--external takes an https address without credentials" };
+    const localHttp = options.allowLocal === true && parsed.protocol === "http:" && isLoopbackHost(parsed.hostname.toLowerCase());
+    if ((parsed.protocol !== "https:" && !localHttp) || parsed.username || parsed.password) {
+      return { problem: options.allowLocal === true ? "--external takes an https address without credentials (http only for a loopback address, with --allow-local)" : "--external takes an https address without credentials" };
+    }
   } catch {
     return { problem: "--external takes a2a-card=<https url>" };
   }

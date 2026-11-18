@@ -34,6 +34,11 @@ sentence then reads "Agent Atlas was not asked (--adapters left it out), so no a
 sentence "Agent Customs was not asked ..." when it is left out too), and `settings.adapters` records the list. An unknown
 checker is refused (exit 2) before anything is read.
 
+`--allow-local` (UAT-21) takes http and loopback addresses in the list, for a rehearsal on this machine before
+production (a staging copy of each client site served locally): the warning is printed first, the report's disclosure
+adds "--allow-local: http and loopback addresses were allowed for this scan ...", `settings.allowLocal` is `true`, and
+private ranges stay refused. Pair it with `--adapters validator` so no address goes to Agent Atlas or Agent Customs.
+
 `--trust <trust file>` (UAT-20) is for an operator who holds her clients' public keys (`plumbline trust`, `plumbline
 adopt`): each site's signature is then checked as `plumbline verify --url` checks it against that file, so a tampered
 signed site reads `invalid tampered`, an expired one `invalid expired`, a healthy one `verified`, and a site whose key

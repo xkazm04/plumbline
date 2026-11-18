@@ -1,4 +1,4 @@
-// node scripts/scan-ecosystem.mjs <list file> --out <dir> [--adapters validator,atlas,customs] [--trust <trust file>]
+// node scripts/scan-ecosystem.mjs <list file> --out <dir> [--adapters validator,atlas,customs] [--trust <trust file>] [--allow-local]
 // The state of a list of agentic sites: for each address, the gate report, the published lock's drift report and
 // whether a signature and a key record are published (docs/ecosystem-scan.md). Writes <dir>/report.json (the stable
 // schema in src/scan/report.ts) and <dir>/report.html (static, no script, every string escaped). Run `npm run build`
@@ -7,7 +7,9 @@
 // to Agent Atlas, for a pre-launch or confidential list (UAT-11). --trust names the operator's own trust file (UAT-20): each
 // site's signature is then checked as plumbline verify --url checks it against that file (verified, invalid with its
 // reason, or unverifiable), and a revocation that verifies is recorded in it, as verify does. Without it the scan trusts
-// no key and a published signature is unverifiable here. Exit 0 when the report was written, 2 for a usage or
+// no key and a published signature is unverifiable here. --allow-local (UAT-21) takes http and loopback addresses in
+// the list, for a rehearsal on this machine before production (private ranges stay refused; a warning is printed and
+// the report says so). Exit 0 when the report was written, 2 for a usage or
 // I/O error.
 //
 // Publishing a report that names other people's sites is the owner's decision; ecosystem/out/ is git-ignored.
@@ -17,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const USAGE = "usage: node scripts/scan-ecosystem.mjs <list file> --out <dir> [--adapters validator,atlas,customs] [--trust <trust file>]";
+const USAGE = "usage: node scripts/scan-ecosystem.mjs <list file> --out <dir> [--adapters validator,atlas,customs] [--trust <trust file>] [--allow-local]";
 const KNOWN_ADAPTERS = ["validator", "atlas", "customs"];
 
 /** The --adapters list, or a refusal sentence: each a known checker, at least one. */
@@ -39,6 +41,7 @@ async function main(argv) {
   let out;
   let adapters;
   let trust;
+  let allowLocal = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--out") {
       out = argv[++i];
@@ -47,6 +50,8 @@ async function main(argv) {
       const read = adaptersOf(argv[++i]);
       if (read.problem) return fail(read.problem);
       adapters = read.adapters;
+    } else if (argv[i] === "--allow-local") {
+      allowLocal = true;
     } else if (argv[i] === "--trust") {
       trust = argv[++i];
       if (trust === undefined || trust === "" || trust.startsWith("--")) return fail("--trust takes a trust file (plumbline.trust.json)");
@@ -83,15 +88,18 @@ async function main(argv) {
   } catch {
     return fail("the list file could not be read");
   }
-  const { addresses, problems } = run.parseList(text);
+  const { addresses, problems } = run.parseList(text, { allowLocal });
   if (problems.length > 0) return fail(`the list was refused: ${problems.join("; ")}`);
   if (addresses.length === 0) return fail("the list names no address");
 
   process.stderr.write(`plumbline ecosystem scan: ${addresses.length} sites, one at a time, ${run.DELAY_MS} ms apart, ${run.SITE_DEADLINE_MS} ms deadline each.\n`);
-  for (const line of report.disclosureFor(adapters, { trust: trust !== undefined })) process.stderr.write(`  ${line}\n`);
+  // UAT-21: a list of sites on this machine (a rehearsal before production); the warning comes first
+  if (allowLocal) process.stderr.write(`${gateCommand.ALLOW_LOCAL_WARNING}\n`);
+  for (const line of report.disclosureFor(adapters, { trust: trust !== undefined, allowLocal })) process.stderr.write(`  ${line}\n`);
   const result = await run.scanList(addresses, pkg.version, {
     ...(adapters !== undefined ? { adapters } : {}),
-    ...(trust !== undefined ? { verifySignature: (address) => gateCommand.checkSignature(address, trust, false) } : {}),
+    ...(allowLocal ? { allowLocal: true } : {}),
+    ...(trust !== undefined ? { verifySignature: (address) => gateCommand.checkSignature(address, trust, allowLocal) } : {}),
     onSite: (site, i, total) =>
       process.stderr.write(`[${i + 1}/${total}] ${site.attention}: gate ${site.gate.state}, drift ${site.drift}, signature ${site.signature.state}${site.signatureCheck ? ` (${site.signatureCheck.verdict}${site.signatureCheck.reason ? ` ${site.signatureCheck.reason}` : ""})` : ""}, ${site.elapsedMs} ms: ${site.address}\n`),
   });

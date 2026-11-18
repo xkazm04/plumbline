@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// TEST HARNESS, NOT THE PRODUCT. It exists only because the product's CLI cannot reach a loopback world:
-//   - `plumbline init` and `plumbline watch --root` take no --allow-local, so every peer at http://127.0.0.1:<port> is
-//     recorded as pending ("the address is not https") and never watched;
-//   - `--external a2a-card=<url>` refuses an http address;
-//   - `scripts/scan-ecosystem.mjs` refuses a list with an http address.
+// TEST HARNESS, NOT THE PRODUCT. It was written because the product's CLI could not reach a loopback world. Since UAT-21
+// (2026-11-18) it can: `plumbline init`, `plumbline watch --root` (with --init, --relock and --external) and
+// `scripts/scan-ecosystem.mjs` take --allow-local, so a Character rehearses with the product itself. What this harness
+// still adds: the scan's Agent Atlas and Agent Customs stand-ins below (the product's scan has no stand-in; use
+// --adapters validator there to send nothing out), and the same printing for runs that predate the flag.
 // (`watch --url --allow-local` reads a loopback site's published lock, but still refuses every non-https peer address
 // IN that lock, by design: the lock is a stranger's document. This harness does not change that either.)
 //

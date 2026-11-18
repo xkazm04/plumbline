@@ -17,9 +17,10 @@ import { firstSignerWords, runInit, type FirstSigner } from "../watch/index.js";
 import { readLock } from "../watch/lock.js";
 import { KEPT_DIR } from "../watch/kept.js";
 import { keptLine } from "./watch-command.js";
+import { ALLOW_LOCAL_WARNING } from "./gate-command.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
 
-const USAGE = "usage: plumbline init [--root <site dir>] [--source <path-or-https-url>]... [--workflow] [--timeout <ms>] [--json]\n";
+const USAGE = "usage: plumbline init [--root <site dir>] [--source <path-or-https-url>]... [--workflow] [--allow-local] [--timeout <ms>] [--json]\n";
 
 /** Where --workflow writes, relative to the current folder (the repository root the workflow runs in). */
 export const WORKFLOW_PATH = ".github/workflows/plumbline-watch.yml";
@@ -40,17 +41,19 @@ const BAD_VALUE = {
  * What a publisher does next, in order. The lock alone is enough for the watch; the signature is the upgrade. The
  * grounding line says what turns byte hashing into a check of the facts the network states (D8: anchors).
  */
-export function nextSteps(rootArg: string, workflow: boolean, sourcesGiven = false, kept = false): string[] {
+export function nextSteps(rootArg: string, workflow: boolean, sourcesGiven = false, kept = false, allowLocal = false): string[] {
+  // UAT-21: a rehearsal's commands keep --allow-local, so they run as printed (MC-3)
+  const local = allowLocal ? " --allow-local" : "";
   const files = [LOCK_FILE, ...(kept ? [`${KEPT_DIR}/`] : []), ...(workflow ? [WORKFLOW_PATH] : [])];
   const listed = files.length === 1 ? files[0] : `${files.slice(0, -1).join(", ")} and ${files[files.length - 1]}`;
   return [
     `Commit ${listed}.${kept ? ` ${KEPT_DIR}/ holds a copy of what the lock pins of each peer, so plumbline diff --root ${rootArg} --peer <address> can show a partner's change by name.` : ""} The watch needs nothing else: no key, no trust file.`,
     workflow
       ? "The workflow runs daily and keeps one drift issue (it needs issues: write)."
-      : `Run the watch: plumbline watch --root ${rootArg} (or add --workflow to write the daily CI workflow).`,
+      : `Run the watch: plumbline watch --root ${rootArg}${local} (or add --workflow to write the daily CI workflow).`,
     sourcesGiven
-      ? `The "facts" lines above say which facts your network states each page watches, and which no page states. To watch those too, name the pages that state them (or write them there in a form the watch reads): plumbline watch --root ${rootArg} --relock --source <page>.`
-      : `Name the pages whose facts your network states (a price list, opening hours): plumbline watch --root ${rootArg} --relock --source <page>. A changed page is then drift, and the prices, times, dates, phone numbers, e-mail addresses and percentages the network states from it are anchored: the watch counts the ones no longer on it.`,
+      ? `The "facts" lines above say which facts your network states each page watches, and which no page states. To watch those too, name the pages that state them (or write them there in a form the watch reads): plumbline watch --root ${rootArg} --relock --source <page>${local}.`
+      : `Name the pages whose facts your network states (a price list, opening hours): plumbline watch --root ${rootArg} --relock --source <page>${local}. A changed page is then drift, and the prices, times, dates, phone numbers, e-mail addresses and percentages the network states from it are anchored: the watch counts the ones no longer on it.`,
     `Upgrade, when you are ready: sign the agent files. plumbline keygen --out <a folder outside the site>, then plumbline sign --root ${rootArg} --key <that folder>/plumbline.private.json --origin <https origin>. The lock is a signed file: sign again after every --relock.`,
   ];
 }
@@ -73,7 +76,7 @@ function workflowRoot(cwd: string, root: string): string | null {
 export async function runInitCommand(argv: string[]): Promise<number> {
   let args;
   try {
-    args = parseArgs(argv, ["root", "timeout"], ["workflow"], { repeatable: ["source"] });
+    args = parseArgs(argv, ["root", "timeout"], ["workflow", "allow-local"], { repeatable: ["source"] });
   } catch (error) {
     if (error instanceof ArgsError) {
       if (error.reason !== "missing") return refuse(`unknown argument ${error.arg}`);
@@ -83,6 +86,8 @@ export async function runInitCommand(argv: string[]): Promise<number> {
   }
   const { json } = args;
   const workflow = args.flags.has("workflow");
+  // UAT-21: a rehearsal on this machine (http and loopback peers); private ranges stay refused
+  const allowLocal = args.flags.has("allow-local");
   const sources = repeated(args, "source");
   const rootValue = args.values.get("root");
   if (rootValue === "") return refuse(BAD_VALUE.root);
@@ -134,7 +139,8 @@ export async function runInitCommand(argv: string[]): Promise<number> {
   let kept: string[] = [];
   if (before.kind === "missing") {
     try {
-      const written = await runInit({ root, init: true, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }, { extraSources: sources });
+      if (allowLocal) process.stderr.write(`${ALLOW_LOCAL_WARNING}\n`);
+      const written = await runInit({ root, init: true, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }, { extraSources: sources, ...(allowLocal ? { fetchOptions: { allowLocal: true } } : {}) });
       if (written === null) throw new Error(`${LOCK_FILE} appeared while init ran`);
       ({ findings, coverage } = written);
       firstSigners = written.firstSigners ?? [];
@@ -175,7 +181,7 @@ export async function runInitCommand(argv: string[]): Promise<number> {
     }
   }
 
-  const steps = nextSteps(rootArg, workflow, lockAction === "written" && sources.length > 0, kept.length > 0);
+  const steps = nextSteps(rootArg, workflow, lockAction === "written" && sources.length > 0, kept.length > 0, allowLocal);
   if (json) {
     process.stdout.write(
       `${JSON.stringify(

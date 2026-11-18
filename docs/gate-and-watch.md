@@ -123,7 +123,7 @@ networks Customs lists get receipts (its `tools/receipt-sites.json`), so most ta
 
 ## The watch
 
-`plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--external a2a-card=<url>]... [--timeout <ms>] [--json]`. It is a dry run: it
+`plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--external a2a-card=<url>]... [--allow-local] [--timeout <ms>] [--json]`. It is a dry run: it
 reports, and with `--init` and no lock yet it writes `plumbline.lock.json` (and its kept peer copies, below) and says so (`watch: wrote plumbline.lock.json (N
 grounding sources, N runtime files, N peers, N pending)`; `--json`: `{ lock: "written", lockState: "found", checkedAt, findings,
 records, facts, firstSigners? }`). With a lock present, `--init` does not overwrite it; `--relock` does (below). It says `watch: kept the
@@ -135,6 +135,14 @@ naming the relock that does ("Not added: a lock was already there, and --init ne
 I/O error: a usage error prints its reason and the usage line on stderr and nothing on stdout; an I/O error (a lock that
 cannot be written, a `--root` that is a file under `--relock`) prints `watch failed: <reason>`, which the Action reads as
 a failed step.
+
+**A rehearsal before production** (UAT-21). `init`, `watch --root` (plain, `--init`, `--relock`) and `diff --peer` take
+`--allow-local`, as `gate`, `verify --url` and `watch --url` do: the peers, Agent Cards and https sources they fetch may
+then be http and loopback addresses (`127/8`, `::1`, `localhost`), for partners and sites on this machine; private
+ranges stay refused, and the warning is printed first. `--external a2a-card=http://127.0.0.1:...` is taken only with the
+flag and only for a loopback host. A lock written that way pins `http://127.0.0.1:...` peers, which the Action (it never
+passes the flag) and `watch --url` (a published lock's peers are held to the address rule, flag or not) report as not
+contacted: rehearse on a copy, and write the production lock against the production addresses.
 
 **The lock's state is not a finding.** Every report carries `lockState`: `found` (the lock was read and checked),
 `absent` (no lock), `unreadable` (it could not be read, or it is reached through a link that leaves the root) or
@@ -275,7 +283,7 @@ needs a trust store and is `src/core`'s job.
 
 ### The entry point: `plumbline init`
 
-`plumbline init [--root <dir>] [--source <ref>]... [--workflow] [--timeout <ms>] [--json]` is where a publisher starts:
+`plumbline init [--root <dir>] [--source <ref>]... [--workflow] [--allow-local] [--timeout <ms>] [--json]` is where a publisher starts:
 no key and no trust decision. It writes the lock exactly as `watch --init` does (below), keeps a lock that is already
 there (never rewrites it: accepting drift is `--relock`, after a review), and with `--workflow` writes
 `.github/workflows/plumbline-watch.yml` under the current folder from `action/templates/plumbline-watch.yml`, with the
