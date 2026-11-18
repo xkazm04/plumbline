@@ -137,8 +137,7 @@ async function watch(argv) {
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return usage("--timeout takes a positive number of milliseconds");
   }
   const { runWatch, runRelock } = await load("watch/index.js");
-  const { RESIGN_REMINDER } = await load("watch/decide.js");
-  const { factCoverageCounts, factCoverageLines } = await load("watch/anchors.js");
+  const { relockOutput, signerRefusalOutput } = await load("cli/watch-command.js");
   const options = { root, init, ...(timeoutMs !== undefined ? { timeoutMs } : {}) };
   let trust;
   if (args.values.has("trust")) {
@@ -156,37 +155,18 @@ async function watch(argv) {
     try {
       result = await runRelock(options, { ...deps, dropSources: drops, acceptSigners, accept });
     } catch (error) {
-      // a refused relock, printed as the CLI prints it (src/cli/watch-command.ts printRefusal)
+      // a refused relock, printed by the CLI's own function (src/cli/watch-command.ts signerRefusalOutput)
       if (error?.name === "RelockRefused") {
         const refusal = error.refusal;
         if (refusal.refused === "drop-peer") return usage(`--drop takes a grounding ref or an external definition the lock holds; ${refusal.refs.join(", ")} is a peer, which leaves the lock when no network names it: remove it from the site's network (or links.json), then relock`);
-        const command = `plumbline watch --root ${args.values.get("root") ?? "."} --relock ${refusal.peers.map((p) => `--accept-signer ${p.peer}`).join(" ")}`;
-        if (json) process.stdout.write(`${JSON.stringify({ relocked: false, refused: "signer", peers: refusal.peers, command }, null, 2)}\n`);
-        else {
-          process.stdout.write("relock refused: a peer is signed by another key than the lock recorded, and a relock does not accept a new signer unless a person names it. Nothing was written.\n");
-          for (const p of refusal.peers) process.stdout.write(`  peer ${p.peer}: the lock recorded ${p.from}; it is now signed by ${p.to} (${p.how})\n`);
-          process.stdout.write(`After deciding whether you trust the new key (verify --url, adopt for a rotation), run: ${command}\n`);
-        }
+        process.stdout.write(signerRefusalOutput(refusal.peers, args.values.get("root") ?? ".", json, trust !== undefined));
         return 1;
       }
       process.stderr.write(`watch failed: ${error?.message ?? "unknown error"}\n`);
       return 2;
     }
-    // as the CLI prints it since UAT-1: --json carries the facts as counts, the text prints the "facts" lines
-    const { coverage, ...rest } = result;
-    if (json) process.stdout.write(`${JSON.stringify({ relocked: true, ...rest, ...(coverage ? { facts: factCoverageCounts(coverage) } : {}), reminder: RESIGN_REMINDER }, null, 2)}\n`);
-    else {
-      process.stdout.write(`relock: wrote plumbline.lock.json (the previous lock was ${result.previous})\n`);
-      const { added, removed, changed } = result.changes;
-      for (const ref of added) process.stdout.write(`added   ${ref}\n`);
-      for (const ref of removed) process.stdout.write(`removed ${ref}\n`);
-      for (const ref of changed) process.stdout.write(`changed ${ref}\n`);
-      for (const c of result.signers ?? []) process.stdout.write(`signer  peer ${c.peer}: ${c.from} -> ${c.to} (${c.how}; ${c.backing ?? ""})\n`);
-      if (added.length + removed.length + changed.length === 0) process.stdout.write("no ref changed\n");
-      for (const line of coverage ? factCoverageLines(coverage) : []) process.stdout.write(`${line}\n`);
-      for (const f of result.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
-      process.stdout.write(`${RESIGN_REMINDER}\n`);
-    }
+    // printed by the CLI's own function (src/cli/watch-command.ts relockOutput): change list, signer lines, facts
+    process.stdout.write(relockOutput(result, json));
     return 0;
   }
   let report;
