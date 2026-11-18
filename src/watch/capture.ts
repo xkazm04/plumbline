@@ -23,6 +23,8 @@ import { hashLocal, readRef, type DetectorEnv } from "./detectors.js";
 import { discover } from "./discover.js";
 import { listFiles, readUnderRoot, toPosix } from "./lock.js";
 import { observePeer } from "./observe.js";
+import { observeExternal } from "./external.js";
+import type { ExternalKind, ExternalRecord } from "../core/types.js";
 
 const COMMIT = /nsdeploy commit\s+`?([0-9a-f]{7,40})`?/i;
 /** "cognizant-ai-labs/agentic-web `skills/agentify-website/runtime` at commit 7817c1f..." (site/runtime/NOTICE). */
@@ -44,7 +46,7 @@ export function runtimeProvenance(texts: string[]): { commit?: string; via?: Run
 
 export async function captureLock(
   env: DetectorEnv,
-  options: { extraSources?: string[]; dropSources?: string[]; runtimeDir?: string; now: Date },
+  options: { extraSources?: string[]; dropSources?: string[]; runtimeDir?: string; externals?: { kind: ExternalKind; url: string }[]; now: Date },
 ): Promise<{ lock: Lock; findings: DriftFinding[] }> {
   const findings: DriftFinding[] = [];
   const { root } = env;
@@ -164,6 +166,24 @@ export async function captureLock(
     findings.push({ kind: "peer", severity: "warn", ref: url, summary: `A peer could not be captured, so the lock holds it as pending and every watch reports it (${detail}).` });
   }
 
+  // external agent definitions (external.ts): through the same guarded fetch; one that cannot be read is left out of the
+  // lock and returned as a finding, as a missing grounding source is
+  const external: Record<string, ExternalRecord> = {};
+  for (const { kind, url } of options.externals ?? []) {
+    if (url in external) continue;
+    const seen = await observeExternal(url, kind, env.fetch, { fetchOptions: env.fetchOptions });
+    if (!seen.ok) {
+      const why = seen.unsupported ? "this build does not read that kind" : seen.status !== undefined ? `it answered HTTP ${seen.status}` : (seen.reason ?? "it could not be read");
+      findings.push({ kind: "peer", severity: "warn", ref: url, summary: `An external agent definition could not be locked (${why}), so it is not in the lock.` });
+      continue;
+    }
+    if (seen.outline === null) {
+      findings.push({ kind: "peer", severity: "info", ref: url, summary: "An external agent definition is not readable as an A2A Agent Card (not JSON, or a repeated key); its bytes are locked without an outline." });
+    }
+    const parts = seen.outline && Object.keys(seen.outline.parts).length > 0 ? { parts: seen.outline.parts } : {};
+    external[url] = { kind, sha256: seen.sha256, ...parts, checkedAt: options.now.toISOString() };
+  }
+
   return {
     lock: {
       version: FORMAT_VERSION,
@@ -171,6 +191,7 @@ export async function captureLock(
       grounding: { sources, builtAt: options.now.toISOString() },
       peers,
       ...(Object.keys(pendingPeers).length > 0 ? { pendingPeers } : {}),
+      ...(Object.keys(external).length > 0 ? { external } : {}),
     },
     findings,
   };

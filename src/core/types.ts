@@ -196,6 +196,29 @@ export interface PlumblineLock {
   grounding: { sources: GroundingSource[]; builtAt: string };
   peers: Record<string, PeerRecord>;
   pendingPeers?: Record<string, PendingPeer>;
+  /** Since 2026-11-18: agent definitions from outside this spec the site depends on, keyed by their https address. */
+  external?: Record<string, ExternalRecord>;
+}
+
+/**
+ * The kinds of external agent definition a lock may hold. `a2a-card`: an A2A Agent Card (JSON, fetched with a GET).
+ * `mcp-tools`: an MCP server's tool list; reserved, this build neither captures nor checks it (it needs a JSON-RPC POST,
+ * docs/gate-and-watch.md), and a lock that holds one is reported as not checked.
+ */
+export const EXTERNAL_KINDS = ["a2a-card", "mcp-tools"] as const;
+export type ExternalKind = (typeof EXTERNAL_KINDS)[number];
+
+/** `external[url]`: what was captured of one external agent definition. */
+export interface ExternalRecord {
+  kind: ExternalKind;
+  /** SHA-256 of the exact bytes fetched. */
+  sha256: string;
+  /**
+   * Per part, SHA-256 of canonicalJson(the part), keyed by SHA-256 of its id (for an A2A card, each skill by its `id`),
+   * so a change can be counted without quoting it. Omitted when the definition has no parts or could not be read as one.
+   */
+  parts?: Record<string, string>;
+  checkedAt: string;
 }
 
 /** One grounding source the lock holds: its ref, the SHA-256 of its exact bytes, and the facts anchored on it. */

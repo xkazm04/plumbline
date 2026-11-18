@@ -14,10 +14,12 @@ import { resolve } from "node:path";
 import { RESIGN_REMINDER, type WatchReport } from "../watch/decide.js";
 import { runRelock, runWatch, runWatchUrl } from "../watch/index.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
+import { parseExternalArg } from "../watch/external.js";
+import type { ExternalKind } from "../core/types.js";
 import { ALLOW_LOCAL_WARNING, isHttpUrl } from "./gate-command.js";
 
 const USAGE =
-  "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <path-or-https-url>]... [--timeout <ms>] [--json]\n" +
+  "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <path-or-https-url>]... [--external a2a-card=<https url>]... [--timeout <ms>] [--json]\n" +
   "       plumbline watch --url <https site address> [--allow-local] [--timeout <ms>] [--json]\n";
 
 /** The refusal for a missing or empty value of each value-taking flag (for --timeout, also a bad one). */
@@ -27,6 +29,7 @@ const BAD_VALUE = {
   drop: "--drop takes a grounding ref the lock holds",
   timeout: "--timeout takes a positive number of milliseconds",
   url: "--url takes an http(s) site address, such as https://site.example/",
+  external: "--external takes a2a-card=<https url>",
 } as const;
 
 /** The watch's own sentence for each refusal of the shared parser. It takes no positionals, so none is `extra`. */
@@ -43,7 +46,7 @@ function refuse(sentence: string): 2 {
 export async function runWatchCommand(argv: string[]): Promise<number> {
   let args;
   try {
-    args = parseArgs(argv, ["root", "timeout", "url"], ["init", "relock", "allow-local"], { repeatable: ["source", "drop"] });
+    args = parseArgs(argv, ["root", "timeout", "url"], ["init", "relock", "allow-local"], { repeatable: ["source", "drop", "external"] });
   } catch (error) {
     if (error instanceof ArgsError) return refuse(usageSentence(error));
     throw error;
@@ -53,6 +56,7 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
   const relock = args.flags.has("relock");
   const extraSources = repeated(args, "source");
   const dropSources = repeated(args, "drop");
+  const externalArgs = repeated(args, "external");
 
   const rootValue = args.values.get("root");
   if (rootValue === "") return refuse(BAD_VALUE.root);
@@ -71,8 +75,8 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
   const url = args.values.get("url");
   const allowLocal = args.flags.has("allow-local");
   if (url !== undefined) {
-    if (rootValue !== undefined || init || relock || extraSources.length > 0 || dropSources.length > 0) {
-      return refuse("--url reads a published site; --root, --init, --relock, --source and --drop work on a checkout");
+    if (rootValue !== undefined || init || relock || extraSources.length > 0 || dropSources.length > 0 || externalArgs.length > 0) {
+      return refuse("--url reads a published site; --root, --init, --relock, --source, --drop and --external work on a checkout");
     }
     if (!isHttpUrl(url)) return refuse(BAD_VALUE.url);
     if (allowLocal) process.stderr.write(`${ALLOW_LOCAL_WARNING}\n`);
@@ -90,12 +94,19 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
   if (init && relock) return refuse("--init and --relock do not go together: --init writes a first lock, --relock replaces one");
   if (dropSources.length > 0 && !relock) return refuse("--drop goes with --relock: it takes a ref out of the lock --relock writes");
   if (dropSources.some((ref) => extraSources.includes(ref))) return refuse("--source and --drop name the same ref");
+  const externals: { kind: ExternalKind; url: string }[] = [];
+  for (const arg of externalArgs) {
+    const parsed = parseExternalArg(arg);
+    if ("problem" in parsed) return refuse(parsed.problem);
+    externals.push(parsed);
+  }
+  if (externals.length > 0 && !init && !relock) return refuse("--external goes with --init or --relock: it adds a definition to the lock they write");
   const options = { root, init, ...(timeoutMs !== undefined ? { timeoutMs } : {}) };
 
   if (relock) {
     let result;
     try {
-      result = await runRelock(options, { extraSources, dropSources });
+      result = await runRelock(options, { extraSources, dropSources, externals });
     } catch (error) {
       process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
@@ -116,7 +127,7 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
 
   let report;
   try {
-    report = await runWatch(options, { extraSources });
+    report = await runWatch(options, { extraSources, externals });
   } catch (error) {
     process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
     return 2;

@@ -100,6 +100,16 @@ test("a lock's grounding source (since 2026-11-18): ref, sha256 and anchors, the
   assert.deepEqual(none, { anchors: [] }, "capture then omits the member");
 });
 
+test("the lock's external member (since 2026-11-18): kinds a2a-card and mcp-tools, a record of kind, sha256, parts? and checkedAt", async () => {
+  const { EXTERNAL_KINDS } = await import("../core/types.js");
+  const { isExternalRecord } = await import("../watch/external.js");
+  assert.deepEqual([...EXTERNAL_KINDS], ["a2a-card", "mcp-tools"]);
+  const h = "d".repeat(64);
+  assert.ok(isExternalRecord({ kind: "a2a-card", sha256: h, checkedAt: "2026-11-18T00:00:00.000Z" }), "parts omitted when absent");
+  assert.ok(isExternalRecord({ kind: "a2a-card", sha256: h, parts: { [h]: h }, checkedAt: "2026-11-18T00:00:00.000Z" }));
+  assert.ok(!isExternalRecord({ kind: "a2a-card", sha256: h, parts: null, checkedAt: "2026-11-18T00:00:00.000Z" }), "never null");
+});
+
 test("the lock's peer outline (since 2026-11-18): agents, hosts and front, every string a SHA-256, front only when there is one", async () => {
   const { peerOutline, isPeerOutline } = await import("../watch/outline.js");
   const withFront = await peerOutline('{ "tools": [{ "name": "a", "instructions": "x", "tools": ["https://h.example/p"] }] }');

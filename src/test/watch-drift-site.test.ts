@@ -30,7 +30,7 @@ type ReadDrift = (target: string, fetcher: unknown, options?: object) => Promise
 /** The browser-safe modules beyond core that drift.js reaches: scripts/build-site.mjs must copy the same list. */
 const BROWSER_MODULES: Record<string, string[]> = {
   net: ["address.js", "canonical.js", "locate.js", "fetch-types.js"],
-  watch: ["anchors.js", "decide.js", "observe.js", "outline.js", "published.js"],
+  watch: ["anchors.js", "decide.js", "external.js", "observe.js", "outline.js", "published.js"],
   gate: ["validator.js"],
 };
 

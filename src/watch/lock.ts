@@ -4,7 +4,7 @@
 
 import { mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
-import { LOCK_FILE } from "../core/types.js";
+import { LOCK_FILE, type ExternalKind } from "../core/types.js";
 import type { Fetcher } from "../net/locate.js";
 import type { SafeFetchOptions } from "../net/safe-fetch.js";
 import { lockProblem, type Lock, type RuntimeVia } from "./decide.js";
@@ -19,7 +19,9 @@ export interface WatchDeps {
   now?: () => Date;
   /** `init` and `relock`: extra grounding sources to lock, as paths under the root or https URLs. */
   extraSources?: string[];
-  /** `relock`: grounding refs to leave out of the new lock, even ones the previous lock held or the site names. */
+  /** `init` and `relock`: external agent definitions to lock (`--external a2a-card=<url>`). */
+  externals?: { kind: ExternalKind; url: string }[];
+  /** `relock`: grounding refs (and external addresses) to leave out of the new lock, even ones the previous lock held or the site names. */
   dropSources?: string[];
   /** `init` and `relock`: the vendored runtime folder relative to the root; default is `runtime`, then `site/runtime`. */
   runtimeDir?: string;

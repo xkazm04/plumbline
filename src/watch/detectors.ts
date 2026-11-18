@@ -8,6 +8,7 @@ import { hashBytes } from "../net/canonical.js";
 import type { Fetcher } from "../net/locate.js";
 import type { SafeFetchOptions } from "../net/safe-fetch.js";
 import { groundingFindingWithAnchors } from "./anchors.js";
+import { externalFinding, observeExternal } from "./external.js";
 import {
   addedRuntimeFinding,
   coverageFindings,
@@ -183,6 +184,16 @@ export async function detectPeers(lock: Lock, env: DetectorEnv): Promise<DriftFi
     ),
   );
   return [...results.flat(), ...pendingPeerFindings(lock)];
+}
+
+/** Each external agent definition the lock holds (external.ts): changed is block, unreadable is warn. */
+export async function detectExternal(lock: Lock, env: DetectorEnv): Promise<DriftFinding[]> {
+  const out: DriftFinding[] = [];
+  for (const [url, record] of Object.entries(lock.external ?? {})) {
+    const finding = externalFinding(url, record, await observeExternal(url, record.kind, env.fetch, { fetchOptions: env.fetchOptions }));
+    if (finding) out.push(finding);
+  }
+  return out;
 }
 
 /** What the site names now that the lock does not cover (decide.ts coverageFindings), plus what could not be read to tell. */

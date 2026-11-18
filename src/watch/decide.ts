@@ -27,6 +27,7 @@ import {
 } from "../core/types.js";
 import { isBlockedAddress, parseIPv4 } from "../net/address.js";
 import { describeOutlineDiff, diffOutlines, isPeerOutline, outlineUnchanged, type PeerOutline } from "./outline.js";
+import { isExternalRecord } from "./external.js";
 
 // ---- the lock and report members (the wire contract now lives in core/types.ts; these names stay for callers) ----
 
@@ -55,7 +56,7 @@ export function isRuntimeVia(v: unknown): v is RuntimeVia {
 export function lockProblem(value: unknown): string | null {
   if (!isObject(value)) return "the lock is not a JSON object";
   if (value.version !== FORMAT_VERSION) return "the lock has an unknown version";
-  const { runtime, grounding, peers, pendingPeers } = value;
+  const { runtime, grounding, peers, pendingPeers, external } = value;
   if (!isObject(runtime) || runtime.source !== "nsdeploy" || typeof runtime.commit !== "string" || !isObject(runtime.files)) {
     return "the lock's runtime section is malformed";
   }
@@ -83,6 +84,9 @@ export function lockProblem(value: unknown): string | null {
     ) {
       return "the lock's peer entries are malformed";
     }
+  }
+  if (external !== undefined && !(isObject(external) && Object.values(external).every(isExternalRecord))) {
+    return "the lock's external entries are malformed";
   }
   if (pendingPeers !== undefined) {
     if (!isObject(pendingPeers) || !Object.values(pendingPeers).every((p) => isObject(p) && typeof p.since === "string")) {
@@ -472,6 +476,8 @@ export function lockChanges(before: Lock | undefined, after: Lock): LockChanges 
   compare("grounding", ground(before), ground(after));
   compare("runtime", before?.runtime.files ?? {}, after.runtime.files);
   compare("peer", peer(before), peer(after));
+  const ext = (l: Lock | undefined) => Object.fromEntries(Object.entries(l?.external ?? {}).map(([u, e]) => [u, `${e.kind} ${e.sha256}`]));
+  compare("external", ext(before), ext(after));
   compare("pending", Object.fromEntries(Object.keys(before?.pendingPeers ?? {}).map((u) => [u, ""])), Object.fromEntries(Object.keys(after.pendingPeers ?? {}).map((u) => [u, ""])));
   if (before !== undefined && before.runtime.commit !== after.runtime.commit) changed.push("runtime commit");
   const via = (l: Lock | undefined) => (l?.runtime.via ? `${l.runtime.via.repo} ${l.runtime.via.path} ${l.runtime.via.commit}` : "");

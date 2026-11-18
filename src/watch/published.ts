@@ -23,6 +23,7 @@ import { LOCK_FILE, type DriftFinding, type LockState } from "../core/types.js";
 import type { SafeFetchOptions, SafeFetchResponse } from "../net/fetch-types.js";
 import { locateTarget, type Fetcher } from "../net/locate.js";
 import { groundingFindingWithAnchors } from "./anchors.js";
+import { externalFinding, observeExternal, type ExternalObservation } from "./external.js";
 import {
   destinationProblem,
   lockProblem,
@@ -201,6 +202,14 @@ export async function readPublishedLock(target: string, fetcher: Fetcher, option
     Promise.all(Object.entries(checked.peers).map(([url, record]) => peerOf(url, record, ctx).then((r) => ({ url, ...r })))),
   ]);
   const unreachablePeers = peers.filter((p) => p.unreachable).map((p) => p.url);
-  const peerOut = [...peers.flatMap((p) => p.findings), ...pendingPeerFindings(checked)];
+  // external definitions (external.ts): addresses a stranger chose, held to the peers' rule before anything is fetched
+  const externalOut: DriftFinding[] = [];
+  for (const [url, record] of Object.entries(checked.external ?? {})) {
+    const problem = peerAddressProblem(url);
+    const seen: ExternalObservation = problem !== null ? { ok: false, refused: problem } : await observeExternal(url, record.kind, fetcher, { fetchOptions, why });
+    const finding = externalFinding(url, record, seen);
+    if (finding) externalOut.push(finding);
+  }
+  const peerOut = [...peers.flatMap((p) => p.findings), ...pendingPeerFindings(checked), ...externalOut];
   return { target, base, lockUrl, lockFound: true, lockState: "found", unreachablePeers, findings: [...grounding, ...runtime, ...peerOut] };
 }

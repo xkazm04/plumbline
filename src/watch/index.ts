@@ -7,7 +7,7 @@ import { LOCK_FILE, SIGNATURE_FILE, type DriftFinding } from "../core/types.js";
 import { DEFAULT_TIMEOUT_MS, safeFetch } from "../net/safe-fetch.js";
 import { captureLock } from "./capture.js";
 import { lockChanges, signatureExpiryFinding, type Lock, type LockChanges, type LockState, type WatchReport } from "./decide.js";
-import { detectCoverage, detectGrounding, detectPeers, detectRuntime, detectSignature, type DetectorEnv } from "./detectors.js";
+import { detectCoverage, detectExternal, detectGrounding, detectPeers, detectRuntime, detectSignature, type DetectorEnv } from "./detectors.js";
 import { readLock, replaceLock, writeLock, type LockRead, type WatchDeps } from "./lock.js";
 import { describeWatchError } from "./observe.js";
 import { readPublishedLock } from "./published.js";
@@ -58,6 +58,7 @@ export async function runWatch(options: WatchOptions, deps: WatchDeps = {}): Pro
   if (read.kind === "missing" && options.init === true) {
     const { lock, findings } = await captureLock(env, {
       now: env.now,
+      ...(deps.externals !== undefined ? { externals: deps.externals } : {}),
       ...(deps.extraSources !== undefined ? { extraSources: deps.extraSources } : {}),
       ...(deps.runtimeDir !== undefined ? { runtimeDir: deps.runtimeDir } : {}),
     });
@@ -68,13 +69,14 @@ export async function runWatch(options: WatchOptions, deps: WatchDeps = {}): Pro
   const signature = await detectSignature(env);
   if (read.kind !== "ok") return { ...stateOf(read), findings: signature };
 
-  const [grounding, runtime, peer, coverage] = await Promise.all([
+  const [grounding, runtime, peer, external, coverage] = await Promise.all([
     detectGrounding(read.lock, env),
     detectRuntime(read.lock, env),
     detectPeers(read.lock, env),
+    detectExternal(read.lock, env),
     detectCoverage(read.lock, env),
   ]);
-  const findings: DriftFinding[] = [...grounding, ...runtime, ...peer, ...coverage, ...signature];
+  const findings: DriftFinding[] = [...grounding, ...runtime, ...peer, ...external, ...coverage, ...signature];
   return { lockState: "found", findings };
 }
 
@@ -100,13 +102,18 @@ export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Pr
   const held = before?.grounding.sources.map((s) => s.ref) ?? [];
   const extraSources = [...held, ...(deps.extraSources ?? [])];
   const dropSources = [...new Set(deps.dropSources ?? [])];
+  // every external definition the previous lock held is captured again, with the new ones, less what --drop names
+  const externals = [...Object.entries(before?.external ?? {}).map(([url, e]) => ({ kind: e.kind, url })), ...(deps.externals ?? [])].filter(
+    (e) => !dropSources.includes(e.url),
+  );
   const { lock, findings } = await captureLock(env, {
     now: env.now,
+    externals,
     extraSources,
     dropSources,
     ...(deps.runtimeDir !== undefined ? { runtimeDir: deps.runtimeDir } : {}),
   });
-  for (const ref of dropSources.filter((r) => !held.includes(r))) {
+  for (const ref of dropSources.filter((r) => !held.includes(r) && !(r in (before?.external ?? {})))) {
     findings.push({ kind: "grounding", severity: "info", ref, summary: "This ref was not in the lock, so there was nothing to drop." });
   }
   await replaceLock(options.root, lock);

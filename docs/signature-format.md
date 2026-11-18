@@ -33,7 +33,10 @@ peer's names or hosts are written in clear), omitted when absent, never `null`. 
 the member; a lock that carries a malformed one is `unusable`. Likewise a grounding source may carry `anchors`
 (`GroundingSource.anchors`, since 2026-11-18): the sorted SHA-256 of each normalised literal (a price, a time, a date, a
 phone number, an e-mail address, a percentage) that the network's instructions and that page both state, so no literal
-is written in clear; omitted when there are none.
+is written in clear; omitted when there are none. And a lock may carry `external` (since 2026-11-18): agent definitions
+from outside the agentic-web spec, keyed by address, each `{ kind, sha256, parts?, checkedAt }` (`ExternalRecord`,
+`EXTERNAL_KINDS`: `a2a-card`, and `mcp-tools`, reserved and not read by this build); `parts` maps SHA-256 of a part's id
+to SHA-256 of its canonical JSON.
 
 ### `plumbline.signature.json`
 

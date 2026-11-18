@@ -79,7 +79,7 @@ async function main() {
   await copy(path.join(DIST, "gate"), gate, path.join(OUT, "gate"));
   await copy(path.join(DIST, "net"), ["address.js", "canonical.js", "locate.js", "fetch-types.js"], path.join(OUT, "net"));
   // the drift decisions the CLI watch and the Desk share (pure: no node:* import)
-  await copy(path.join(DIST, "watch"), ["anchors.js", "decide.js", "observe.js", "outline.js", "published.js"], path.join(OUT, "watch"));
+  await copy(path.join(DIST, "watch"), ["anchors.js", "decide.js", "external.js", "observe.js", "outline.js", "published.js"], path.join(OUT, "watch"));
   // the load-path check of a peer (pure, fetcher-injected): the Desk's partner check runs it
   await copy(path.join(DIST, "browser"), await jsFiles(path.join(DIST, "browser")), path.join(OUT, "browser"));
   const { errors, warnings, count } = await scan();

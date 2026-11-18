@@ -83,7 +83,7 @@ networks Customs lists get receipts (its `tools/receipt-sites.json`), so most ta
 
 ## The watch
 
-`plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--timeout <ms>] [--json]`. It is a dry run: it
+`plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--external a2a-card=<url>]... [--timeout <ms>] [--json]`. It is a dry run: it
 reports, and with `--init` and no lock yet it writes `plumbline.lock.json`. With a lock present, `--init` does not
 overwrite it; `--relock` does (below). Opening, editing and closing the drift issue is the Action's job (`issues: true`,
 `action/action.yml`), never the library's. Exit 0 when no finding is `warn` or `block` (`info` alone is clean), 1 otherwise, 2 for a usage or
@@ -108,6 +108,7 @@ a lock the browser was refused), so a drift count is a count of drift.
 | `peer` outline | with a changed definition, its outline against the lock's (`src/watch/outline.ts`) | the same `block`; the summary adds what changed in counts: "In outline: agents: N added, N removed, N changed; outbound hosts: N added, N removed; front agent: changed or unchanged". The same outline is "Formatting or non-agent content only" (still `block`: the bytes the runtime reads changed). No outline in the lock: "re-lock to record one". A definition that cannot be outlined now (not JSON, a repeated key): said so |
 | `peer` links | each `peers[url].links`: the peer's `links.json` at the same site base (the runtime fetches it for every peer network it loads and lays it over that network's links) | appeared (locked `absent`, now served), changed, or gone (404/410 now): `block`. Cannot be read (timeout, HTTP 5xx): `warn`. A lock written before 2026-11-17 has no `links` for the peer: `warn`, "re-lock to track it", never a silent pass |
 | `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`. Signed when locked, no usable signature now: `warn`. Unsigned when locked, signed now: `info`. A `kid` that is not exactly 16 lowercase hex characters is never recorded or quoted; it counts as no usable signature |
+| `peer` external | each `external[url]` (an A2A Agent Card, `src/watch/external.ts`), fetched and hashed again | changed in any byte: `block`, with "In outline: skills: N added, N removed, N changed" and whether it carries JWS signatures (counted, not verified). Unreachable or an HTTP error: `warn`. An `mcp-tools` entry: `warn`, not checked by this build |
 | `peer` pending | each `pendingPeers[url]`: a peer that could not be captured when the lock was written | `warn` on every watch, reachable or not, until `--relock` captures it |
 | coverage | what the site names now (the discovery `--init` uses, below) against what the lock holds | a root agent file or a manifest-named network file not in `grounding.sources`: `warn` (grounding). A peer a network or `links.json` names that is neither in `peers` nor pending: `warn` (peer). A network file that is not JSON, so its peers cannot be read: `warn` (peer). An unsafe `hocon`: `warn`, as at init |
 | signature expiry | the site's own `plumbline.signature.json` at the root, its `expiresAt` | expired: `block` (verifiers answer `invalid expired`). Expiring within 14 days: `warn`, with the date and the days left. No signature file: no finding (signing is the publisher's choice). A file with no readable `expiresAt`: `warn`. Kind `grounding`, ref `plumbline.signature.json` (the wire has three drift kinds; the signed files are the grounding). Checked whatever the lock's state |
@@ -258,6 +259,33 @@ severity, and a peer whose outline is unchanged is still `block`.
 hosts shown (your files, your terminal; control and bidirectional-override characters are replaced by `?`). Exit 0 when
 the outlines are the same, 1 when they differ, 2 for a file that cannot be outlined.
 
+### Beyond this spec: an A2A Agent Card in the lock
+
+A site whose assistant also depends on an A2A agent can lock that agent's card: `plumbline watch --init` (or `--relock`)
+`--external a2a-card=<https url>` (repeatable). The card is fetched through
+`safeFetch` and recorded in the lock's `external` member (since 2026-11-18): its exact-byte SHA-256 and, per skill,
+SHA-256 of `canonicalJson(skill)` keyed by SHA-256 of the skill's `id` (by position when it has none), so a change is
+counted without quoting the card. A card that cannot be fetched is left out of the lock and is a `warn` at capture; one
+that is not readable as a card (not JSON, a repeated key) is locked by its bytes only, with an `info`. `--relock` captures
+every card the lock held again; `--drop <url>` takes one out. On every watch a changed card is `block` (kind `peer`: a
+client that reads it now gets different skills or endpoints), with the counts; an unreachable one is `warn`. If the card
+carries JWS signatures (A2A's `signatures`), the summary says how many; verifying them against a trust store is a
+follow-up (the JWS profile in `docs/jws-profile.md` is the first half of it). The Desk's published reader holds a card's
+address to the peers' address rule before fetching it, and counts the same (parity test).
+
+The fixtures are the A2A specification's own sample cards (`src/test/fixtures/a2a/README.md`): none of the hosts this
+repository talks to publishes a card (2026-11-18).
+
+**MCP tool lists: designed, not built.** An MCP server's tools (`kind: "mcp-tools"`, reserved on the wire) would be
+read with `initialize`, then `tools/list`: JSON-RPC over HTTP POST, with the session id the server returns. `safeFetch`
+makes GET requests only. The narrow extension would be: POST with a fixed, small request body built by Plumbline (no
+caller-supplied body), `content-type: application/json`, the same address checks after DNS, the same body ceiling and
+absolute timeout, no redirects followed for a POST, and `parts` = per tool SHA-256 of `canonicalJson({ name,
+description, inputSchema })` keyed by SHA-256 of the name. It is not built because no MCP server among the hosts this
+repository already talks to could be recorded as a fixture within the rules this work runs under (no POST to a third
+party), and a reader derived from no recorded response is a guess. `--external mcp-tools=...` is refused with that
+reason, and a lock that holds an `mcp-tools` entry gets a `warn` saying it was not checked.
+
 ### Accepting drift: `--relock`
 
 `plumbline watch --root <dir> --relock [--drop <ref>]... [--json]`, after a person reviewed the drift and accepts it. It captures the
@@ -300,7 +328,10 @@ error. Only grounding refs are dropped; a peer leaves the lock when no network n
       "checkedAt": "<ISO UTC>"
     }
   },
-  "pendingPeers": { "https://later.example/partner": { "since": "<ISO UTC>" } }
+  "pendingPeers": { "https://later.example/partner": { "since": "<ISO UTC>" } },
+  "external": {
+    "https://agent.example/.well-known/agent-card.json": { "kind": "a2a-card", "sha256": "<sha256>", "parts": { "<sha256 of a skill id>": "<sha256 of the skill>" }, "checkedAt": "<ISO UTC>" }
+  }
 }
 ```
 
