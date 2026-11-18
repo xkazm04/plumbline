@@ -222,6 +222,13 @@ Design:
 Done: tests for each verdict and for lock match and mismatch; `test:site` covers the Desk surface; the changed signed
 Desk files listed for the owner.
 
+As built: the consent card is the vendored runtime's (`runtime/ui.js`; the Desk stands in front of it only through
+`onConsent` in `site.js`), so the result is shown beside the partner list, in the page's own "Check the partners now".
+`checkPeerBeforeLoad` takes the caller's trust ENTRIES (not a store), because a revocation the peer publishes is applied
+to a copy of them; it reads the peer itself (a runtime hook would hand it the bytes instead). It adds a lock state
+`unread` and a `refuse` flag. Its verify-from-a-fetcher follows `verify --url` and the Desk's `#verifyAt`; folding those
+two onto it is a follow-up, not done here (it would change more signed Desk code).
+
 Owner: file the hook proposal upstream; relock and re-sign the Desk.
 
 ## Phase D: scale
@@ -276,6 +283,6 @@ stderr or a report); docs.
 | D8 | done | 7c87318, 4b9c90e | None beyond the Desk relock above (the Desk names no `--source` page today; add one with `--relock --source` if a page grounds the network). |
 | D4 | done | addcd1e | Optional: publish the Desk's `_plumbline` TXT record (`plumbline dns --key site/.well-known/plumbline-key.json --origin https://plumbline.xkazm04.workers.dev`); on a `workers.dev` host this needs a custom domain, since the workers.dev zone is Cloudflare's. |
 | D5 | done | 3b53541, ccd4091 | Submit `docs/proposals/waw-provenance.md` to cognizant-ai-labs/agentic-web (it references `docs/proposals/runtime-preload-hook.md`, written in D3). |
-| D3 | not started | | |
+| D3 | done | 1730387 | File `docs/proposals/runtime-preload-hook.md` upstream. Relock and re-sign the Desk: `site/desk.js` and `site/strings.js` (signed) changed. |
 | D6 | not started | | |
 | D10 | not started | | |
