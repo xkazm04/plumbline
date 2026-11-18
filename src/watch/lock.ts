@@ -4,7 +4,7 @@
 
 import { mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
-import { LOCK_FILE, type ExternalKind } from "../core/types.js";
+import { LOCK_FILE, type ExternalKind, type TrustEntry } from "../core/types.js";
 import type { Fetcher } from "../net/locate.js";
 import type { SafeFetchOptions } from "../net/safe-fetch.js";
 import { lockProblem, type Lock, type RuntimeVia } from "./decide.js";
@@ -27,6 +27,12 @@ export interface WatchDeps {
   runtimeDir?: string;
   /** The upstream commits endpoint for the runtime check of a lock with no `runtime.via` (nsdeploy). */
   upstreamUrl?: string;
+  /** `--trust <file>` (UAT-4): the caller's trust entries, to check a peer's rotation; the watch never needs them. */
+  trust?: readonly TrustEntry[];
+  /** `relock --accept-signer <peer>` (UAT-4): peers whose new signer a person accepts; without it a signer change refuses the relock. */
+  acceptSigners?: string[];
+  /** `relock --accept <ref>` (UAT-4): narrow the relock to these refs; everything else keeps the previous lock's record. */
+  accept?: string[];
 }
 
 export const UPSTREAM_REPO = "cognizant-ai-lab/nsdeploy";

@@ -7,7 +7,9 @@ import { LOCK_FILE, SIGNATURE_FILE, type DriftFinding } from "../core/types.js";
 import { DEFAULT_TIMEOUT_MS, safeFetch } from "../net/safe-fetch.js";
 import type { FactCoverage } from "./anchors.js";
 import { captureLock } from "./capture.js";
-import { lockChanges, signatureExpiryFinding, type Lock, type LockChanges, type LockState, type WatchReport } from "./decide.js";
+import { lockChanges, signatureExpiryFinding, signerChangeWords, type Lock, type LockChanges, type LockState, type WatchReport } from "./decide.js";
+import { readPeerRotation } from "./observe.js";
+import { locatePeerFile } from "../net/locate.js";
 import { detectCoverage, detectExternal, detectGrounding, detectPeers, detectRuntime, detectSignature, type DetectorEnv } from "./detectors.js";
 import { readLock, replaceLock, writeLock, type LockRead, type WatchDeps } from "./lock.js";
 import { describeWatchError } from "./observe.js";
@@ -30,6 +32,7 @@ function envOf(options: WatchOptions, deps: WatchDeps): DetectorEnv {
     fetch: deps.fetch ?? safeFetch,
     fetchOptions: { timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS, ...(deps.fetchOptions ?? {}) },
     ...(deps.upstreamUrl !== undefined ? { upstreamUrl: deps.upstreamUrl } : {}),
+    ...(deps.trust !== undefined ? { trust: deps.trust } : {}),
     now: (deps.now ?? (() => new Date()))(),
   };
 }
@@ -102,6 +105,36 @@ export interface RelockReport {
   findings: DriftFinding[];
   /** What the new lock watches: the facts the networks state, per page (anchors.ts). Its literals go to the terminal only. */
   coverage: FactCoverage;
+  /** The signer changes a person accepted with --accept-signer (UAT-4), each with its backing. */
+  signers?: SignerChange[];
+}
+
+/** A peer whose signer the relock would change, and what the peer publishes about it (UAT-4). */
+export interface SignerChange {
+  peer: string;
+  from: string;
+  to: string;
+  /** decide.ts signerChangeWords: verified rotation, published rotation, or a different key with none. */
+  how: string;
+  /** For an accepted one: what the --trust file says of the new signer. */
+  backing?: "backed by your trust file" | "not backed by your trust file" | "not checked: no --trust file given";
+}
+
+/**
+ * A relock that wrote nothing (UAT-4): `signer`, a peer's signer changed and no --accept-signer names it (exit 1, each
+ * peer named, and the command a person runs after deciding); `drop-peer`, --drop named a peer, which --drop does not
+ * take (a peer leaves the lock when no network names it).
+ */
+export type RelockRefusal = { refused: "signer"; peers: SignerChange[] } | { refused: "drop-peer"; refs: string[] };
+
+/** Thrown by runRelock when it refuses: nothing was written. */
+export class RelockRefused extends Error {
+  readonly refusal: RelockRefusal;
+  constructor(refusal: RelockRefusal) {
+    super(refusal.refused === "signer" ? "a peer signer changed and no --accept-signer names it" : "--drop named a peer");
+    this.name = "RelockRefused";
+    this.refusal = refusal;
+  }
 }
 
 /**
@@ -110,6 +143,13 @@ export interface RelockReport {
  * at init is not dropped; one that is gone now is a finding and leaves the lock. A ref in `deps.dropSources`
  * (`--drop`) is left out, and the change list shows it removed. The lock is a signed file, so the caller reminds the
  * publisher to sign again.
+ *
+ * UAT-4 (the owner's decided design): a peer now signed by another key than the one the lock recorded is never
+ * re-pinned by a plain relock: the relock REFUSES, writes nothing and names each such peer, until every one is named
+ * in `deps.acceptSigners` (`--accept-signer`) or the site stops naming it. `deps.accept` (`--accept <ref>`) narrows the
+ * relock to the named refs: everything else keeps the previous lock's record and keeps reporting. With `deps.trust`
+ * an accepted signer is said to be backed by the trust file or not (an unbacked one is still accepted when named). The
+ * lock never pins a peer's public key: only its kid, as before.
  */
 export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Promise<RelockReport> {
   const env = envOf(options, deps);
@@ -118,11 +158,16 @@ export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Pr
   const held = before?.grounding.sources.map((s) => s.ref) ?? [];
   const extraSources = [...held, ...(deps.extraSources ?? [])];
   const dropSources = [...new Set(deps.dropSources ?? [])];
+  // --drop takes grounding refs and external definitions; a peer leaves the lock when no network names it
+  const dropPeers = dropSources.filter(
+    (r) => before !== undefined && (r in before.peers || r in (before.pendingPeers ?? {})) && !held.includes(r) && !(r in (before.external ?? {})),
+  );
+  if (dropPeers.length > 0) throw new RelockRefused({ refused: "drop-peer", refs: dropPeers });
   // every external definition the previous lock held is captured again, with the new ones, less what --drop names
   const externals = [...Object.entries(before?.external ?? {}).map(([url, e]) => ({ kind: e.kind, url })), ...(deps.externals ?? [])].filter(
     (e) => !dropSources.includes(e.url),
   );
-  const { lock, findings, coverage } = await captureLock(env, {
+  const captured = await captureLock(env, {
     now: env.now,
     externals,
     extraSources,
@@ -130,11 +175,113 @@ export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Pr
     dropSources,
     ...(deps.runtimeDir !== undefined ? { runtimeDir: deps.runtimeDir } : {}),
   });
+  const { findings, coverage } = captured;
+  const accept = deps.accept !== undefined && deps.accept.length > 0 ? new Set(deps.accept) : undefined;
+  const lock = accept !== undefined && before !== undefined ? narrowed(before, captured.lock, accept, findings) : captured.lock;
+
+  // the signer changes this relock would write, and whether a person named each one
+  const acceptSigners = new Set(deps.acceptSigners ?? []);
+  const changes: SignerChange[] = [];
+  for (const [url, record] of Object.entries(lock.peers)) {
+    const was = before?.peers[url]?.kid;
+    if (was === undefined || record.kid === undefined || record.kid === was) continue;
+    const base = await locatePeerBase(url, env);
+    const rotation =
+      base === null ? undefined : await readPeerRotation(env.fetch, base, was, record.kid, { fetchOptions: env.fetchOptions, ...(env.trust !== undefined ? { trust: env.trust } : {}) });
+    changes.push({ peer: url, from: was, to: record.kid, how: signerChangeWords(rotation) });
+  }
+  const unnamed = changes.filter((c) => !acceptSigners.has(c.peer));
+  if (unnamed.length > 0) throw new RelockRefused({ refused: "signer", peers: unnamed });
+  for (const c of changes) {
+    const origin = originOf(c.peer);
+    const backed =
+      env.trust === undefined
+        ? undefined
+        : env.trust.some((e) => e.kid === c.to && e.origin === origin && e.revokedAt === undefined) || c.how.startsWith("it rotated from the key the lock recorded, verified");
+    c.backing = backed === undefined ? "not checked: no --trust file given" : backed ? "backed by your trust file" : "not backed by your trust file";
+  }
+  for (const ref of [...acceptSigners].filter((p) => !changes.some((c) => c.peer === p))) {
+    findings.push({ kind: "peer", severity: "info", ref, summary: "Named with --accept-signer, but this relock changes no signer for it, so there was nothing to accept." });
+  }
   for (const ref of dropSources.filter((r) => !held.includes(r) && !(r in (before?.external ?? {})))) {
     findings.push({ kind: "grounding", severity: "info", ref, summary: "This ref was not in the lock, so there was nothing to drop." });
   }
   await replaceLock(options.root, lock);
-  return { previous: stateOf(read).lockState, changes: lockChanges(before, lock), findings, coverage };
+  return { previous: stateOf(read).lockState, changes: lockChanges(before, lock), findings, coverage, ...(changes.length > 0 ? { signers: changes } : {}) };
+}
+
+/** The previous lock with only the accepted refs taken from the new capture (`--accept`); the rest keep their records. */
+function narrowed(before: Lock, after: Lock, accept: Set<string>, findings: DriftFinding[]): Lock {
+  const sources = before.grounding.sources.filter((s) => !accept.has(s.ref));
+  for (const s of after.grounding.sources) if (accept.has(s.ref)) sources.push(s);
+  const peers = { ...before.peers };
+  const pendingPeers = { ...(before.pendingPeers ?? {}) };
+  for (const url of accept) {
+    const now = after.peers[url];
+    const pending = after.pendingPeers?.[url];
+    if (now !== undefined) {
+      peers[url] = now;
+      delete pendingPeers[url];
+    } else if (pending !== undefined) {
+      if (!(url in peers)) pendingPeers[url] = pending;
+    } else {
+      delete peers[url];
+      delete pendingPeers[url];
+    }
+  }
+  const external = { ...(before.external ?? {}) };
+  for (const url of accept) {
+    const now = after.external?.[url];
+    if (now !== undefined) external[url] = now;
+    else delete external[url];
+  }
+  const files = { ...before.runtime.files };
+  for (const file of accept) {
+    const now = after.runtime.files[file];
+    if (now !== undefined) files[file] = now;
+    else delete files[file];
+  }
+  const known = new Set([
+    ...before.grounding.sources.map((s) => s.ref),
+    ...after.grounding.sources.map((s) => s.ref),
+    ...Object.keys(before.peers),
+    ...Object.keys(after.peers),
+    ...Object.keys(before.pendingPeers ?? {}),
+    ...Object.keys(after.pendingPeers ?? {}),
+    ...Object.keys(before.external ?? {}),
+    ...Object.keys(after.external ?? {}),
+    ...Object.keys(before.runtime.files),
+    ...Object.keys(after.runtime.files),
+  ]);
+  for (const ref of accept) {
+    if (!known.has(ref)) findings.push({ kind: "grounding", severity: "info", ref, summary: "Named with --accept, but neither the lock nor the site holds this ref, so there was nothing to accept." });
+  }
+  const out: Lock = {
+    version: before.version,
+    runtime: { ...before.runtime, files },
+    grounding: { sources: sources.sort((a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0)), builtAt: after.grounding.builtAt },
+    peers,
+  };
+  if (Object.keys(pendingPeers).length > 0) out.pendingPeers = pendingPeers;
+  if (Object.keys(external).length > 0) out.external = external;
+  return out;
+}
+
+const originOf = (url: string): string => {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "";
+  }
+};
+
+/** The site base a peer's manifest lives at (net/locate.ts), or null when it cannot be found now. */
+async function locatePeerBase(url: string, env: DetectorEnv): Promise<string | null> {
+  try {
+    return (await locatePeerFile(url, env.fetch, env.fetchOptions)).base;
+  } catch {
+    return null;
+  }
 }
 
 /**

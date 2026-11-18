@@ -268,6 +268,31 @@ export interface PeerObservation {
   /** Read only when the lock records `links`. */
   links?: LinksRead;
   signature: SignatureRead;
+  /** Read only when the peer is signed by another key than the locked one (UAT-4). */
+  rotation?: PeerRotation;
+}
+
+/** What a peer signed by another key than the locked one publishes about it: see observe.ts readPeerRotation. */
+export interface PeerRotation {
+  /** Its plumbline-rotation.json holds a statement from the kid the lock recorded. */
+  fromLocked: boolean;
+  /** With `--trust`: the chain verifies from a key the trust file holds for the peer's origin, to the new kid. */
+  verified?: boolean;
+}
+
+/**
+ * How a signer change reads (UAT-4): a rotation verified against the caller's trust file, a rotation statement that is
+ * published but not verified here (or does not verify), or a different key with no rotation published. Each is still
+ * `block`: a relock refuses it until a person names the peer with --accept-signer.
+ */
+export function signerChangeWords(rotation: PeerRotation | undefined): string {
+  if (rotation?.verified === true) return "it rotated from the key the lock recorded, verified against your trust file";
+  if (rotation?.fromLocked === true) {
+    return rotation.verified === false
+      ? "a rotation statement from the locked key is published, and it does not verify against your trust file"
+      : "a rotation statement from the locked key is published (not verified here)";
+  }
+  return "a different key, with no rotation published";
 }
 
 export function peerFindings(url: string, record: PeerRecord, seen: PeerObservation): DriftFinding[] {
@@ -333,7 +358,14 @@ export function peerFindings(url: string, record: PeerRecord, seen: PeerObservat
   const sig = seen.signature;
   const kid = "kid" in sig ? sig.kid : undefined;
   if (kid !== undefined && record.kid !== undefined && kid !== record.kid) {
-    out.push({ kind: "peer", severity: "block", ref: url, expected: record.kid, actual: kid, summary: "A peer is now signed by a different key than the one the lock recorded." });
+    out.push({
+      kind: "peer",
+      severity: "block",
+      ref: url,
+      expected: record.kid,
+      actual: kid,
+      summary: `A peer is now signed by a different key than the one the lock recorded: ${signerChangeWords(seen.rotation)}. A relock refuses it until a person decides: watch --relock --accept-signer <this peer>.`,
+    });
   } else if (kid !== undefined && record.kid === undefined) {
     out.push({ kind: "peer", severity: "info", ref: url, actual: kid, summary: "A peer that was unsigned when locked now publishes a signature; re-lock to record its key." });
   } else if (kid === undefined && record.kid !== undefined) {

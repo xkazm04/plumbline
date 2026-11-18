@@ -13,14 +13,16 @@
 import { resolve } from "node:path";
 import { RESIGN_REMINDER, type WatchReport } from "../watch/decide.js";
 import { factCoverageCounts, factCoverageLines } from "../watch/anchors.js";
-import { runInit, runRelock, runWatch, runWatchUrl } from "../watch/index.js";
+import { RelockRefused, runInit, runRelock, runWatch, runWatchUrl, type RelockRefusal } from "../watch/index.js";
+import { readTrustFile } from "./files.js";
+import type { TrustEntry } from "../core/types.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
 import { parseExternalArg } from "../watch/external.js";
 import type { ExternalKind } from "../core/types.js";
 import { ALLOW_LOCAL_WARNING, isHttpUrl } from "./gate-command.js";
 
 const USAGE =
-  "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <path-or-https-url>]... [--external a2a-card=<https url>]... [--timeout <ms>] [--json]\n" +
+  "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]... [--accept-signer <peer>]... [--accept <ref>]...] [--source <path-or-https-url>]... [--external a2a-card=<https url>]... [--trust <trust file>] [--timeout <ms>] [--json]\n" +
   "       plumbline watch --url <https site address> [--allow-local] [--timeout <ms>] [--json]\n";
 
 /** The refusal for a missing or empty value of each value-taking flag (for --timeout, also a bad one). */
@@ -31,6 +33,8 @@ const BAD_VALUE = {
   timeout: "--timeout takes a positive number of milliseconds",
   url: "--url takes an http(s) site address, such as https://site.example/",
   external: "--external takes a2a-card=<https url>",
+  accept: "--accept-signer and --accept take a ref: a peer address, a grounding ref, an external address or a runtime file",
+  trust: "--trust takes a trust file (plumbline.trust.json)",
 } as const;
 
 /** The watch's own sentence for each refusal of the shared parser. It takes no positionals, so none is `extra`. */
@@ -47,7 +51,7 @@ function refuse(sentence: string): 2 {
 export async function runWatchCommand(argv: string[]): Promise<number> {
   let args;
   try {
-    args = parseArgs(argv, ["root", "timeout", "url"], ["init", "relock", "allow-local"], { repeatable: ["source", "drop", "external"] });
+    args = parseArgs(argv, ["root", "timeout", "url", "trust"], ["init", "relock", "allow-local"], { repeatable: ["source", "drop", "external", "accept-signer", "accept"] });
   } catch (error) {
     if (error instanceof ArgsError) return refuse(usageSentence(error));
     throw error;
@@ -58,6 +62,9 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
   const extraSources = repeated(args, "source");
   const dropSources = repeated(args, "drop");
   const externalArgs = repeated(args, "external");
+  const acceptSigners = repeated(args, "accept-signer");
+  const accept = repeated(args, "accept");
+  const trustPath = args.values.get("trust");
 
   const rootValue = args.values.get("root");
   if (rootValue === "") return refuse(BAD_VALUE.root);
@@ -95,6 +102,19 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
   if (init && relock) return refuse("--init and --relock do not go together: --init writes a first lock, --relock replaces one");
   if (dropSources.length > 0 && !relock) return refuse("--drop goes with --relock: it takes a ref out of the lock --relock writes");
   if (dropSources.some((ref) => extraSources.includes(ref))) return refuse("--source and --drop name the same ref");
+  if ((acceptSigners.length > 0 || accept.length > 0) && !relock) return refuse("--accept-signer and --accept go with --relock: they name what the relock accepts");
+  if (acceptSigners.includes("") || accept.includes("")) return refuse(BAD_VALUE.accept);
+  if (trustPath === "") return refuse(BAD_VALUE.trust);
+  // --trust (UAT-4): opt-in; the watch never needs a trust store. It only lets a peer's rotation be checked.
+  let trust: TrustEntry[] | undefined;
+  if (trustPath !== undefined) {
+    try {
+      trust = (await readTrustFile(trustPath)).entries;
+    } catch (error) {
+      process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "the trust file could not be read"}\n`);
+      return 2;
+    }
+  }
   const externals: { kind: ExternalKind; url: string }[] = [];
   for (const arg of externalArgs) {
     const parsed = parseExternalArg(arg);
@@ -107,8 +127,9 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
   if (relock) {
     let result;
     try {
-      result = await runRelock(options, { extraSources, dropSources, externals });
+      result = await runRelock(options, { extraSources, dropSources, externals, acceptSigners, accept, ...(trust !== undefined ? { trust } : {}) });
     } catch (error) {
+      if (error instanceof RelockRefused) return printRefusal(error.refusal, rootValue ?? ".", json);
       process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
     }
@@ -121,6 +142,8 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
       for (const ref of added) process.stdout.write(`added   ${ref}\n`);
       for (const ref of removed) process.stdout.write(`removed ${ref}\n`);
       for (const ref of changed) process.stdout.write(`changed ${ref}\n`);
+      // a signer a person accepted (UAT-4), with what the --trust file says of it, in the change list
+      for (const c of result.signers ?? []) process.stdout.write(`signer  peer ${c.peer}: ${c.from} -> ${c.to} (${c.how}; ${c.backing ?? ""})\n`);
       if (added.length + removed.length + changed.length === 0) process.stdout.write("no ref changed\n");
       for (const line of factCoverageLines(coverage)) process.stdout.write(`${line}\n`);
       for (const f of result.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
@@ -146,12 +169,30 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
 
   let report;
   try {
-    report = await runWatch(options, { extraSources, externals });
+    report = await runWatch(options, { extraSources, externals, ...(trust !== undefined ? { trust } : {}) });
   } catch (error) {
     process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
     return 2;
   }
   return printReport(report, json);
+}
+
+/**
+ * A relock that wrote nothing (UAT-4). A signer change: exit 1, each peer named with what it publishes, and the command
+ * a person runs after deciding (CI never passes --accept-signer). --drop naming a peer: a usage error, exit 2.
+ */
+function printRefusal(refusal: RelockRefusal, rootArg: string, json: boolean): 1 | 2 {
+  if (refusal.refused === "drop-peer") {
+    return refuse(`--drop takes a grounding ref or an external definition the lock holds; ${refusal.refs.join(", ")} ${refusal.refs.length === 1 ? "is a peer, which leaves" : "are peers, which leave"} the lock when no network names ${refusal.refs.length === 1 ? "it" : "them"}: remove ${refusal.refs.length === 1 ? "it" : "them"} from the site's network (or links.json), then relock`);
+  }
+  const command = `plumbline watch --root ${rootArg} --relock ${refusal.peers.map((p) => `--accept-signer ${p.peer}`).join(" ")}`;
+  if (json) process.stdout.write(`${JSON.stringify({ relocked: false, refused: "signer", peers: refusal.peers, command }, null, 2)}\n`);
+  else {
+    process.stdout.write("relock refused: a peer is signed by another key than the lock recorded, and a relock does not accept a new signer unless a person names it. Nothing was written.\n");
+    for (const p of refusal.peers) process.stdout.write(`  peer ${p.peer}: the lock recorded ${p.from}; it is now signed by ${p.to} (${p.how})\n`);
+    process.stdout.write(`After deciding whether you trust the new key (verify --url, adopt for a rotation), run: ${command}\n`);
+  }
+  return 1;
 }
 
 /** Prints a watch report and returns its exit code: 1 for a lock that was not found or any warn or block, else 0. */

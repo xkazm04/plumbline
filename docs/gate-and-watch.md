@@ -123,7 +123,7 @@ a lock the browser was refused), so a drift count is a count of drift.
 | `peer` | each `peers[url]`: the network definition, hashed again | changed in any byte: `block` (a peer's definition runs in the visitor's browser, so a changed one is changed code). Unreachable: `warn`. An address the address rule refuses (not https, a private or loopback address) reads the same on every surface: "A peer in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked." |
 | `peer` outline | with a changed definition, its outline against the lock's (`src/watch/outline.ts`) | the same `block`; the summary adds what changed in counts: "In outline: agents: N added, N removed, N changed; outbound hosts: N added, N removed; front agent: changed or unchanged". The same outline is "Formatting or non-agent content only" (still `block`: the bytes the runtime reads changed). No outline in the lock: "re-lock to record one". A definition that cannot be outlined now (not JSON, a repeated key): said so |
 | `peer` links | each `peers[url].links`: the peer's `links.json` at the same site base (the runtime fetches it for every peer network it loads and lays it over that network's links) | appeared (locked `absent`, now served), changed, or gone (404/410 now): `block`. Cannot be read (timeout, HTTP 5xx): `warn`. A lock written before 2026-11-17 has no `links` for the peer: `warn`, "re-lock to track it", never a silent pass |
-| `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`. Signed when locked, no usable signature now: `warn`. Unsigned when locked, signed now: `info`. A `kid` that is not exactly 16 lowercase hex characters is never recorded or quoted; it counts as no usable signature |
+| `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`, saying what the peer publishes about it (UAT-4): "a rotation statement from the locked key is published (not verified here)" or "a different key, with no rotation published" (its `plumbline-rotation.json` is read only then); with `watch --trust <file>` (opt-in: the watch never needs a trust store), a chain that verifies from a key that file holds for the peer's origin to the new kid reads "it rotated from the key the lock recorded, verified against your trust file". Each ends "A relock refuses it until a person decides: watch --relock --accept-signer <this peer>". Signed when locked, no usable signature now: `warn`. Unsigned when locked, signed now: `info`. A `kid` that is not exactly 16 lowercase hex characters is never recorded or quoted; it counts as no usable signature |
 | `peer` external | each `external[url]` (an A2A Agent Card, `src/watch/external.ts`), fetched and hashed again | changed in any byte: `block`, with "In outline: skills: N added, N removed, N changed" and whether it carries JWS signatures (counted, not verified). Unreachable or an HTTP error: `warn`. An `mcp-tools` entry: `warn`, not checked by this build |
 | `peer` pending | each `pendingPeers[url]`: a peer that could not be captured when the lock was written | `warn` on every watch, reachable or not, until `--relock` captures it. The checkout's watch asks it again and says why it is still pending today: "it answers now: review it, then run watch --relock to capture it", "it still cannot be read (<cause>)", or "it was not contacted now either: it is not an https address". A reader of a published lock (`watch --url`, the Desk) never contacts a pending peer; it applies the address rule only |
 | coverage | what the site names now (the discovery `--init` uses, below) against what the lock holds | a root agent file or a manifest-named network file not in `grounding.sources`: `warn` (grounding). A peer a network or `links.json` names that is neither in `peers` nor pending: `warn` (peer). A network file that is not JSON, so its peers cannot be read: `warn` (peer). An unsafe `hocon`: `warn`, as at init |
@@ -372,7 +372,21 @@ the lock: it is not captured again, and `removed grounding <ref>` lists it. A la
 ref the site itself still names (a root agent file, a manifest-named network) can be dropped too, and the relock says so
 with a `warn`: every watch's coverage check will report it as not covered while the site names it. A ref the lock did not
 hold is an `info`, "nothing to drop". `--drop` without `--relock`, or naming the same ref as a `--source`, is a usage
-error. Only grounding refs are dropped; a peer leaves the lock when no network names it any more.
+error. Only grounding refs and external definitions are dropped; a peer leaves the lock when no network names it any
+more, so `--drop <peer>` is refused (exit 2) with that sentence, and nothing is written.
+
+**Accept is per ref and knows signers** (UAT-4, the owner's design of 2026-11-18). A relock **refuses** while a peer is
+signed by another key than the one the lock recorded: exit 1, nothing written, each such peer named with the kid the
+lock recorded, the kid it is signed by now and what it publishes about it, and the command to run after deciding.
+`--accept-signer <peer>` (repeatable) names a peer whose new signer a person accepts; the relock refuses until every
+such peer is named or the site stops naming it. An accepted signer is listed in the change list (`signer  peer <url>:
+<old> -> <new> (...)`, `--json` `signers`), with `--trust <file>` saying whether that trust file backs the new key (it
+holds it for the peer's origin, or the published rotation verifies from a key it holds); an unbacked one is still
+accepted when named, and the line says "not backed by your trust file". `--accept <ref>` (repeatable) narrows a relock to
+the named refs (a grounding ref, a peer address, an external address or a runtime file): everything else keeps the
+previous lock's record and keeps reporting, so accepting a rotated seller does not touch a swapped one. The lock still
+pins a peer's kid only, never its public key: a published, signed file is not a second trust store. The Action never
+passes `--accept-signer`: with a signer change pending its pull request is not relocked, and says so (below).
 
 ### The lock (`plumbline.lock.json`)
 

@@ -3,7 +3,7 @@
 // and not a crash. Severity rules: decide.ts and docs/gate-and-watch.md.
 
 import { join } from "node:path";
-import { SIGNATURE_FILE, type DriftFinding } from "../core/types.js";
+import { SIGNATURE_FILE, type DriftFinding, type TrustEntry } from "../core/types.js";
 import { hashBytes } from "../net/canonical.js";
 import type { Fetcher } from "../net/locate.js";
 import type { SafeFetchOptions } from "../net/safe-fetch.js";
@@ -34,6 +34,8 @@ export interface DetectorEnv {
   fetchOptions: SafeFetchOptions;
   upstreamUrl?: string;
   now: Date;
+  /** `watch --trust`: the caller's trust entries, to check a peer's published rotation (UAT-4); never required. */
+  trust?: readonly TrustEntry[];
 }
 
 /** The fetch-error sentence the watch puts in parentheses (the shared table in net/fetch-types, through observe.ts). */
@@ -181,7 +183,16 @@ async function detectUpstream(lock: Lock, env: DetectorEnv): Promise<DriftFindin
 export async function detectPeers(lock: Lock, env: DetectorEnv): Promise<DriftFinding[]> {
   const results = await Promise.all(
     Object.entries(lock.peers).map(async ([url, record]) =>
-      peerFindings(url, record, await observePeer(url, env.fetch, { fetchOptions: env.fetchOptions, links: record.links !== undefined })),
+      peerFindings(
+        url,
+        record,
+        await observePeer(url, env.fetch, {
+          fetchOptions: env.fetchOptions,
+          links: record.links !== undefined,
+          ...(record.kid !== undefined ? { lockedKid: record.kid } : {}),
+          ...(env.trust !== undefined ? { trust: env.trust } : {}),
+        }),
+      ),
     ),
   );
   // a pending peer is asked too, so its line says why it is still pending today (it answers now, or why not)

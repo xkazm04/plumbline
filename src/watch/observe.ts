@@ -9,11 +9,12 @@
 // file a peer's manifest names to the address rule before it is fetched (decide.ts destinationProblem). The CLI needs
 // no guard: safeFetch refuses those addresses itself.
 
-import { LINKS_FILE, PEER_LINKS_ABSENT, SIGNATURE_FILE } from "../core/types.js";
+import { LINKS_FILE, PEER_LINKS_ABSENT, ROTATION_FILE, SIGNATURE_FILE, type TrustEntry } from "../core/types.js";
+import { statementsOf, walkRotationChain } from "../core/rotate.js";
 import { hashBytes } from "../net/canonical.js";
 import { addressProblemOf, describeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
 import { locatePeerFile, type Fetcher } from "../net/locate.js";
-import { readSignatureKid, type LinksRead, type Observed, type PeerObservation, type SignatureRead } from "./decide.js";
+import { readSignatureKid, type LinksRead, type Observed, type PeerObservation, type PeerRotation, type SignatureRead } from "./decide.js";
 import { peerOutline } from "./outline.js";
 
 /** A sentence for the parentheses after "could not be fetched", naming why a fetch failed. */
@@ -83,6 +84,41 @@ export interface PeerObserveOptions extends ObserveOptions {
    * is `definition.refused` and nothing more is asked of the peer.
    */
   guard?: (fileUrl: string) => string | null;
+  /**
+   * The kid the lock recorded for this peer. When the peer is signed by another key now, its plumbline-rotation.json is
+   * read to tell a rotation from the locked key from a different key with none (UAT-4).
+   */
+  lockedKid?: string;
+  /** The verifier's trust entries (`watch --trust`), to check such a rotation; omitted, nothing is verified. */
+  trust?: readonly TrustEntry[];
+}
+
+/**
+ * What a peer signed by a key other than the locked one publishes about it (UAT-4): whether its plumbline-rotation.json
+ * holds a statement from the locked kid, and, with trust entries, whether the chain verifies from a key they hold for
+ * the peer's origin and ends at the new kid. Never a trust decision: verifying reads the caller's own trust entries.
+ */
+export async function readPeerRotation(fetcher: Fetcher, base: string, lockedKid: string, newKid: string, options: ObserveOptions & { trust?: readonly TrustEntry[] } = {}): Promise<PeerRotation> {
+  let statements: unknown[] = [];
+  try {
+    const response = await fetcher(`${base}${ROTATION_FILE}`, options.fetchOptions ?? {});
+    if (response.ok) {
+      const listed = statementsOf(JSON.parse(response.text()));
+      if ("statements" in listed) statements = listed.statements;
+    }
+  } catch {
+    statements = [];
+  }
+  const fromLocked = statements.some((s) => typeof s === "object" && s !== null && (s as { from?: unknown }).from === lockedKid);
+  if (options.trust === undefined || !fromLocked) return { fromLocked };
+  let origin: string;
+  try {
+    origin = new URL(base).origin;
+  } catch {
+    return { fromLocked, verified: false };
+  }
+  const walk = await walkRotationChain(statements, options.trust, origin);
+  return { fromLocked, verified: walk.result.verdict === "verified" && walk.newest === newKid };
 }
 
 /**
@@ -111,5 +147,9 @@ export async function observePeer(url: string, fetcher: Fetcher, options: PeerOb
   const outline = await peerOutline(response.bytes);
   const links = options.links ? await readPeerLinks(fetcher, located.base, options) : undefined;
   const signature = await readPeerKid(fetcher, located.base, options);
-  return { definition: { ok: true, sha256, outline }, ...(links !== undefined ? { links } : {}), signature };
+  const rotation =
+    options.lockedKid !== undefined && "kid" in signature && signature.kid !== options.lockedKid
+      ? await readPeerRotation(fetcher, located.base, options.lockedKid, signature.kid, { ...options, ...(options.trust !== undefined ? { trust: options.trust } : {}) })
+      : undefined;
+  return { definition: { ok: true, sha256, outline }, ...(links !== undefined ? { links } : {}), signature, ...(rotation !== undefined ? { rotation } : {}) };
 }
