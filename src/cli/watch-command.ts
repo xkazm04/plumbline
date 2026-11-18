@@ -12,7 +12,8 @@
 
 import { resolve } from "node:path";
 import { RESIGN_REMINDER, type WatchReport } from "../watch/decide.js";
-import { runRelock, runWatch, runWatchUrl } from "../watch/index.js";
+import { factCoverageCounts, factCoverageLines } from "../watch/anchors.js";
+import { runInit, runRelock, runWatch, runWatchUrl } from "../watch/index.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
 import { parseExternalArg } from "../watch/external.js";
 import type { ExternalKind } from "../core/types.js";
@@ -111,7 +112,9 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
       process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
     }
-    if (json) process.stdout.write(`${JSON.stringify({ relocked: true, ...result, reminder: RESIGN_REMINDER }, null, 2)}\n`);
+    const { coverage, ...rest } = result;
+    // --json carries what the lock watches in counts by kind; the literals are for the publisher's terminal only
+    if (json) process.stdout.write(`${JSON.stringify({ relocked: true, ...rest, facts: factCoverageCounts(coverage), reminder: RESIGN_REMINDER }, null, 2)}\n`);
     else {
       process.stdout.write(`relock: wrote plumbline.lock.json (the previous lock was ${result.previous})\n`);
       const { added, removed, changed } = result.changes;
@@ -119,10 +122,26 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
       for (const ref of removed) process.stdout.write(`removed ${ref}\n`);
       for (const ref of changed) process.stdout.write(`changed ${ref}\n`);
       if (added.length + removed.length + changed.length === 0) process.stdout.write("no ref changed\n");
+      for (const line of factCoverageLines(coverage)) process.stdout.write(`${line}\n`);
       for (const f of result.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
       process.stdout.write(`${RESIGN_REMINDER}\n`);
     }
     return 0;
+  }
+
+  if (init) {
+    let written;
+    try {
+      written = await runInit(options, { extraSources, externals });
+    } catch (error) {
+      process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
+      return 2;
+    }
+    if (written !== null) {
+      if (json) process.stdout.write(`${JSON.stringify({ findings: written.findings, facts: factCoverageCounts(written.coverage) }, null, 2)}\n`);
+      else for (const line of factCoverageLines(written.coverage)) process.stdout.write(`${line}\n`);
+      return json ? exitOf({ findings: written.findings }) : printReport({ findings: written.findings }, false);
+    }
   }
 
   let report;
@@ -144,5 +163,10 @@ function printReport(report: WatchReport, json: boolean): 0 | 1 {
     else if (report.findings.length === 0) process.stdout.write("watch: no drift\n");
     for (const f of report.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
   }
+  return exitOf(report);
+}
+
+function exitOf(report: WatchReport): 0 | 1 {
+  const noLock = report.lockState !== undefined && report.lockState !== "found";
   return noLock || report.findings.some((f) => f.severity === "warn" || f.severity === "block") ? 1 : 0;
 }

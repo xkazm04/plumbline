@@ -100,7 +100,7 @@ a lock the browser was refused), so a drift count is a count of drift.
 
 | Detector | What it re-checks | Finding and severity |
 | --- | --- | --- |
-| `grounding` | each `grounding.sources[].ref` (a path under the root, or an https URL through `safeFetch`), hashed again | changed: `warn`. Unreadable, missing or outside the root: `warn`, saying so. A changed page with `anchors` is re-read and the summary counts them: "all N facts the network states from it are still on it" or "K of N facts the network states are no longer on it" (still `warn`; below) |
+| `grounding` | each `grounding.sources[].ref` (a path under the root, or an https URL through `safeFetch`), hashed again | changed: `warn`. Unreadable, missing or outside the root: `warn`, saying so. A changed page with `anchors` is re-read and the summary counts them against what the networks state now (still `warn`; below). A changed network or agent file: "the agent now answers from different facts: review the change, then re-lock". A changed page the lock watches no fact on says so, never that the agent answers differently |
 | `runtime` (a) | each file in `runtime.files`, under the root | changed or missing: `block` (the vendored runtime is copy-do-not-change) |
 | `runtime` added | the locked runtime folder (the deepest folder holding every `runtime.files` key, such as `runtime` or `site/runtime`), listed | a file in it the lock does not hold: `block`, with its hash as `actual`, "added to the vendored runtime folder after the lock was written". Remove it, or review it and `--relock`. CLI only: a browser cannot list a folder |
 | `runtime` (b) | the runtime's upstream, from the GitHub API, unauthenticated (see "Which upstream the runtime check asks") | upstream moved on: `info` "Upstream is ahead" with both short SHAs. Cannot ask (timeout, rate limit, HTTP error, odd answer): `info` "Could not check upstream". Never `block` |
@@ -141,7 +141,16 @@ lock, run the watch, name with `--source` the pages whose facts the network stat
 `sign`. It makes no key and reads none. Exit 0 when the lock was written or kept with nothing `warn` or `block`, 1 for a
 capture with a gap (a pending peer, a source that could not be read) or a lock that is there and cannot be used, 2 for
 a usage or I/O error. `--json`: `{ lock: "written" | "kept", lockFile, counts: { grounding, runtime, peers, pending },
-findings, workflow?, workflowRoot?, next }`.
+facts?, findings, workflow?, workflowRoot?, next }`.
+
+What the new lock watches is printed with it (and by `watch --init` and `--relock`), one `facts` line each: how many
+facts the networks state, by kind; per `--source` page, how many it watches by kind and which of the network's facts
+are not on it; and which facts no page watches. Those lines name the facts, normalised (`EUR 89`, `22:00`, "the phone
+number ending 960418"), because they are the publisher's own network's facts in the publisher's own terminal; `--json`
+carries the same as counts by kind (`facts: { network, pages: [{ ref, watched, notOnPage, problem? }], unwatched }`)
+and never a literal, and no finding quotes one. A page that states none of the facts the network states is a `warn` at
+capture ("No fact is watched on this page ..."), so init exits 1 for it. With `--source` given, the next steps say to
+read those lines instead of asking for `--source` again.
 
 ### A published lock: `plumbline watch --url`
 
@@ -205,36 +214,61 @@ else makes the lock `unusable`, and `--init` does not record such a `via` from a
 
 Hashing a page's bytes says that it changed, not whether the network now states something the page no longer does. An
 **anchor** turns that into a check, with no model. At `--init` and `--relock`, the watch takes the literals the
-networks' instructions state (every agent's `instructions`), found with fixed patterns (`src/watch/anchors.ts`):
+networks' instructions state (every agent's `instructions`, with the `{name}` placeholders the runtime fills from
+`commondefs.replacement_strings` filled in), found with fixed patterns (`src/watch/anchors.ts`):
 
 | Kind | Found | Normalised |
 | --- | --- | --- |
-| money | a currency symbol or code (`$ € £ ¥`, `USD EUR GBP JPY CHF CZK`, `Kč`) before or after a number | the currency code and the number: thousands separators removed, the decimal mark `.`, a zero fraction dropped (`€1.250,00` and `EUR 1250` are `eur 1250`) |
-| time | `H:MM` (24-hour, with or without am/pm) and `H am`/`H pm` | `HH:MM`, 24-hour |
+| money | a currency symbol or code (`$ € £ ¥`, `USD EUR GBP JPY CHF CZK`, `Kč`) or word (`euro(s)`, `pound(s)`, `dollar(s)`) before or after a number, `89,- €` included | the currency code and the number: thousands separators removed, the decimal mark `.`, a zero fraction dropped (`€1.250,00` and `EUR 1250` are `eur 1250`) |
+| time | `H:MM` (24-hour, with or without am/pm), `H am`/`H pm`, `H.MM am`, `15h` and `15h30`, and `H.MM` after a word that introduces a time (from, until, till, to, at, by, before, after, opens, closes, between, and) or as the first of a range (`08.00-09.30`). A bare decimal (`12.30` alone) is not a time | `HH:MM`, 24-hour |
 | date | ISO `YYYY-MM-DD`, `24 December 2026`, `Dec. 24, 2026`, `D.M.YYYY` or `M/D/YYYY` | ISO for the first three; numeric dates keep their order (the writer's), separators unified |
-| phone | an international number (`+` or `00`) or a grouped national one, 7 to 15 digits | the digits, with `+` for an international one |
+| phone | an international number (`+` or `00`), a national one with its trunk `0` (`01632 960418`), or a grouped one; 7 to 15 digits | the last nine digits (all of them when shorter), so `+44 1632 960418`, `01632 960418` and `+44 (0)1632 960418` are one number |
 | e-mail | `name@host.tld` | lowercased |
 | percentage | a number with `%`, `percent` or `per cent` | the number with `%` |
 
-The text is lowercased and its whitespace collapsed first, and the kinds are taken in the order of the table's rows as
-the code lists them (e-mail, date, money, percentage, time, phone), each match masked before the next kind looks, so a
-date is not also a phone number and a price is not also a percentage. A literal that a grounding page also states (the
-page reduced to its text by a small tag stripper: script, style and template contents and comments dropped, every tag a
-space, the common entities decoded; no parser dependency) is an anchor, and the lock records SHA-256 of each one in
-`grounding.sources[].anchors`. The network and manifest files themselves are not anchored on themselves.
+The text is lowercased and its whitespace collapsed first, and the kinds are taken in the order the code lists them
+(e-mail, date, money, percentage, time, phone), each match masked before the next looks, so a date is not also a phone
+number and a price is not also a percentage. Money is taken in three passes: a symbol written against its number
+(`€89`) first, then a symbol, code or word after a number (`89 €`, `89 euros`), then one before a number with a space
+(`EUR 89`), so a number before a price is never read as the amount ("Sleeps 2 €89" is EUR 89, not EUR 2; UAT-1).
 
-When an anchored page changes, the watch reduces it again, takes its literals by the same patterns, and counts the
-anchors that are no longer among them: "changed; all N facts the network states from it are still on it" or "changed;
-K of N facts the network states are no longer on it, so the network may now state an old fact". The severity is `warn`
-either way, and no literal is quoted. A page that cannot be reduced (binary, not UTF-8, or larger than the 512 KiB fetch
-ceiling) says so ("its N facts the network states could not be checked: it ..."); at capture it is an `info` and the
-page's bytes are still locked. The Desk counts the same (`watch/published.js` calls the same module).
+A literal that a grounding page also states is an anchor, and the lock records SHA-256 of each one in
+`grounding.sources[].anchors`. The page is reduced to its text by a small scanner (no parser dependency): script,
+style, template and noscript contents and comments dropped; a table cell, row, paragraph, list item, heading, line
+break or other block tag becomes ` | `, which no pattern reads across, so a number in one cell never joins a price in
+the next (`Sleeps | 2 | €89`, `€89 | 120`); every other tag (a span, a link, emphasis) is a space; the common entities
+decoded; and the target of a `tel:` or `mailto:` link is written out beside the link's text (a visitor who taps "Call
+us" dials it, so the page states it). Every pattern's repetitions are bounded and the scanner is linear, so a 512 KiB
+page of pathological markup is read in milliseconds. The network and manifest files themselves are not anchored on
+themselves.
+
+When an anchored page changes, the watch reduces it again, takes its literals by the same patterns, counts the anchors
+no longer among them, and asks the networks among the lock's grounding sources, as they are now, whether they still
+state the ones gone. The sentence says which of three things happened:
+
+- **A fact the network still states is gone from the page** (the stale fact): "K of N facts the lock watches on it
+  (facts the network states) is/are no longer on it, and the network still states it/them (1 price), so the agent may
+  now answer with an old fact." (Or "the network still states S of them (...)" when only some.)
+- **None of the watched facts changed**: "all N facts the lock watches on it (facts the network states) are still on
+  it, so what changed is something the lock does not watch."
+- **The network no longer states it either** (both sides were corrected): "... is no longer on it, and the network no
+  longer states it either, so no stale fact is left: review the change, then re-lock (watch --relock)."
+
+When the networks cannot be read now, the sentence is the one before this check: "... so the network may now state an
+old fact". The severity is `warn` in every case, and no literal is quoted: the finding names the kind of fact, never its
+value. A page that cannot be reduced (binary, not UTF-8, or larger than the 512 KiB fetch ceiling) says so ("its N facts
+the network states could not be checked: it ..."); at capture it is an `info` and the page's bytes are still locked. A
+changed page that anchors no fact says that the lock watches no fact on it, never that the agent answers differently.
+The Desk counts the same (`watch/published.js` calls the same module).
+
+Locks written before 2026-11-19 anchored a phone number with its country code (`+441632960418`); the watch still reads
+such an anchor (a changed page's numbers are hashed in both forms), and the next `--relock` writes the new form.
 
 What an anchor is **not**: it is the presence of the same literal in two texts, not truth. A page can state a price in
-a sentence that says it no longer applies; a fact written in words ("nine in the morning") or split by markup is not
-seen; and the count is against the facts the network stated when the lock was written (if the network changed too, its
-own grounding finding says so). A page becomes a grounding source with `--source <page>` at `init`, `--init` or
-`--relock`: that is what turns byte hashing into a check of the facts the network states.
+a sentence that says it no longer applies; a fact written in words ("nine in the morning"), or in a form the table above
+does not list, is not seen, which is why init and `--relock` print what each page watches and which of the network's
+facts no page states. A page becomes a grounding source with `--source <page>` at `init`, `--init` or `--relock`: that
+is what turns byte hashing into a check of the facts the network states.
 
 ### What changed in a peer: the outline
 

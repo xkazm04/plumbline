@@ -12,7 +12,8 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { LOCK_FILE, type DriftFinding } from "../core/types.js";
-import { runWatch } from "../watch/index.js";
+import { factCoverageCounts, factCoverageLines, type FactCoverage } from "../watch/anchors.js";
+import { runInit } from "../watch/index.js";
 import { readLock } from "../watch/lock.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
 
@@ -37,13 +38,15 @@ const BAD_VALUE = {
  * What a publisher does next, in order. The lock alone is enough for the watch; the signature is the upgrade. The
  * grounding line says what turns byte hashing into a check of the facts the network states (D8: anchors).
  */
-export function nextSteps(rootArg: string, workflow: boolean): string[] {
+export function nextSteps(rootArg: string, workflow: boolean, sourcesGiven = false): string[] {
   return [
     `Commit ${LOCK_FILE}${workflow ? ` and ${WORKFLOW_PATH}` : ""}. The watch needs nothing else: no key, no trust file.`,
     workflow
       ? "The workflow runs daily and keeps one drift issue (it needs issues: write)."
       : `Run the watch: plumbline watch --root ${rootArg} (or add --workflow to write the daily CI workflow).`,
-    `Name the pages whose facts your network states (a price list, opening hours): plumbline watch --root ${rootArg} --relock --source <page>. A changed page is then drift, and the prices, times, dates, phone numbers, e-mail addresses and percentages the network states from it are anchored: the watch counts the ones no longer on it.`,
+    sourcesGiven
+      ? `The "facts" lines above say which facts your network states each page watches, and which no page states. To watch those too, name the pages that state them (or write them there in a form the watch reads): plumbline watch --root ${rootArg} --relock --source <page>.`
+      : `Name the pages whose facts your network states (a price list, opening hours): plumbline watch --root ${rootArg} --relock --source <page>. A changed page is then drift, and the prices, times, dates, phone numbers, e-mail addresses and percentages the network states from it are anchored: the watch counts the ones no longer on it.`,
     `Upgrade, when you are ready: sign the agent files. plumbline keygen --out <a folder outside the site>, then plumbline sign --root ${rootArg} --key <that folder>/plumbline.private.json --origin <https origin>. The lock is a signed file: sign again after every --relock.`,
   ];
 }
@@ -121,9 +124,12 @@ export async function runInitCommand(argv: string[]): Promise<number> {
   const before = await readLock(root);
   let lockAction: "written" | "kept";
   let findings: DriftFinding[] = [];
+  let coverage: FactCoverage | undefined;
   if (before.kind === "missing") {
     try {
-      findings = (await runWatch({ root, init: true, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }, { extraSources: sources })).findings;
+      const written = await runInit({ root, init: true, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }, { extraSources: sources });
+      if (written === null) throw new Error(`${LOCK_FILE} appeared while init ran`);
+      ({ findings, coverage } = written);
     } catch (error) {
       process.stderr.write(`init failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
@@ -159,10 +165,22 @@ export async function runInitCommand(argv: string[]): Promise<number> {
     }
   }
 
-  const steps = nextSteps(rootArg, workflow);
+  const steps = nextSteps(rootArg, workflow, lockAction === "written" && sources.length > 0);
   if (json) {
     process.stdout.write(
-      `${JSON.stringify({ lock: lockAction, lockFile: LOCK_FILE, counts, findings, ...(workflowRel !== undefined ? { workflow: WORKFLOW_PATH, workflowRoot: workflowRel } : {}), next: steps }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          lock: lockAction,
+          lockFile: LOCK_FILE,
+          counts,
+          ...(coverage !== undefined ? { facts: factCoverageCounts(coverage) } : {}),
+          findings,
+          ...(workflowRel !== undefined ? { workflow: WORKFLOW_PATH, workflowRoot: workflowRel } : {}),
+          next: steps,
+        },
+        null,
+        2,
+      )}\n`,
     );
   } else {
     process.stdout.write(
@@ -170,6 +188,8 @@ export async function runInitCommand(argv: string[]): Promise<number> {
         ? `init: wrote ${LOCK_FILE} (${counts.grounding} grounding sources, ${counts.runtime} runtime files, ${counts.peers} peers, ${counts.pending} pending)\n`
         : `init: kept the ${LOCK_FILE} that is there (accept changes with watch --relock after a review)\n`,
     );
+    // what the lock watches: the facts your own network states, per page (your files, your terminal)
+    for (const line of coverage !== undefined ? factCoverageLines(coverage) : []) process.stdout.write(`${line}\n`);
     for (const f of findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
     if (workflowRel !== undefined) process.stdout.write(`init: wrote ${WORKFLOW_PATH} (root: ${workflowRel})\n`);
     process.stdout.write("next:\n");

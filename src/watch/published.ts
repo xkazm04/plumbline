@@ -22,7 +22,7 @@
 import { LOCK_FILE, type DriftFinding, type LockState } from "../core/types.js";
 import type { SafeFetchOptions, SafeFetchResponse } from "../net/fetch-types.js";
 import { locateTarget, type Fetcher } from "../net/locate.js";
-import { groundingFindingWithAnchors } from "./anchors.js";
+import { groundingFindingsWithAnchors } from "./anchors.js";
 import { externalFinding, observeExternal, type ExternalObservation } from "./external.js";
 import {
   destinationProblem,
@@ -112,7 +112,7 @@ interface Ctx {
 }
 
 async function groundingOf(lock: Lock, base: string, ctx: Ctx): Promise<DriftFinding[]> {
-  const out: DriftFinding[] = [];
+  const all: Observed[] = [];
   const read = { fetchOptions: ctx.fetchOptions, why: ctx.why };
   for (const source of lock.grounding.sources) {
     let seen: Observed;
@@ -124,11 +124,11 @@ async function groundingOf(lock: Lock, base: string, ctx: Ctx): Promise<DriftFin
       const url = publishedUrl(source.ref, base);
       seen = url === null ? OUTSIDE : await observePublished(ctx.fetcher, url, read);
     }
-    // a changed page with anchors is re-read for the facts the network states (anchors.ts); the CLI counts the same
-    const finding = await groundingFindingWithAnchors(source, seen);
-    if (finding) out.push(finding);
+    all.push(seen);
   }
-  return out;
+  // a changed page with anchors is re-read for the facts the network states, and the ones gone are checked against what
+  // the networks among these sources state now (anchors.ts); the CLI counts the same
+  return groundingFindingsWithAnchors(lock.grounding.sources, all);
 }
 
 async function runtimeOf(lock: Lock, base: string, ctx: Ctx): Promise<DriftFinding[]> {

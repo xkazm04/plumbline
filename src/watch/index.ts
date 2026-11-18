@@ -5,6 +5,7 @@
 
 import { LOCK_FILE, SIGNATURE_FILE, type DriftFinding } from "../core/types.js";
 import { DEFAULT_TIMEOUT_MS, safeFetch } from "../net/safe-fetch.js";
+import type { FactCoverage } from "./anchors.js";
 import { captureLock } from "./capture.js";
 import { lockChanges, signatureExpiryFinding, type Lock, type LockChanges, type LockState, type WatchReport } from "./decide.js";
 import { detectCoverage, detectExternal, detectGrounding, detectPeers, detectRuntime, detectSignature, type DetectorEnv } from "./detectors.js";
@@ -47,6 +48,28 @@ function stateOf(read: LockRead): { lockState: LockState; lockSummary?: string }
   }
 }
 
+async function captureFirstLock(env: DetectorEnv, options: WatchOptions, deps: WatchDeps): Promise<{ findings: DriftFinding[]; coverage: FactCoverage }> {
+  const { lock, findings, coverage } = await captureLock(env, {
+    now: env.now,
+    ...(deps.externals !== undefined ? { externals: deps.externals } : {}),
+    ...(deps.extraSources !== undefined ? { extraSources: deps.extraSources } : {}),
+    ...(deps.runtimeDir !== undefined ? { runtimeDir: deps.runtimeDir } : {}),
+  });
+  await writeLock(options.root, lock);
+  return { findings, coverage };
+}
+
+/**
+ * `init` and `watch --init`: write the first lock when there is none, and say what it watches (the facts the networks
+ * state, per page given with --source: anchors.ts FactCoverage, for the publisher's own terminal). Null when a lock is
+ * already there: it is never rewritten here.
+ */
+export async function runInit(options: WatchOptions, deps: WatchDeps = {}): Promise<{ findings: DriftFinding[]; coverage: FactCoverage } | null> {
+  const read = await readLock(options.root);
+  if (read.kind !== "missing") return null;
+  return captureFirstLock(envOf(options, deps), options, deps);
+}
+
 /**
  * Check the site against its lock. A lock that is absent, unreadable or unusable is a lock state with its own sentence
  * (`lockState`, `lockSummary`), not a drift finding: no drift was checked, which the CLI never reports as clean.
@@ -55,16 +78,7 @@ export async function runWatch(options: WatchOptions, deps: WatchDeps = {}): Pro
   const env = envOf(options, deps);
   const read = await readLock(options.root);
 
-  if (read.kind === "missing" && options.init === true) {
-    const { lock, findings } = await captureLock(env, {
-      now: env.now,
-      ...(deps.externals !== undefined ? { externals: deps.externals } : {}),
-      ...(deps.extraSources !== undefined ? { extraSources: deps.extraSources } : {}),
-      ...(deps.runtimeDir !== undefined ? { runtimeDir: deps.runtimeDir } : {}),
-    });
-    await writeLock(options.root, lock);
-    return { findings };
-  }
+  if (read.kind === "missing" && options.init === true) return { findings: (await captureFirstLock(env, options, deps)).findings };
 
   const signature = await detectSignature(env);
   if (read.kind !== "ok") return { ...stateOf(read), findings: signature };
@@ -86,6 +100,8 @@ export interface RelockReport {
   changes: LockChanges;
   /** What could not be captured (a peer held as pending, a source that is gone), as `--init` reports it. */
   findings: DriftFinding[];
+  /** What the new lock watches: the facts the networks state, per page (anchors.ts). Its literals go to the terminal only. */
+  coverage: FactCoverage;
 }
 
 /**
@@ -106,7 +122,7 @@ export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Pr
   const externals = [...Object.entries(before?.external ?? {}).map(([url, e]) => ({ kind: e.kind, url })), ...(deps.externals ?? [])].filter(
     (e) => !dropSources.includes(e.url),
   );
-  const { lock, findings } = await captureLock(env, {
+  const { lock, findings, coverage } = await captureLock(env, {
     now: env.now,
     externals,
     extraSources,
@@ -117,7 +133,7 @@ export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Pr
     findings.push({ kind: "grounding", severity: "info", ref, summary: "This ref was not in the lock, so there was nothing to drop." });
   }
   await replaceLock(options.root, lock);
-  return { previous: stateOf(read).lockState, changes: lockChanges(before, lock), findings };
+  return { previous: stateOf(read).lockState, changes: lockChanges(before, lock), findings, coverage };
 }
 
 /**

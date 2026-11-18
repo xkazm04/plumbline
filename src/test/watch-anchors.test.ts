@@ -36,7 +36,12 @@ test("dates: ISO, day month year and month day year become ISO; numeric dates ke
 });
 
 test("phone numbers, e-mail addresses and percentages; a date or a price is not also a phone number", () => {
-  assert.deepEqual(kinds("+420 123 456 789, 00420 123456789, (555) 123-4567", "phone"), ["phone:+420123456789", "phone:5551234567"]);
+  // a phone number is its last nine digits, so a national and an international form of one number are one literal
+  assert.deepEqual(kinds("+420 123 456 789, 00420 123456789, (555) 123-4567", "phone"), ["phone:123456789", "phone:551234567"]);
+  assert.deepEqual(kinds("+44 1632 960418", "phone"), kinds("01632 960418", "phone"));
+  assert.deepEqual(kinds("+44 (0)1632 960418", "phone"), kinds("+44 1632 960418", "phone"));
+  // the earlier normalisation, for a lock written before 2026-11-19: read with legacy, never written
+  assert.deepEqual(extractLiterals("+420 123 456 789", { legacy: true }), ["phone:+420123456789", "phone:123456789"]);
   assert.deepEqual(kinds("on 2026-11-18 for $1,234,567 or 12-34", "phone"), []);
   assert.deepEqual(kinds("Desk@Hotel.Example, not@local", "email"), ["email:desk@hotel.example"]);
   assert.deepEqual(kinds("15% off, 7.5 percent, 2,5 %", "percent"), ["percent:15%", "percent:2.5%", "percent:7.5%"]);
@@ -44,7 +49,8 @@ test("phone numbers, e-mail addresses and percentages; a date or a price is not 
 });
 
 test("a page is reduced to its text: scripts, styles and comments dropped, tags a space, entities decoded; binary and oversize refused", () => {
-  assert.equal(reduceToText('<p>a<b>&euro;1</b></p><script>"€9"</script><style>x{}</style><!-- €5 -->&#36;7&amp;').replace(/\s+/g, " ").trim(), "a €1 $7&");
+  // a cell or block tag is " | ", which no pattern reads across; an inline tag is a space
+  assert.equal(reduceToText('<p>a<b>&euro;1</b></p><script>"€9"</script><style>x{}</style><!-- €5 -->&#36;7&amp;').replace(/\s+/g, " ").trim(), "| a €1 | $7&");
   assert.deepEqual(extractLiterals(reduceToText("<script>const p = '€999';</script><p>€120</p>")), ["money:eur 120"]);
   assert.deepEqual(pageText(new Uint8Array([0x3c, 0x00, 0x3e])), { problem: "is binary, not text" });
   assert.deepEqual(pageText(new Uint8Array([0xc3, 0x28])), { problem: "is not UTF-8 text" });
@@ -53,7 +59,7 @@ test("a page is reduced to its text: scripts, styles and comments dropped, tags 
 
 test("networkLiterals reads every agent's instructions only; anchorsOf keeps what the page states too, hashed", async () => {
   const net = JSON.stringify({ tools: [{ name: "a", instructions: "A room is €120. Call +420 123 456 789." }, { name: "b", instructions: "Open 7:30.", description: "€999" }] });
-  assert.deepEqual(networkLiterals(net), ["money:eur 120", "phone:+420123456789", "time:07:30"]);
+  assert.deepEqual(networkLiterals(net), ["money:eur 120", "phone:123456789", "time:07:30"]);
   assert.deepEqual(networkLiterals("{ not json"), []);
   const result = await anchorsOf(networkLiterals(net), new TextEncoder().encode("<p>Rooms from EUR 120.00; breakfast from 7:30.</p>"));
   assert.ok("anchors" in result);
@@ -86,12 +92,18 @@ test("a fixture site whose price changes: the watch counts the anchored fact gon
   writeFileSync(join(root, "pages", "prices.html"), PAGE("€135"));
   const changed = (await watch(root, baseRoutes())).findings.filter((f) => f.ref === "pages/prices.html");
   assert.deepEqual(changed.map((f) => f.severity), ["warn"]);
-  assert.equal(changed[0]!.summary, "A grounding source changed since the lock was written; 1 of 4 facts the network states are no longer on it, so the network may now state an old fact.");
+  assert.equal(
+    changed[0]!.summary,
+    "A grounding source changed since the lock was written; 1 of 4 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.",
+  );
   for (const literal of ["120", "135", "€", "420", "7:30"]) assert.ok(!changed[0]!.summary.includes(literal), changed[0]!.summary);
 
   writeFileSync(join(root, "pages", "prices.html"), PAGE("€120", "<p>New: free parking.</p>"));
   const still = (await watch(root, baseRoutes())).findings.filter((f) => f.ref === "pages/prices.html");
-  assert.equal(still[0]?.summary, "A grounding source changed since the lock was written; all 4 facts the network states from it are still on it.");
+  assert.equal(
+    still[0]?.summary,
+    "A grounding source changed since the lock was written; all 4 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.",
+  );
   assert.equal(still[0]?.severity, "warn", "a changed page is warn whatever the count says");
 
   writeFileSync(join(root, "pages", "prices.html"), new Uint8Array([0x3c, 0x00, 0x01]));
@@ -123,4 +135,157 @@ test("the lock's anchors: an array of SHA-256 when present; anything else makes 
   assert.equal(lockProblem(lock(["b".repeat(64)])), null);
   assert.equal(lockProblem({ ...lock(undefined), grounding: { sources: [{ ref: "p.html", sha256: "a".repeat(64) }], builtAt: NOW.toISOString() } }), null);
   for (const bad of ["x", ["€120"], [1], null]) assert.match(lockProblem(lock(bad)) ?? "", /grounding sources are malformed/, JSON.stringify(bad));
+});
+
+// ---- UAT-1: grounding watches what it says it watches ----
+
+const page = (html: string) => extractLiterals(reduceToText(html));
+
+test("UAT-1: a number cell before a price is never the amount; every form MAR-L2-02 found missed now anchors", () => {
+  const anchored: [string, string][] = [
+    ["<tr><td>Double room</td><td>2</td><td>€89 per night</td></tr>", "money:eur 89"],
+    ["<tr><td>Room 4</td><td>€89</td></tr>", "money:eur 89"],
+    ["<tr><td>Summer 2027</td><td>€89</td></tr>", "money:eur 89"],
+    ["<tr><td>7</td><td>€560</td></tr>", "money:eur 560"],
+    ["<tr><td>Double room</td><td>€89</td><td>120</td></tr>", "money:eur 89"],
+    ["<tr><td>Double</td><td>2</td><td>£89</td></tr>", "money:gbp 89"],
+    ["<p>Double room 2 €89 per night</p>", "money:eur 89"],
+    ["<p>Double room 89 euros a night</p>", "money:eur 89"],
+    ["<p>Doppelzimmer 89,- €</p>", "money:eur 89"],
+    ["<p>Check-in from 15.00</p>", "time:15:00"],
+    ["<p>Check-out by 10.30am</p>", "time:10:30"],
+    ["<p>Arrivée à partir de 15h</p>", "time:15:00"],
+    ["<p>Breakfast 08.00-09.30</p>", "time:08:00"],
+    ["<p>Call 01632 960418</p>", "phone:632960418"],
+    ["<p>Call +44 (0)1632 960418</p>", "phone:632960418"],
+    ['<p><a href="tel:+441632960418">Call us</a></p>', "phone:632960418"],
+    ['<p><a href="mailto:stay@larchhouse.example?subject=Booking">E-mail us</a></p>', "email:stay@larchhouse.example"],
+  ];
+  for (const [html, literal] of anchored) assert.ok(page(html).includes(literal), `${html} -> ${JSON.stringify(page(html))}`);
+  // and nothing reads a number cell as the amount
+  assert.deepEqual(page("<tr><td>Double room</td><td>2</td><td>€89 per night</td></tr>").filter((l) => l.startsWith("money:")), ["money:eur 89"]);
+  assert.deepEqual(page("<tr><td>€89</td><td>120</td></tr>").filter((l) => l.startsWith("money:")), ["money:eur 89"]);
+  // a split price inside one cell still reads
+  assert.ok(page("<p>Double room <span>€</span><span>89</span></p>").includes("money:eur 89"));
+  // the network side reads words too
+  assert.deepEqual(networkLiterals(JSON.stringify({ tools: [{ instructions: "The double room costs 89 euros a night." }] })), ["money:eur 89"]);
+});
+
+test("UAT-1: the network's replacement strings are what its agents state", () => {
+  const net = { commondefs: { replacement_strings: { rules: "Quiet hours are 22:00 to 07:00." } }, tools: [{ name: "a", instructions: "Check-in from 15:00. {rules} {missing}" }] };
+  assert.deepEqual(networkLiterals(JSON.stringify(net)), ["time:07:00", "time:15:00", "time:22:00"]);
+});
+
+test("UAT-1: a 512 KiB page of pathological markup and numbers reduces and extracts in linear time", () => {
+  const n = 512 * 1024;
+  for (const text of ["<".repeat(n), "<a ".repeat(n / 3), "<!--".repeat(n / 4), "<script>".repeat(n / 8), "&a".repeat(n / 2), "100 200 ".repeat(n / 8), "+1 ".repeat(n / 3), "a.".repeat(n / 2), "1 2 3 ".repeat(n / 6), "0".repeat(n)]) {
+    const started = Date.now();
+    extractLiterals(reduceToText(text));
+    assert.ok(Date.now() - started < 3000, `${JSON.stringify(text.slice(0, 12))}... took ${Date.now() - started} ms`);
+  }
+});
+
+const LARCH = (price: string) => ({
+  commondefs: { replacement_strings: { rules: "Quiet hours are 22:00 to 07:00." } },
+  link_labels: {},
+  tools: [{ name: "front", instructions: `The double room costs ${price} per night and the single room €69. Check-in is from 15:00. Call +44 1632 960418. {rules}` }],
+});
+const ROOMS = (price: string, intro = "Six rooms.") =>
+  `<html><body><p>${intro}</p><table><tr><th>Room</th><th>Sleeps</th><th>Price</th></tr><tr><td>Double room</td><td>2</td><td>${price} per night</td></tr><tr><td>Single room</td><td>1</td><td>€69 per night</td></tr></table><p>Check-in is from 15:00. Call +44 1632 960418.</p></body></html>\n`;
+
+function larchSite(): string {
+  const root = copySite();
+  writeFileSync(join(root, "fixture_guesthouse.network.json"), JSON.stringify(LARCH("€89")));
+  writeFileSync(join(root, "links.json"), '{ "version": 1, "networks": {} }\n');
+  writeFileSync(join(root, "rooms.html"), ROOMS("€89"));
+  return root;
+}
+
+test("UAT-1: on a Sleeps-then-Price table, a raised price, a wording edit and a corrected network read three different ways", async () => {
+  const root = larchSite();
+  await watch(root, baseRoutes(), { init: true, extraSources: ["rooms.html"] });
+  const rooms = () => watch(root, baseRoutes()).then((r) => r.findings.filter((f) => f.kind === "grounding" && /rooms\.html|guesthouse/.test(f.ref)));
+
+  // raise-price: the page no longer states a price the network still states
+  writeFileSync(join(root, "rooms.html"), ROOMS("€95"));
+  const raised = await rooms();
+  assert.deepEqual(raised.map((f) => [f.ref, f.severity]), [["rooms.html", "warn"]]);
+  assert.match(raised[0]!.summary, /1 of 4 facts the lock watches on it \(facts the network states\) is no longer on it, and the network still states it \(1 price\), so the agent may now answer with an old fact\.$/);
+
+  // cosmetic-edit: something else changed; every watched fact is still there
+  writeFileSync(join(root, "rooms.html"), ROOMS("€89", "Six rooms under the larches."));
+  const cosmetic = await rooms();
+  assert.match(cosmetic[0]!.summary, /all 4 facts the lock watches on it \(facts the network states\) are still on it, so what changed is something the lock does not watch\.$/);
+  assert.notEqual(cosmetic[0]!.summary, raised[0]!.summary);
+
+  // fix-network: the network says €95 as the page does; no stale-fact sentence is left, only re-lock
+  writeFileSync(join(root, "rooms.html"), ROOMS("€95"));
+  writeFileSync(join(root, "fixture_guesthouse.network.json"), JSON.stringify(LARCH("€95")));
+  const fixed = await rooms();
+  const byRef = Object.fromEntries(fixed.map((f) => [f.ref, f.summary]));
+  assert.match(byRef["rooms.html"] ?? "", /is no longer on it, and the network no longer states it either, so no stale fact is left: review the change, then re-lock \(watch --relock\)\.$/);
+  assert.match(byRef["fixture_guesthouse.network.json"] ?? "", /the agent now answers from different facts: review the change, then re-lock \(watch --relock\)\.$/);
+  for (const summary of Object.values(byRef)) assert.doesNotMatch(summary, /old fact/);
+  for (const f of fixed) for (const literal of ["89", "95", "€", "1632"]) assert.ok(!f.summary.includes(literal), f.summary);
+
+  // the Desk's reader says the same after the fix
+  const SITE = "https://larch.example";
+  const lock = JSON.parse(readFileSync(join(root, LOCK_FILE), "utf8")) as PlumblineLock;
+  const published: Record<string, Route> = { [`${SITE}/agent-manifest.json`]: { body: readFileSync(join(root, "agent-manifest.json"), "utf8") } };
+  for (const ref of [LOCK_FILE, ...lock.grounding.sources.map((s) => s.ref)]) published[`${SITE}/${ref}`] = { body: readFileSync(join(root, ref), "utf8") };
+  const desk = (await readPublishedLock(`${SITE}/`, scripted({ ...baseRoutes(), ...published }).fetch)).findings.filter((f) => f.ref === "rooms.html");
+  assert.equal(desk[0]?.summary, byRef["rooms.html"]);
+});
+
+test("UAT-1: a changed page the lock watches no fact on is not said to change what the agent answers", async () => {
+  const root = larchSite();
+  writeFileSync(join(root, "about.html"), "<p>A family house since 1962.</p>\n");
+  const init = await watch(root, baseRoutes(), { init: true, extraSources: ["about.html"] });
+  const zero = init.findings.find((f) => f.ref === "about.html");
+  assert.equal(zero?.severity, "warn", "a page that watches no fact is a warning at capture");
+  assert.match(zero?.summary ?? "", /^No fact is watched on this page: none of the 6 facts the network states \(2 prices, 3 times, 1 phone number\)/);
+  writeFileSync(join(root, "about.html"), "<p>A family house since 1963.</p>\n");
+  const changed = (await watch(root, baseRoutes())).findings.find((f) => f.ref === "about.html");
+  assert.match(changed?.summary ?? "", /the lock watches no fact the network states on it, so whether the network now states an old fact is not checked/);
+  assert.doesNotMatch(changed?.summary ?? "", /answers from different facts/);
+});
+
+test("UAT-1: a lock written before 2026-11-19 (a phone anchored with its country code) still reads the number on its page", async () => {
+  const literal = "phone:+441632960418";
+  const anchors = [await sha256Hex(literal)];
+  assert.deepEqual(await checkAnchors(anchors, new TextEncoder().encode("<p>Call +44 1632 960418, new opening hours.</p>")), { total: 1, present: 1 });
+});
+
+test("UAT-1: the facts a lock watches, per page, in kinds; the literals only in the publisher's own lines", async () => {
+  const { factCoverageLines, factCoverageCounts } = await import("../watch/anchors.js");
+  const network = networkLiterals(JSON.stringify(LARCH("€89")));
+  const coverage = { network, pages: [{ ref: "rooms.html", ...(pageFactsOf(network, ROOMS("€89"))) }] };
+  const lines = factCoverageLines(coverage);
+  assert.deepEqual(lines, [
+    "facts the network states: 6 (2 prices, 3 times, 1 phone number)",
+    "facts rooms.html: watches 4 (2 prices, 1 time, 1 phone number); not on it: 2 (2 times: 07:00, 22:00)",
+    "facts not watched on any page: 2 (2 times: 07:00, 22:00); a change to them is not seen until a --source page states them",
+  ]);
+  assert.deepEqual(factCoverageCounts(coverage), { network: { money: 2, time: 3, phone: 1 }, pages: [{ ref: "rooms.html", watched: { money: 2, time: 1, phone: 1 }, notOnPage: { time: 2 } }], unwatched: { time: 2 } });
+});
+
+function pageFactsOf(network: string[], html: string): { watched: string[]; notOnPage: string[] } {
+  const onPage = new Set(extractLiterals(reduceToText(html)));
+  return { watched: network.filter((l) => onPage.has(l)), notOnPage: network.filter((l) => !onPage.has(l)) };
+}
+
+test("UAT-1: init and --relock print, per --source page, the kinds of fact watched and the network's facts not on it", async () => {
+  const { run } = await import("./cli-helpers.js");
+  const root = larchSite();
+  const init = run("init", "--root", root, "--source", "rooms.html");
+  assert.match(init.out, /^facts the network states: 6 \(2 prices, 3 times, 1 phone number\)$/m, init.out + init.err);
+  assert.match(init.out, /^facts rooms\.html: watches 4 \(2 prices, 1 time, 1 phone number\); not on it: 2 \(2 times: 07:00, 22:00\)$/m);
+  assert.match(init.out, /^facts not watched on any page: 2 \(2 times: 07:00, 22:00\)/m);
+  // the next step no longer asks for the --source just given
+  assert.doesNotMatch(init.out, /Name the pages whose facts your network states/);
+  const json = JSON.parse(run("watch", "--root", root, "--relock", "--json").out) as { facts: { pages: { ref: string; watched: Record<string, number> }[] } };
+  assert.deepEqual(json.facts.pages, [{ ref: "rooms.html", watched: { money: 2, time: 1, phone: 1 }, notOnPage: { time: 2 } }]);
+  assert.doesNotMatch(JSON.stringify(json), /22:00|07:00|€|1632/, "--json carries counts, never a literal");
+  const relock = run("watch", "--root", root, "--relock");
+  assert.match(relock.out, /^facts rooms\.html: watches 4 /m);
 });

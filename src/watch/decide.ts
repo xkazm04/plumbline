@@ -105,26 +105,61 @@ export function lockProblem(value: unknown): string | null {
 export type Observed = { ok: true; sha256: string; bytes?: Uint8Array } | { ok: false; missing: boolean; sentence: string };
 
 /**
- * What a changed page still states of the facts the network stated from it when the lock was written (anchors.ts):
- * how many of its `total` anchors are on it now, or the sentence ("it ...") for why it could not be reduced to text.
+ * What a changed page still states of the facts the lock watches on it (its anchors: facts the network stated that the
+ * page stated too when the lock was written; anchors.ts): how many of its `total` anchors are on it now and, when the
+ * networks could be read now, how many of the ones gone the networks still state (`stillStated`, with their kinds in
+ * words, "1 price"); or the sentence ("it ...") for why it could not be reduced to text.
  */
-export type AnchorCheck = { total: number; present: number } | { total: number; problem: string };
+export type AnchorCheck = { total: number; present: number; stillStated?: { count: number; kinds: string } } | { total: number; problem: string };
 
-export function groundingFinding(source: { ref: string; sha256: string }, seen: Observed, anchors?: AnchorCheck): DriftFinding | null {
+/** What a changed grounding source is: a network definition, another agent file (manifest, links.json), or a page. */
+export type SourceRole = "network" | "agent" | "page";
+
+/** The remedy once a change has been reviewed. */
+const RELOCK = "review the change, then re-lock (watch --relock)";
+
+/**
+ * The finding for one grounding source. The severity is `warn` whatever the anchors say: a count is a reading aid, never
+ * a reason to soften or harden it. Each changed-page sentence says which of three things the facts show (UAT-1): a fact
+ * the network still states is gone from the page (the stale fact); none of the watched facts changed; or the network no
+ * longer states the gone fact either (both sides changed: re-lock).
+ */
+export function groundingFinding(source: { ref: string; sha256: string }, seen: Observed, anchors?: AnchorCheck, role?: SourceRole): DriftFinding | null {
   if (!seen.ok) {
     return { kind: "grounding", severity: "warn", ref: source.ref, expected: source.sha256, summary: `A grounding source could not be checked: it ${seen.sentence}.` };
   }
   if (seen.sha256 === source.sha256) return null;
+  const changed = "A grounding source changed since the lock was written";
   const facts = (n: number) => `${n} fact${n === 1 ? "" : "s"}`;
-  // the severity is warn whatever the anchors say: a count is a reading aid, never a reason to soften or harden it
-  const summary =
-    anchors === undefined || anchors.total === 0
-      ? "A grounding source changed since the lock was written; the agent now answers from different facts."
-      : "problem" in anchors
-        ? `A grounding source changed since the lock was written; its ${facts(anchors.total)} the network states could not be checked: it ${anchors.problem}.`
-        : anchors.present === anchors.total
-          ? `A grounding source changed since the lock was written; all ${facts(anchors.total)} the network states from it are still on it.`
-          : `A grounding source changed since the lock was written; ${anchors.total - anchors.present} of ${facts(anchors.total)} the network states are no longer on it, so the network may now state an old fact.`;
+  let summary: string;
+  if (anchors === undefined || anchors.total === 0) {
+    summary =
+      role === "page"
+        ? `${changed}; the lock watches no fact the network states on it, so whether the network now states an old fact is not checked: ${RELOCK}.`
+        : role === undefined
+          ? `${changed}; the agent now answers from different facts.`
+          : `${changed}; the agent now answers from different facts: ${RELOCK}.`;
+  } else if ("problem" in anchors) {
+    summary = `${changed}; its ${facts(anchors.total)} the network states could not be checked: it ${anchors.problem}.`;
+  } else if (anchors.present === anchors.total) {
+    summary =
+      anchors.total === 1
+        ? `${changed}; the 1 fact the lock watches on it (a fact the network states) is still on it, so what changed is something the lock does not watch.`
+        : `${changed}; all ${facts(anchors.total)} the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.`;
+  } else {
+    const gone = anchors.total - anchors.present;
+    const them = gone === 1 ? "it" : "them";
+    const head = `${changed}; ${gone} of ${facts(anchors.total)} the lock watches on it (facts the network states) ${gone === 1 ? "is" : "are"} no longer on it`;
+    const still = anchors.stillStated;
+    summary =
+      still === undefined
+        ? `${head}, so the network may now state an old fact.`
+        : still.count === 0
+          ? `${head}, and the network no longer states ${them} either, so no stale fact is left: ${RELOCK}.`
+          : still.count === gone
+            ? `${head}, and the network still states ${them} (${still.kinds}), so the agent may now answer with an old fact.`
+            : `${head}; the network still states ${still.count} of them (${still.kinds}), so the agent may now answer with an old fact.`;
+  }
   return { kind: "grounding", severity: "warn", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary };
 }
 

@@ -31,7 +31,8 @@ node dist/cli/index.js watch --url https://example.org/   # the same check of a 
 
 `init` makes no key and asks for no trust decision; it prints the next steps. Commit the lock (and the workflow), and the
 daily watch keeps one drift issue. `--source <page>` names a page whose facts the network states, so a change to it is
-drift. When you have reviewed a drift and accept it, `watch --relock` rewrites the lock and prints what changed.
+drift, and init prints which of those facts (prices, times, phone numbers, ...) the page states and which no page
+states. When you have reviewed a drift and accept it, `watch --relock` rewrites the lock and prints what changed.
 
 **Then sign: the upgrade.** A signature lets anyone check who published the agent files. The lock comes before the
 signature, because the lock is one of the signed files:

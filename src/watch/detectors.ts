@@ -7,7 +7,7 @@ import { SIGNATURE_FILE, type DriftFinding } from "../core/types.js";
 import { hashBytes } from "../net/canonical.js";
 import type { Fetcher } from "../net/locate.js";
 import type { SafeFetchOptions } from "../net/safe-fetch.js";
-import { groundingFindingWithAnchors } from "./anchors.js";
+import { groundingFindingsWithAnchors } from "./anchors.js";
 import { externalFinding, observeExternal } from "./external.js";
 import {
   addedRuntimeFinding,
@@ -71,12 +71,10 @@ async function observeRef(env: DetectorEnv, ref: string): Promise<Observed> {
 }
 
 export async function detectGrounding(lock: Lock, env: DetectorEnv): Promise<DriftFinding[]> {
-  const out: DriftFinding[] = [];
-  for (const source of lock.grounding.sources) {
-    const finding = await groundingFindingWithAnchors(source, await observeRef(env, source.ref));
-    if (finding) out.push(finding);
-  }
-  return out;
+  const seen: Observed[] = [];
+  for (const source of lock.grounding.sources) seen.push(await observeRef(env, source.ref));
+  // every source is read first, so a changed page's gone facts are checked against what the networks state now
+  return groundingFindingsWithAnchors(lock.grounding.sources, seen);
 }
 
 export async function detectRuntime(lock: Lock, env: DetectorEnv): Promise<DriftFinding[]> {

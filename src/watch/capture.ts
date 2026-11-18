@@ -17,7 +17,8 @@
 
 import { join } from "node:path";
 import { FORMAT_VERSION, LINKS_FILE, MANIFEST_FILE, type DriftFinding, type GroundingSource } from "../core/types.js";
-import { anchorsOf, networkLiterals } from "./anchors.js";
+import { sha256Hex } from "../core/canonical.js";
+import { describeKinds, networkLiterals, pageFacts, type FactCoverage } from "./anchors.js";
 import type { Lock, PendingPeer, RuntimeVia } from "./decide.js";
 import { hashLocal, readRef, type DetectorEnv } from "./detectors.js";
 import { discover } from "./discover.js";
@@ -47,7 +48,7 @@ export function runtimeProvenance(texts: string[]): { commit?: string; via?: Run
 export async function captureLock(
   env: DetectorEnv,
   options: { extraSources?: string[]; dropSources?: string[]; runtimeDir?: string; externals?: { kind: ExternalKind; url: string }[]; now: Date },
-): Promise<{ lock: Lock; findings: DriftFinding[] }> {
+): Promise<{ lock: Lock; findings: DriftFinding[]; coverage: FactCoverage }> {
   const findings: DriftFinding[] = [];
   const { root } = env;
 
@@ -115,6 +116,8 @@ export async function captureLock(
   }
   const agentFiles = new Set([...found.networks, MANIFEST_FILE, LINKS_FILE]);
   const sources: GroundingSource[] = [];
+  const network = [...literals].sort();
+  const coverage: FactCoverage = { network, pages: [] };
   for (const ref of refs) {
     let read;
     try {
@@ -123,15 +126,29 @@ export async function captureLock(
       findings.push({ kind: "grounding", severity: "warn", ref, summary: `A grounding source could not be locked: it ${(error as Error).message}.` });
       continue;
     }
-    if (agentFiles.has(ref) || literals.size === 0) {
+    if (agentFiles.has(ref)) {
       sources.push({ ref, sha256: read.sha256 });
       continue;
     }
-    const anchored = await anchorsOf([...literals], read.bytes);
-    if ("problem" in anchored) {
-      findings.push({ kind: "grounding", severity: "info", ref, summary: `A grounding source could not be reduced to text (it ${anchored.problem}), so no fact the network states is anchored on it; its bytes are still locked.` });
+    const facts = pageFacts(network, read.bytes);
+    if ("problem" in facts) {
+      coverage.pages.push({ ref, watched: [], notOnPage: network, problem: facts.problem });
+      findings.push({ kind: "grounding", severity: "info", ref, summary: `A grounding source could not be reduced to text (it ${facts.problem}), so no fact the network states is anchored on it; its bytes are still locked.` });
+      sources.push({ ref, sha256: read.sha256 });
+      continue;
     }
-    const anchors = "anchors" in anchored ? anchored.anchors : [];
+    coverage.pages.push({ ref, ...facts });
+    // a page that states none of the facts the network states is locked by its bytes only: say so at capture (UAT-1:
+    // "warn at zero"). A network that states no fact the watch reads has nothing to anchor; the coverage lines say so.
+    if (facts.watched.length === 0 && network.length > 0) {
+      findings.push({
+        kind: "grounding",
+        severity: "warn",
+        ref,
+        summary: `No fact is watched on this page: none of the ${network.length} facts the network states (${describeKinds(network)}) was found on it in a form the watch reads, so a change to it is drift with no fact counted.`,
+      });
+    }
+    const anchors = [...new Set(await Promise.all(facts.watched.map((l) => sha256Hex(l))))].sort();
     sources.push({ ref, sha256: read.sha256, ...(anchors.length > 0 ? { anchors } : {}) });
   }
   if (refs.length === 0) {
@@ -194,5 +211,6 @@ export async function captureLock(
       ...(Object.keys(external).length > 0 ? { external } : {}),
     },
     findings,
+    coverage,
   };
 }
