@@ -221,7 +221,7 @@ export async function detectExternal(lock: Lock, env: DetectorEnv): Promise<Drif
 /** What the site names now that the lock does not cover (decide.ts coverageFindings), plus what could not be read to tell. */
 export async function detectCoverage(lock: Lock, env: DetectorEnv): Promise<DriftFinding[]> {
   const found = await discover(env.root);
-  return [...found.findings, ...coverageFindings(lock, { refs: found.refs, peers: found.peers })];
+  return [...found.findings, ...coverageFindings(lock, { refs: found.refs, peers: found.peers, allowed: found.allowed })];
 }
 
 /** The site's own signature: warn before it expires, block once it has (decide.ts signatureExpiryFinding). */

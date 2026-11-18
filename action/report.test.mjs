@@ -943,3 +943,37 @@ test("UAT-22 (PRI-L1-06): the Action's gate step checks the files at root when n
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("UAT-25 (DEV-L2-3): the issue and the relock pull request offer the cut path, naming the publisher's own files that name the partner", async () => {
+  const { cutLines, peerNamedIn, prBody } = await import("./report.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "plumbline-cut-"));
+  try {
+    const peer = "http://127.0.0.1:4201/coinbridge_fx";
+    writeFileSync(join(dir, "agent-manifest.json"), JSON.stringify({ networks: [{ name: "trips", hocon: "./nets/trips.network.json" }, { name: "x", hocon: "../escape.network.json" }] }));
+    mkdirSync(join(dir, "nets"));
+    writeFileSync(join(dir, "nets", "trips.network.json"), JSON.stringify({ tools: [{ name: "front", tools: [peer] }] }));
+    writeFileSync(join(dir, "other.network.json"), JSON.stringify({ tools: [] }));
+    writeFileSync(join(dir, "links.json"), JSON.stringify({ networks: { trips: { fx: peer } } }));
+    assert.deepEqual(peerNamedIn(dir, peer), ["links.json", "nets/trips.network.json"]);
+    assert.deepEqual(peerNamedIn(join(dir, "missing"), peer), []);
+
+    const report = { lockState: "found", findings: [{ kind: "peer", severity: "block", code: "peer-changed", ref: peer, summary: "A peer's network definition changed ..." }] };
+    const namedIn = (p) => peerNamedIn(dir, p);
+    const body = issueBody(report, { namedIn });
+    assert.match(body, /\*\*Or remove the partner\.\*\* If you no longer want this partner's code, delete it and relock instead: a peer leaves the lock when no network names it\./);
+    assert.ok(
+      body.includes(`- \`${peer}\`: delete it from \`links.json\` and \`nets/trips.network.json\`, remove its origin from \`allowed_peers\` in \`agent-manifest.json\`, then run \`node dist/cli/index.js watch --root <path to your site> --relock\``),
+      body,
+    );
+    // without the workspace's files the sentence still runs, naming the file generically
+    assert.match(cutLines(report.findings, "cli", "<site>").join("\n"), /delete it from the network file \(or links\.json\) that names it/);
+    // no changed peer: no cut line
+    assert.deepEqual(cutLines([{ kind: "peer", severity: "warn", code: "peer-unreachable", ref: peer, summary: "x" }], "cli", "<site>"), []);
+
+    const pr = prBody({ mode: "relock", report, relock: { relocked: true, changes: { added: [], removed: [], changed: [`peer ${peer}`] }, findings: [] }, kid: null, runUrl: "https://github.com/o/r/actions/runs/1", siteSigned: false, namedIn });
+    assert.match(pr, /\*\*Or remove the partner\.\*\*/);
+    assert.match(pr, /Close this pull request unmerged if you cut the partner: the relock after the cut replaces it\./);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

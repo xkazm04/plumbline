@@ -57,7 +57,7 @@ closed list; `docs/gate-and-watch.md` "Reason codes" gives each one's kind, seve
 hold), and a changed peer or card carries `counts` (`DriftCounts`, the numbers its sentence says); the report carries
 `checkedAt`, the UTC ISO time the watch ran, and, when the lock was found, `records` (`WatchedRecord`: one row per peer,
 pending peer and external definition the lock holds, with its pin, recorded signer, `lockedAt`, a `state` from
-`RECORD_STATES` and this report's codes for it). A report written before has none of these.
+`RECORD_STATES` and this report's codes for it). A report written before has none of these. `DRIFT_CODES` grows only by adding a code, documented in the same change: `allowed-peer-unused` was added on 2026-11-18 (UAT-25), an `info` for an origin the manifest's `allowed_peers` lists that no network or links.json names a peer at.
 
 ### `plumbline.signature.json`
 

@@ -26,6 +26,8 @@ export interface Discovered {
   peers: string[];
   /** What could not be read or would not be read, each saying so. */
   findings: DriftFinding[];
+  /** UAT-25: the manifest's `allowed_peers` entries (strings only), as written. */
+  allowed: string[];
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -94,5 +96,8 @@ export async function discover(root: string): Promise<Discovered> {
   if (links.ok && isObject(links.value) && isObject(links.value.networks)) {
     for (const group of Object.values(links.value.networks)) if (isObject(group)) for (const v of Object.values(group)) if (isHttp(v)) peers.add(v);
   }
-  return { refs, networks: networkRefs, peers: [...peers].sort(), findings };
+  // UAT-25 (DEV-L2-3): the origins the manifest lets the runtime contact, so one no network names any more is said
+  const allowedList = manifest.ok && isObject(manifest.value) && Array.isArray(manifest.value.allowed_peers) ? manifest.value.allowed_peers : [];
+  const allowed = allowedList.filter((v: unknown): v is string => typeof v === "string");
+  return { refs, networks: networkRefs, peers: [...peers].sort(), findings, allowed };
 }

@@ -20,7 +20,7 @@
 // report that cannot be read, or has no findings list, is exit 2: the CLI said it wrote one, so that is a real error,
 // and reading it as clean would close an open drift issue.
 
-import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -252,13 +252,66 @@ export function diffLines(findings, cli, site) {
   ];
 }
 
+const PLAIN_FILE = /^[A-Za-z0-9._/-]{1,120}$/;
+
+/**
+ * The publisher's own files at the site root that name a peer (UAT-25, DEV-L2-3): every root `*.network.json`, every
+ * network file the manifest names at a plain relative path, and links.json, whose text holds the peer's address. Read
+ * from the workspace only (the publisher's own repository), never fetched; a name that is not plain is left out.
+ */
+export function peerNamedIn(siteRoot, peer) {
+  const names = new Set();
+  try {
+    for (const name of readdirSync(siteRoot)) if (name.endsWith(".network.json") || name === "links.json") names.add(name);
+  } catch {
+    return [];
+  }
+  try {
+    const manifest = JSON.parse(readFileSync(join(siteRoot, "agent-manifest.json"), "utf8"));
+    for (const n of Array.isArray(manifest?.networks) ? manifest.networks : []) {
+      const hocon = typeof n?.hocon === "string" ? n.hocon.replace(/^\.\//, "") : "";
+      if (PLAIN_FILE.test(hocon) && !hocon.split("/").some((s) => s === "" || s === "." || s === "..")) names.add(hocon);
+    }
+  } catch {
+    // no manifest, or not JSON: the root's network files are still read
+  }
+  const out = [];
+  for (const name of [...names].sort()) {
+    try {
+      if (PLAIN_FILE.test(name) && readFileSync(join(siteRoot, name), "utf8").includes(peer)) out.push(name);
+    } catch {
+      // not readable: not named
+    }
+  }
+  return out;
+}
+
+/**
+ * The cut path for each changed peer (UAT-25, DEV-L2-3): accepting is not the only answer. Names the publisher's own
+ * files that name the peer when the workspace has them (`namedIn`), and says the manifest's allowed_peers goes too.
+ */
+export function cutLines(findings, cli, site, namedIn = () => []) {
+  const peers = changedPeers(findings);
+  if (peers.length === 0) return [];
+  return [
+    "",
+    `**Or remove the partner.** If you no longer want ${peers.length === 1 ? "this partner's" : "a partner's"} code, delete it and relock instead: a peer leaves the lock when no network names it.`,
+    "",
+    ...peers.map((p) => {
+      const files = namedIn(p).filter((f) => PLAIN_FILE.test(f));
+      const where = files.length > 0 ? files.map((f) => `\`${f}\``).join(" and ") : "the network file (or links.json) that names it";
+      return `- \`${p}\`: delete it from ${where}, remove its origin from \`allowed_peers\` in \`agent-manifest.json\`, then run \`${cli} watch --root ${site} --relock\``;
+    }),
+  ];
+}
+
 /**
  * The drift issue's body, built from warn and block findings only, ending with the hidden digest marker. The commands it
  * gives run in a clone of Plumbline, not in the site's repository, so the site is named as a placeholder: the workflow
  * cannot know where that clone is. UAT-12 (DEV-L1-04): `siteSigned` is whether the site publishes
  * plumbline.signature.json; a site with none is not told to sign (its lock is not a signed file there).
  */
-export function issueBody(report, { siteSigned = true } = {}) {
+export function issueBody(report, { siteSigned = true, namedIn = () => [] } = {}) {
   const findings = openFindings(report);
   const rows = findings.map((f) => `| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
   const noLock = findings.some((f) => f.summary === "no lock");
@@ -285,6 +338,7 @@ export function issueBody(report, { siteSigned = true } = {}) {
           " The next clean run closes this issue.",
       "",
       ...diffLines(findings, cli, site),
+      ...cutLines(findings, cli, site, namedIn),
       ...(signerChanged.length > 0
         ? [
             "",
@@ -305,9 +359,9 @@ export function issueBody(report, { siteSigned = true } = {}) {
  * The watch's outputs: how many findings are warn or block, and the issue body. A report without a findings list throws:
  * read as "no findings" it would close an open drift issue on a run that checked nothing.
  */
-export function watchOutputs(report, { siteSigned = true } = {}) {
+export function watchOutputs(report, { siteSigned = true, namedIn = () => [] } = {}) {
   if (!Array.isArray(report?.findings)) throw new Error("the watch report has no findings list");
-  return { findings: openFindings(report).length, body: issueBody(report, { siteSigned }) };
+  return { findings: openFindings(report).length, body: issueBody(report, { siteSigned, namedIn }) };
 }
 
 const bullet = ([severity, kind, ref], summary) =>
@@ -422,7 +476,7 @@ export function signedKid(sign) {
  * saying to sign locally, in which case the pull request is a draft. A person merges; nothing is accepted by this run.
  * UAT-12 (DEV-L1-04): for a site that publishes no signature (`siteSigned` false) the body says nothing about signing.
  */
-export function prBody({ mode, report, relock, kid, runUrl, siteSigned = true }) {
+export function prBody({ mode, report, relock, kid, runUrl, siteSigned = true, namedIn = () => [] }) {
   const lines = [];
   if (mode === "relock" && relock?.refused === "signer") {
     // UAT-4: one proposal for all changes, so nothing is relocked while a signer change waits for a person
@@ -492,6 +546,9 @@ export function prBody({ mode, report, relock, kid, runUrl, siteSigned = true })
       for (const f of findings) lines.push(`| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
       lines.push("");
     }
+    // UAT-25: the other answer to a changed partner, in a clone of Plumbline as the issue says it
+    const cut = cutLines(findings, "node dist/cli/index.js", "<path to your site>", namedIn);
+    if (cut.length > 0) lines.push(...cut.slice(1), "", "Close this pull request unmerged if you cut the partner: the relock after the cut replaces it.", "");
   } else {
     lines.push(`The site's signature is close to its expiry, or past it, as of ${runUrl}. This pull request signs the same files again with a new expiry.`, "");
     for (const f of openFindings(report).filter((x) => x.ref === SIGNATURE_REF)) lines.push(`- **${cell(f.severity)}** ${cell(f.summary)}`);
@@ -557,7 +614,12 @@ function output(name, value) {
  * the Action's steps run. The pull request step reads it after this run's `sign`, so a site signed in this run counts.
  */
 export function siteIsSigned(env) {
-  return existsSync(join(env.GITHUB_WORKSPACE ?? process.cwd(), env.PLUMBLINE_ROOT ?? ".", "plumbline.signature.json"));
+  return existsSync(join(siteRootOf(env), "plumbline.signature.json"));
+}
+
+/** The watched site's folder in the workspace. */
+export function siteRootOf(env) {
+  return join(env.GITHUB_WORKSPACE ?? process.cwd(), env.PLUMBLINE_ROOT ?? ".");
 }
 
 function main(argv) {
@@ -602,7 +664,7 @@ function main(argv) {
     let findings;
     let body;
     try {
-      ({ findings, body } = watchOutputs(readReport(reportFile), { siteSigned: siteIsSigned(env) }));
+      ({ findings, body } = watchOutputs(readReport(reportFile), { siteSigned: siteIsSigned(env), namedIn: (peer) => peerNamedIn(siteRootOf(env), peer) }));
     } catch (error) {
       process.stderr.write(`::error::cannot read the watch report ${reportFile}: ${error.message}\n`);
       return 2;
@@ -661,7 +723,7 @@ function main(argv) {
       const changed = ["added", "removed", "changed"].some((k) => Array.isArray(changes[k]) && changes[k].length > 0);
       const wanted = mode === "relock" ? relock !== null && openFindings(report).length > 0 && changed : renewNeeded(report) && kid !== null;
       const siteSigned = siteIsSigned(env);
-      const body = prBody({ mode, report, relock, kid, runUrl, siteSigned });
+      const body = prBody({ mode, report, relock, kid, runUrl, siteSigned, namedIn: (peer) => peerNamedIn(siteRootOf(env), peer) });
       const refused = mode === "relock" && relock?.refused === "signer";
       plan = prPlan({ mode, wanted, body, signed: kid !== null, open: JSON.parse(readFileSync(openFile, "utf8")), runUrl, refused, siteSigned });
       writeFileSync(bodyFile, body);

@@ -656,7 +656,7 @@ export function pendingPeerFindings(lock: Lock, today: Record<string, PendingObs
  * files and every network file the manifest names) that is not in `grounding.sources`, and a peer a network or
  * links.json names that is neither in `peers` nor pending. Without this a clean watch hides a new partner.
  */
-export function coverageFindings(lock: Lock, named: { refs: string[]; peers: string[] }): DriftFinding[] {
+export function coverageFindings(lock: Lock, named: { refs: string[]; peers: string[]; allowed?: string[] }): DriftFinding[] {
   const locked = new Set(lock.grounding.sources.map((s) => s.ref));
   const peers = new Set([...Object.keys(lock.peers), ...Object.keys(lock.pendingPeers ?? {})]);
   const out: DriftFinding[] = [];
@@ -667,6 +667,27 @@ export function coverageFindings(lock: Lock, named: { refs: string[]; peers: str
   for (const url of [...new Set(named.peers)].sort()) {
     if (peers.has(url)) continue;
     out.push({ kind: "peer", severity: "warn", code: "peer-not-locked", ref: url, summary: "A network names a peer the lock does not cover, so its code is not watched; review it and run watch --relock." });
+  }
+  // UAT-25 (DEV-L2-3): an origin the manifest still allows that no network or links.json names (a partner cut from the
+  // networks and left in allowed_peers). `info`: the runtime may still contact it, and the remedy is the publisher's.
+  const originOf = (address: string): string | null => {
+    try {
+      const u = new URL(address);
+      return u.protocol === "http:" || u.protocol === "https:" ? u.origin.toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  };
+  const namedOrigins = new Set(named.peers.map(originOf).filter((o): o is string => o !== null));
+  for (const origin of [...new Set((named.allowed ?? []).map(originOf).filter((o): o is string => o !== null))].sort()) {
+    if (namedOrigins.has(origin)) continue;
+    out.push({
+      kind: "peer",
+      severity: "info",
+      code: "allowed-peer-unused",
+      ref: origin,
+      summary: "agent-manifest.json still lists this origin in allowed_peers, but no network or links.json names a peer there, so the runtime may still contact it: if the partner was cut, remove it from allowed_peers.",
+    });
   }
   return out;
 }

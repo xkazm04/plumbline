@@ -96,7 +96,9 @@ issue as clean). Output
 `issue-action` says which it did: `create`, `edit`, `close` or `none`. Without `issues: true` the Action touches no
 issue, and you can keep your own with `findings` and `issue-body`. For each peer whose definition or `links.json`
 changed, the issue names `diff --root <your site> --peer <address>`, which shows the change by name in your own terminal
-from the copy the lock kept beside it in `.plumbline/peers/` (UAT-18; `docs/gate-and-watch.md`).
+from the copy the lock kept beside it in `.plumbline/peers/` (UAT-18; `docs/gate-and-watch.md`). It also offers the other answer (UAT-25): "Or remove the partner", naming
+the site's own files that name it (read from the workspace), the `allowed_peers` entry to drop, and the relock; the
+relock pull request says the same and to close it unmerged after a cut.
 
 **Accepting drift in one review** (`relock-pr: true`, watch only). On `warn` or `block` findings the Action runs
 `watch --relock` on the branch `plumbline/relock` (made from the commit the job checked out) and keeps ONE pull request

@@ -399,6 +399,7 @@ export const DRIFT_CODES = [
   "peer-refused",
   "peer-pending",
   "peer-not-locked",
+  "allowed-peer-unused",
   "peer-links-untracked",
   "peer-links-unreadable",
   "peer-links-appeared",
