@@ -255,6 +255,24 @@ may run in parallel, because it adds no claim.
 - standard: `signed-artifacts/verification-ux`.
 - Size: M. Changes verify's exit code for an unsigned site (say so in the release notes). Signed Desk files.
 - Must not break: guardrails 3, 4, 8, 9; MC-2.
+- State: fixed (commits 5e699b5, da9f3ce), awaiting recertify. Causes confirmed; the cross-origin revocation is fixed in
+  the CLI's trust lookup (`src/cli/files.ts` trustStoreOf) and in `walkRotationChain` (so `adopt` agrees too). Live on
+  northgate-clinic (real CLI, the pharmacy's trust file): `forgery-own-origin` before the revocation `unverifiable ...
+  signer is unknown`; after the pharmacy recorded A's revocation `invalid revoked kid=<A> origin=http://127.0.0.1:4301`
+  (exit 1), as the Desk says; between revoke and re-sign a fresh `trust --url ... --yes`: "nothing added:
+  .../plumbline-revocation.json revokes this very key, so it is not trusted ..." (exit 1, no file written); the
+  clinic's signature taken down, a stale list: the revocation lines ("revocation recorded in ... (1 entry)") then
+  "unverifiable - This site publishes no plumbline.signature.json ...", exit 1, `--json` verdict `unverifiable`;
+  `attacker-rotates` then `adopt --url <mirror>`: `invalid revoked`, nothing adopted. kiln-row's unsigned seller
+  (4503): `{"results":[{"verdict":"unverifiable",...}]}`, exit 1. The Desk on larch-house (signed, key not trusted):
+  "Signed lock, by a key you have not trusted: until you trust that key, the host could rewrite it." and the status
+  line "... Lock signed by a key you have not trusted." (kiln-row's marketplace is not signed in the world, so it
+  rightly still reads "unsigned lock"). Ines's three disagreements (cases 6, 12, 13) now agree; the 15-of-15 claim
+  rests on those three plus the 12 that already agreed, not on a full re-walk. Release note: verify on an unsigned
+  site exits 1 (was 2). Ceiling: a signature that cannot be fetched is still exit 2 (an I/O error, by the existing
+  rule that an unreachable site is never a verdict); the wording parts of the table (no limit beside `verified`, no
+  file for tampered, no date for expired, "revoked by its holder" for a cascade) are UAT-8's; `trust --revocation
+  <file>` (INE-L1-14's missing command) is not built.
 
 ### UAT-8. Verdict sentences fit to paste into an incident note
 
