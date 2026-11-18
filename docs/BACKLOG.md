@@ -415,6 +415,24 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: S to M. Ship as a tagged release with notes. Signed Desk file.
 - Must not break: guardrail 7.
+- State: fixed (commit 9d5b0a9), awaiting recertify; the tagged release with notes is the owner's (not tagged here).
+  The Atlas adapter reads the target as the gate does (the shared manifest lookup; a `.network.json` target fetched
+  once) and does not send it when it is not https (with or without `--allow-local`), names `localhost`, is a private or
+  loopback IP, or the gate's own fetch refused it (resolves to a private range, does not resolve, not a URL): the finding
+  reads "Not sent to Agent Atlas, a public service: <why>. Atlas has no verdict." A site that is only down is still sent.
+  `gate` prints the disclosure on stderr before any adapter runs whenever atlas is asked; the Desk's check view carries
+  it in the form, before the button; `scripts/scan-ecosystem.mjs --adapters` (and the harness scan) leaves checkers out,
+  with the disclosure saying "Agent Atlas was not asked ..." and `settings.adapters` recording the list. Live: harness
+  scan of tallow-finch 4400 and 4403, "Atlas stand-in (0 answered here, 0 sent out)" (the run that found PRI-L1-04
+  answered every one), each atlas finding "Not sent ... the address is not https"; `gate http://127.0.0.1:4400/` prints
+  the disclosure line first. Tests: "UAT-11 ..." in `src/test/gate-run.test.ts` (real safeFetch, scripted resolver,
+  an Atlas recorder: http with and without `--allow-local`, 192.168.1.20, 10.0.0.5, [::1], localhost, a name resolving
+  to loopback, a `.network.json` on a name resolving to 10/8, an unresolvable staging name: Atlas sent none),
+  `src/test/gate-watch-cli.test.ts`, `src/test/scan.test.ts`, `site/tests/desk.test.mjs`. Deviation: a loopback site
+  checked with `--allow-local` is no longer sent to Atlas either (it could never reach it), so the UAT harness's Atlas
+  stand-in now answers nothing for a world. Ceiling: in the browser, which cannot resolve names, the Desk withholds only
+  http, `localhost` and private or loopback IP literals, not a name that resolves to a private range; asking Atlas alone
+  now reads the target once first. Changed Desk files: `site/strings.js`, `site/index.html`.
 
 ### UAT-12. A keyless site is not told to sign
 
