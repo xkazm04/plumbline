@@ -461,6 +461,14 @@ does not exist) and exits 0; a key already trusted for that origin is not added 
 Skipping step 2 turns the trust store into a rubber stamp for whoever controls the site at that moment, which is
 exactly the attacker the signature was meant to exclude.
 
+**A second channel in DNS (since 2026-11-18).** A publisher may name its kid at `_plumbline.<host>` in a TXT record
+`v=plumbline1; kid=<kid>` (`plumbline dns --key <record> [--origin <origin>]` prints it; one record per key during a
+rotation). `trust --url` asks for it and prints `agrees`, `disagrees`, `no record` or `could not ask`; `--json` carries
+`dns: { name, state, kids?, malformed?, why? }`. It adds no trust: without `--yes` nothing is added whatever DNS says; a
+disagreement refuses `--yes` (exit 1, `refusedBy: "dns"`), never overridden silently; `--require-dns` refuses `--yes`
+unless DNS agrees. `verify` never asks DNS. It is a channel an attacker of the web host alone does not control, not
+proof against one who holds the DNS zone or the registrar (`docs/trust-bootstrap.md`).
+
 ## CLI
 
 Exit codes: `0` clean, `1` findings, `2` usage or I/O error. Every command accepts `--json` for machine output, and
@@ -468,7 +476,7 @@ every command that reads the clock accepts `--now <ISO timestamp>` to pin it (te
 error (an unknown or missing option, an option without its value, a bad `--origin`, `--days` or `--now`) a command
 prints the message and then its own usage line; with `--json` the error object carries it as `usage`. An I/O error
 prints no usage line. The commands are `init`, `watch`, `gate`, `badge`, `keygen`, `sign`, `verify`, `rotate`, `revoke`,
-`trust` and `adopt`; anything else is an unknown command, exit 2. `badge` draws a gate report as a small SVG
+`trust`, `adopt` and `dns`; anything else is an unknown command, exit 2. `badge` draws a gate report as a small SVG
 (`docs/ecosystem-scan.md`). `init` (since 2026-11-18) writes the watch's lock and, with
 `--workflow`, its daily workflow, and makes no key (`docs/gate-and-watch.md`).
 
@@ -479,7 +487,8 @@ prints no usage line. The commands are `init`, `watch`, `gate`, `badge`, `keygen
 | `plumbline verify --trust <trust file> (--root <site> [--origin <origin>] \| --url <site base> [--allow-local] [--timeout <seconds>])` | prints the verdict line, `verified`, `invalid <reason>` or `unverifiable`, then the kid, origin and detail; exit 0 only for `verified`, 1 for `invalid` or `unverifiable`, 2 for I/O or usage errors (including a trust file with a malformed entry, and no `plumbline.signature.json`). Reads `.well-known/plumbline-key.json` only to say whether the math holds for an unknown signer. With `--origin`, a signature made for another origin is `unverifiable` (above). When a `plumbline-revocation.json` is found beside the site, it is applied first with `applyRevocationText`, spread to every origin and to every entry adopted through the revoked key, and **recorded in the trust file** when it verified: the text output says `revocation applied` or `revocation not applied` with one line per trust entry checked, then `revocation recorded in <file> (N entries)` or `revocation already recorded in <file>`, before the verdict line; `--json` adds `revocation: { file, applied, recorded, trustFile?, recordedEntries?, results }`. When the signer is unknown and the site holds a `plumbline-rotation.json`, a hint names `plumbline adopt` (with `--url` for a site read by URL) |
 | `plumbline rotate --root <site> --old-key <file> --new-key <file>` | writes `plumbline-rotation.json` (a planned change only), or appends to the chain it holds; refuses a revoked old or new key and a key file inside the root (see "Rotation"). `--json`: `{ from, to, rotationFile, written, chainLength }` |
 | `plumbline revoke --root <site> --key <file> [--reason <text>]` | writes `plumbline-revocation.json`, signed by that key, or appends to the list it holds (see "Revocation"). `--json`: `{ kid, revokedAt?, revocationFile, written, revocations }` |
-| `plumbline trust --file <trust file> (--key <plumbline-key.json> --origin <origin> \| --url <site base> [--allow-local]) [--yes]` | first contact (above): prints the kid and the warning; adds `{ kid, origin, publicKey }` only with `--yes` (exit 0), otherwise exit 1 and nothing written. `--json`: `{ kid, origin, publicKey, trustFile, added, alreadyTrusted, warning, keyRecord? }` (`keyRecord`: the URL the record was fetched from) |
+| `plumbline trust --file <trust file> (--key <plumbline-key.json> --origin <origin> \| --url <site base> [--allow-local] [--require-dns]) [--yes]` | first contact (above): prints the kid, what DNS says (with `--url`) and the warning; adds `{ kid, origin, publicKey }` only with `--yes` (exit 0), otherwise exit 1 and nothing written; a DNS disagreement, or `--require-dns` without agreement, refuses `--yes` (exit 1). `--json`: `{ kid, origin, publicKey, trustFile, added, alreadyTrusted, warning, keyRecord?, dns?, refusedBy? }` (`keyRecord`: the URL the record was fetched from) |
+| `plumbline dns --key <plumbline-key.json> [--origin <origin>]` | prints the `_plumbline.<host>` TXT record that names the key's kid; refuses a record whose kid is not derived from its key. `--json`: `{ name, type, value, kid }` |
 | `plumbline adopt --trust <trust file> (--root <site> --origin <origin> \| --url <site base> [--allow-local]) [--yes]` | a published rotation or chain (see "Rotation"): `walkRotationChain`, then with `--yes` every successor's entry is appended (exit 0); without `--yes`, or when the chain breaks or does not verify, exit 1 and nothing written. `--json`: `{ results, revocation?, chainLength, brokenAt?, from?, to, added, adopted?, ... }` |
 
 **`verify --url <site base>`** fetches the site instead of reading a folder, through the same guarded fetch as the gate

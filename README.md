@@ -76,6 +76,7 @@ which also says how to hear about security fixes and move the pin).
 - `THIRD_PARTY.md` - the third-party code the Desk ships (the vendored runtime and its bundle), with sizes and hashes.
 - `docs/signature-format.md` - every file, field and verdict; key custody, rotation, revocation, first contact.
 - `docs/gate-and-watch.md` - the adapters, the detectors, the severity rules and the guarded fetch.
+- `docs/trust-bootstrap.md` - first contact through a second channel (a DNS record naming the kid), and the designs not built yet.
 - `docs/ecosystem-scan.md` - the scan of a list of agentic sites, its report schema, and the gate badge.
 - `site/README.md` - how the Desk is built, its Content-Security-Policy, and how to serve it.
 - `action/README.md` - the Action and the watch template.

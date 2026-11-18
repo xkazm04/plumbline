@@ -30,6 +30,7 @@
       "description": "Canonical bytes, Ed25519 keys, signing, three-state verification and key rotation; pure, runs in Node and the browser.",
       "file_paths": [
         "docs/signature-format.md",
+        "docs/trust-bootstrap.md",
         "src/core/canonical.ts",
         "src/core/index.ts",
         "src/core/json-keys.ts",
@@ -90,9 +91,12 @@
       "description": "The one guarded fetch for stranger-controlled addresses: pinned DNS, private ranges refused, body ceiling, timeout; plus its pure types and the document fingerprints.",
       "file_paths": [
         "src/net/canonical.ts",
+        "src/net/dns-txt.ts",
+        "src/net/dns.ts",
         "src/net/fetch-types.ts",
         "src/net/locate.ts",
         "src/net/safe-fetch.ts",
+        "src/test/dns.test.ts",
         "src/test/net-canonical.test.ts",
         "src/test/net-fetch-error.test.ts",
         "src/test/net-helpers.ts",

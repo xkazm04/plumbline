@@ -67,7 +67,7 @@ export const USAGE = {
   rotate: "usage: plumbline rotate --root <site dir> --old-key <old private file> --new-key <new private file> [--now <iso>] [--json]",
   revoke: "usage: plumbline revoke --root <site dir> --key <private file> [--reason <text>] [--now <iso>] [--json]",
   trust:
-    "usage: plumbline trust --file <plumbline.trust.json> (--key <plumbline-key.json> --origin <https origin> | --url <https site base> [--allow-local]) [--yes] [--json]",
+    "usage: plumbline trust --file <plumbline.trust.json> (--key <plumbline-key.json> --origin <https origin> | --url <https site base> [--allow-local] [--require-dns]) [--yes] [--json]",
   adopt:
     "usage: plumbline adopt --trust <plumbline.trust.json> (--root <site dir> --origin <https origin> | --url <https site base> [--allow-local]) [--yes] [--json]",
 } as const;

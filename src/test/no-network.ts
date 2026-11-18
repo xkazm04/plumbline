@@ -18,3 +18,13 @@ dns.lookup = ((hostname: string, ...rest: unknown[]) => {
   const callback = rest[rest.length - 1];
   if (typeof callback === "function") process.nextTick(() => (callback as (e: Error) => void)(refuse(hostname)));
 }) as typeof dns.lookup;
+
+// DNS beyond lookup: the TXT query `trust --url` makes for the second channel (src/net/dns.ts). Refused too, so a
+// spawned CLI never asks a real resolver.
+const refuseQuery = async (hostname: unknown): Promise<never> => {
+  const error: NodeJS.ErrnoException = new Error(`no network in tests: refused to query ${String(hostname)}`);
+  error.code = "ECONNREFUSED";
+  throw error;
+};
+dns.promises.Resolver.prototype.resolveTxt = refuseQuery as typeof dns.promises.Resolver.prototype.resolveTxt;
+dns.promises.resolveTxt = refuseQuery as typeof dns.promises.resolveTxt;

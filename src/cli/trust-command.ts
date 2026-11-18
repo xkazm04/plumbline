@@ -1,11 +1,15 @@
 // The verifier's trust-store commands. Neither ever adds trust on its own: each prints what it would add and changes
 // nothing until the person confirms with --yes.
 //
-//   plumbline trust (--key <plumbline-key.json> --origin <origin> | --url <site base> [--allow-local])
+//   plumbline trust (--key <plumbline-key.json> --origin <origin> | --url <site base> [--allow-local] [--require-dns])
 //                   --file <plumbline.trust.json> [--yes] [--json]
 //     First contact: checks that the record's kid is derived from its key, prints the kid to compare out of band, and
 //     with --yes appends { kid, origin, publicKey }. Without --yes: exit 1, nothing written. With --url the record is
-//     fetched from the site's .well-known/ through safeFetch and the origin is the URL's own.
+//     fetched from the site's .well-known/ through safeFetch and the origin is the URL's own, and DNS is asked too
+//     (`_plumbline.<host>` TXT, src/net/dns.ts): agrees, disagrees, no record or could not ask. DNS adds no trust: a
+//     disagreement refuses --yes (never overridden silently), and --require-dns refuses --yes unless DNS agrees.
+//   plumbline dns --key <plumbline-key.json> [--origin <origin>] [--json]
+//     Prints the TXT record a publisher adds so verifiers can check the kid through a second channel.
 //   plumbline adopt (--root <site dir> --origin <origin> | --url <site base> [--allow-local])
 //                   --trust <plumbline.trust.json> [--yes] [--json]
 //     A published rotation, one statement or a chain: core's walkRotationChain from the newest key the trust file holds
@@ -29,6 +33,8 @@ import {
   type SiteSource,
 } from "./commands.js";
 import { appendEntry, readJsonFile, readTrustFile, writeTrustFile } from "./files.js";
+import { askDns, type TxtResolver } from "../net/dns.js";
+import { DNS_LABEL, describeDns, dnsNameFor, txtRecordFor, type DnsCheck } from "../net/dns-txt.js";
 import {
   KEY_FILE,
   REVOCATION_FILE,
@@ -84,10 +90,41 @@ async function readRequired(site: SiteSource, rel: string): Promise<string> {
   return decode(read.bytes);
 }
 
-export async function trust(argv: string[], out: Out): Promise<number> {
-  const args = parseArgs(argv, ["key", "origin", "file", "url"], ["yes", "allow-local"]);
+export const DNS_USAGE = "usage: plumbline dns --key <plumbline-key.json> [--origin <https origin>] [--json]";
+
+/** The sentence `trust --yes` refuses with when DNS names other keys for the host. */
+export const DNS_DISAGREES =
+  "nothing added: DNS names another key for this host, and a disagreement is never overridden here. Ask the publisher which kid is theirs (during a rotation they publish both); if you confirmed this kid out of band and know why DNS differs, add the record you checked with trust --key <file> --origin <origin> --yes";
+
+/**
+ * What `trust` does once the record checks out, in order: an entry already there is left as it is; without --yes
+ * nothing is added; a DNS disagreement refuses --yes (never overridden silently); --require-dns refuses --yes unless
+ * DNS agrees; otherwise the entry is added. DNS that agrees adds no trust of its own: --yes is still the person's.
+ */
+export function trustDecision(input: { already: boolean; yes: boolean; requireDns: boolean; dns?: DnsCheck }):
+  | { action: "already" | "add"; refusedBy?: undefined }
+  | { action: "refuse"; line: string; refusedBy?: "dns" } {
+  const { already, yes, requireDns, dns } = input;
+  if (already) return { action: "already" };
+  if (!yes) return { action: "refuse", line: CONFIRM };
+  if (dns?.state === "disagrees") return { action: "refuse", line: DNS_DISAGREES, refusedBy: "dns" };
+  if (requireDns && dns?.state !== "agrees") {
+    return { action: "refuse", line: `nothing added: --require-dns needs DNS to agree, and for ${dns?.name ?? "this host"} it says: ${dns?.state ?? "could not ask"}`, refusedBy: "dns" };
+  }
+  return { action: "add" };
+}
+
+/** Injection points for tests; production passes none. */
+export interface TrustDeps {
+  resolveTxt?: TxtResolver;
+}
+
+export async function trust(argv: string[], out: Out, deps: TrustDeps = {}): Promise<number> {
+  const args = parseArgs(argv, ["key", "origin", "file", "url"], ["yes", "allow-local", "require-dns"]);
   const file = required(args, "file");
-  const { site, origin } = siteOf(args, "key");
+  const requireDns = args.flags.has("require-dns");
+  if (requireDns && args.values.get("url") === undefined) throw new UsageError("--require-dns goes with --url: DNS is asked for the site's host");
+  const { site, base, origin } = siteOf(args, "key");
 
   // The record is only a convenience: the kid is still compared out of band, so fetching it from the site adds no trust.
   let record: unknown;
@@ -117,14 +154,18 @@ export async function trust(argv: string[], out: Out): Promise<number> {
   const already = store.entries.some((e) => e.kid === kid && e.origin === origin);
   const entry: TrustEntry = { kid, origin, publicKey };
   const yes = args.flags.has("yes");
-  const lines = [`kid ${kid} for ${origin}`, `public key ${publicKey}`, `WARNING: ${FIRST_CONTACT_WARNING}`];
+  // the second channel: what DNS says about this kid for the site's host (--url only). It adds no trust either way.
+  const dns: DnsCheck | undefined = base !== undefined ? await askDns(base.hostname, kid, deps.resolveTxt) : undefined;
+  const lines = [`kid ${kid} for ${origin}`, `public key ${publicKey}`, ...(dns !== undefined ? [describeDns(dns)] : []), `WARNING: ${FIRST_CONTACT_WARNING}`];
   let added = false;
+  const decision = trustDecision({ already, yes, requireDns, ...(dns !== undefined ? { dns } : {}) });
+  const refusedBy = decision.refusedBy;
   let code: number;
-  if (already) {
+  if (decision.action === "already") {
     lines.push(`already trusted: ${file} has this key for ${origin}; nothing to add`);
     code = 0;
-  } else if (!yes) {
-    lines.push(CONFIRM);
+  } else if (decision.action === "refuse") {
+    lines.push(decision.line);
     code = 1;
   } else {
     appendEntry(store, entry);
@@ -136,10 +177,46 @@ export async function trust(argv: string[], out: Out): Promise<number> {
   emit(
     args,
     out,
-    { kid, origin, publicKey, trustFile: file, added, alreadyTrusted: already, warning: FIRST_CONTACT_WARNING, ...(site !== undefined ? { keyRecord: source } : {}) },
+    {
+      kid,
+      origin,
+      publicKey,
+      trustFile: file,
+      added,
+      alreadyTrusted: already,
+      warning: FIRST_CONTACT_WARNING,
+      ...(site !== undefined ? { keyRecord: source } : {}),
+      ...(dns !== undefined ? { dns } : {}),
+      ...(refusedBy !== undefined ? { refusedBy } : {}),
+    },
     lines,
   );
   return code;
+}
+
+/**
+ * `plumbline dns --key <plumbline-key.json> [--origin <origin>]`: the TXT record to publish at `_plumbline.<host>`, for
+ * a key record whose kid is derived from its key. It writes nothing and asks nothing.
+ */
+export async function dnsRecord(argv: string[], out: Out): Promise<number> {
+  const args = parseArgs(argv, ["key", "origin"]);
+  const source = required(args, "key");
+  const origin = args.values.get("origin");
+  if (origin !== undefined && !isAcceptableOrigin(origin)) throw new UsageError(ORIGIN_RULE);
+  const r = (await readJsonFile(source, "key record")) as Record<string, unknown> | null;
+  if (typeof r !== "object" || r === null || Array.isArray(r) || !isKid(r.kid) || !isPublicKey(r.publicKey)) {
+    throw new CliError(`not a Plumbline key record (a kid of 16 lowercase hex and a 32-byte base64url publicKey): ${source}`);
+  }
+  const kid = r.kid as string;
+  if (!(await isDerivedKid(kid, r.publicKey as string))) throw new CliError(`the key record's kid is not derived from its public key, so it is refused: ${source}`);
+  const name = origin !== undefined ? dnsNameFor(new URL(origin).hostname) : `${DNS_LABEL}.<your host>`;
+  const record = txtRecordFor(kid);
+  emit(args, out, { name, type: "TXT", value: record, kid }, [
+    `${name} TXT "${record}"`,
+    "Publish it in the site's DNS zone. During a rotation, publish one record per key until verifiers have moved.",
+    "It is a second channel, not proof: an attacker of the web host alone cannot change it; one who holds your DNS or registrar can.",
+  ]);
+  return 0;
 }
 
 export async function adopt(argv: string[], out: Out): Promise<number> {
