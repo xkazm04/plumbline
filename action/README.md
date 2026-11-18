@@ -38,9 +38,13 @@ with no clone.
 ```
 
 `fail-on: fail` fails the step when an adapter says `fail`, and when **every** adapter was `unavailable` (nothing was
-checked). With `fail-on: unavailable` it also fails when any one adapter could not be reached or has no receipt.
-`unavailable` is never `pass`; the step output `state` says which it was. The Action never passes `--allow-local`: in
-CI the gate checks public https sites only.
+checked). With `fail-on: unavailable` it also fails when any one adapter could not be reached or has no receipt; Agent
+Customs has published receipts for few sites, so with `fail-on: unavailable` nearly every site fails on Customs alone
+unless `adapters: validator,atlas` leaves it out. `unavailable` is never `pass`; the step output `state` says which it
+was, and the job summary says what was checked in the CLI's words: "Checked by 1 of 3 (validator pass); Atlas and
+Customs had no verdict." under the heading, or, in the heading itself, "the site could not be reached (...); nothing was
+checked, so this is not a pass" and "nothing was checked: every checker was unavailable, so this is not a pass". The
+Action never passes `--allow-local`: in CI the gate checks public https sites only.
 
 **Watch** (`command: watch`, `root:` the site folder holding `plumbline.lock.json`). It reports grounding, runtime and
 peer drift; outputs `report` (the JSON path), `findings` (how many are `warn` or `block`) and `issue-body` (the path of a

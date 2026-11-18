@@ -80,7 +80,7 @@ test("the gate's outputs: its state and one summary line per adapter; an unreada
     ],
   });
   assert.equal(state, "unavailable");
-  assert.equal(summary, "### Plumbline gate: unavailable\n- **validator**: pass. port: 0 problems\n- **atlas**: unavailable. timed out\n");
+  assert.equal(summary, "### Plumbline gate: unavailable\nChecked by 1 of 2 (validator pass); Atlas had no verdict.\n- **validator**: pass. port: 0 problems\n- **atlas**: unavailable. timed out\n");
   assert.equal(gateOutputs(undefined).state, "unknown");
 });
 
@@ -132,7 +132,7 @@ test("gate, as the Action runs it: state output and job summary; an unreadable r
   });
   assert.equal(ok.status, 0, ok.stderr);
   assert.equal(ok.output, "state=pass\n");
-  assert.equal(ok.summary, "### Plumbline gate: pass\n- **validator**: pass. ok\n");
+  assert.equal(ok.summary, "### Plumbline gate: pass\nChecked by 1 of 1 (validator pass).\n- **validator**: pass. ok\n");
 
   const broken = run(["gate", "@report.json"], { "report.json": "" });
   assert.equal(broken.status, 0);
@@ -679,3 +679,35 @@ test(
     }
   },
 );
+
+test("UAT-9: partly checked is not not checked: the Action summary words the three cases as the CLI does, nothing checked in the heading", async () => {
+  const { gateSentence } = await import("./report.mjs");
+  const healthy = {
+    state: "unavailable",
+    findings: [
+      { adapter: "validator", state: "pass", summary: "The validator port found no problem: 1 network definition checked." },
+      { adapter: "atlas", state: "unavailable", summary: "Agent Atlas could not connect to the target, so it has no verdict about the site." },
+      { adapter: "customs", state: "unavailable", summary: "Unavailable: no receipt for this target in Agent Customs' published receipts." },
+    ],
+  };
+  assert.equal(gateSentence(healthy), "checked by 1 of 3 (validator pass); Atlas and Customs had no verdict");
+  assert.match(gateOutputs(healthy).summary, /^### Plumbline gate: unavailable\nChecked by 1 of 3 \(validator pass\); Atlas and Customs had no verdict\.\n/);
+  const down = {
+    state: "unavailable",
+    findings: [
+      { adapter: "validator", state: "unavailable", summary: "The validator port could not run: the target could not be reached (the connection failed)." },
+      { adapter: "atlas", state: "unavailable", summary: "Agent Atlas could not connect to the target, so it has no verdict about the site." },
+      { adapter: "customs", state: "unavailable", summary: "Agent Customs was not asked: the target could not be reached to learn its network address (the connection failed)." },
+    ],
+  };
+  assert.equal(gateSentence(down), "the site could not be reached (the connection failed); nothing was checked, so this is not a pass");
+  assert.match(gateOutputs(down).summary, /^### Plumbline gate: unavailable: the site could not be reached \(the connection failed\); nothing was checked, so this is not a pass\n/);
+  const none = { state: "unavailable", findings: [{ adapter: "atlas", state: "unavailable", summary: "Agent Atlas answered HTTP 503, so there is no verdict." }] };
+  assert.match(gateOutputs(none).summary, /^### Plumbline gate: unavailable: nothing was checked: every checker was unavailable, so this is not a pass\n/);
+  // the same words as the built CLI's gate/context.ts, when it has been built (the cases above, word for word)
+  const built = new URL("../dist/gate/context.js", import.meta.url);
+  if (existsSync(built)) {
+    const core = await import(built.href);
+    for (const report of [healthy, down, none]) assert.equal(core.gateSentence(report), gateSentence(report));
+  }
+});

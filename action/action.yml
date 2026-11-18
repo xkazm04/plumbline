@@ -12,7 +12,7 @@ inputs:
     required: false
     default: validator,atlas,customs
   fail-on:
-    description: "`fail` fails the step when the gate state is fail, or when EVERY adapter was unavailable (nothing was checked). `unavailable` also fails it when any adapter could not be reached."
+    description: "`fail` fails the step when the gate state is fail, or when EVERY adapter was unavailable (nothing was checked). `unavailable` also fails it when any adapter had no verdict; Agent Customs has receipts for few sites, so with `unavailable` leave customs out of `adapters` or nearly every site fails."
     required: false
     default: fail
   command:

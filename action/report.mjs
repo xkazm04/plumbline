@@ -121,12 +121,45 @@ export function readDigest(body) {
   }
 }
 
-/** The gate's outputs: its state and one summary line per adapter finding. */
+const CHECKER_NAMES = { validator: "validator", atlas: "Atlas", customs: "Customs" };
+
+/**
+ * One sentence for what a gate report checked: src/gate/context.ts gateSentence, kept word for word here because the
+ * Action runs this file with no build (action/report.test.mjs holds the two to the same cases). "Partly checked" is
+ * never "not checked" (UAT-9): "checked by 1 of 3 (validator pass); Atlas and Customs had no verdict"; "the site could
+ * not be reached (<why>); nothing was checked, so this is not a pass"; "nothing was checked: every checker was
+ * unavailable, so this is not a pass". The state is the report's; only the words are derived.
+ */
+export function gateSentence(report) {
+  const findings = (Array.isArray(report?.findings) ? report.findings : []).filter((f) => f && typeof f.state === "string");
+  const nameOf = (a) => CHECKER_NAMES[a] ?? String(a);
+  const andList = (names) => (names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
+  const checked = findings.filter((f) => f.state !== "unavailable");
+  const missing = findings.filter((f) => f.state === "unavailable");
+  let down = null;
+  for (const f of missing) {
+    const m = /the target could not be reached \(([^)]{1,120})\)/.exec(String(f.summary ?? ""));
+    if (m) {
+      down = m[1];
+      break;
+    }
+  }
+  const by = checked.length > 0 ? `checked by ${checked.length} of ${findings.length} (${checked.map((f) => `${nameOf(f.adapter)} ${f.state}`).join(", ")})` : "";
+  if (down !== null) return checked.length > 0 ? `the site could not be reached (${down}); ${by}` : `the site could not be reached (${down}); nothing was checked, so this is not a pass`;
+  if (checked.length === 0) return "nothing was checked: every checker was unavailable, so this is not a pass";
+  return missing.length === 0 ? by : `${by}; ${andList(missing.map((f) => nameOf(f.adapter)))} had no verdict`;
+}
+
+/** The gate's outputs: its state, the sentence for what was checked, and one summary line per adapter finding. */
 export function gateOutputs(report) {
   const state = typeof report?.state === "string" ? report.state : "unknown";
   const findings = Array.isArray(report?.findings) ? report.findings : [];
   const lines = findings.map((f) => `- **${cell(f?.adapter)}**: ${cell(f?.state)}. ${cell(f?.summary)}`);
-  return { state, summary: [`### Plumbline gate: ${state}`, ...lines].join("\n") + "\n" };
+  const sentence = findings.length > 0 ? cell(gateSentence(report)) : "";
+  // a site that did not answer, or a run that checked nothing, is said in the heading itself (an alarm, not a grey word)
+  const alarm = /^the site could not be reached|^nothing was checked/.test(sentence);
+  const heading = sentence === "" ? `### Plumbline gate: ${state}` : alarm ? `### Plumbline gate: ${state}: ${sentence}` : `### Plumbline gate: ${state}`;
+  return { state, summary: [heading, ...(sentence !== "" && !alarm ? [sentence.charAt(0).toUpperCase() + sentence.slice(1) + "."] : []), ...lines].join("\n") + "\n" };
 }
 
 /**
