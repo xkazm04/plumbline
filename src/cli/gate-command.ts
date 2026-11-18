@@ -21,7 +21,7 @@ import { resolve } from "node:path";
 import { readTrustFile } from "./files.js";
 import type { GateReport, VerifyResult } from "../core/types.js";
 
-const USAGE =
+export const USAGE =
   "usage: plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--trust <plumbline.trust.json>] [--allow-local] [--json]\n" +
   "       plumbline gate --root <site folder> [--adapters validator] [--fail-on fail|unavailable] [--json]\n";
 
@@ -65,6 +65,15 @@ export async function checkSignature(target: string, trustFile: string, allowLoc
 }
 
 export const NOTHING_CHECKED = "nothing was checked: every adapter was unavailable, so this is not a pass";
+
+/**
+ * UAT-28 (PRI-L2-4): the note for an http address given without --allow-local, which safeFetch refuses ("the address is
+ * not https"): it names the flag that takes a site on this machine. Undefined when no such address was given.
+ */
+export function httpHint(addresses: readonly string[], allowLocal: boolean): string | undefined {
+  if (allowLocal || !addresses.some((a) => /^http:\/\//i.test(a))) return undefined;
+  return "note: an http address is refused without --allow-local; for a site on this machine (localhost, 127.0.0.1), run it again with --allow-local (private ranges stay refused)";
+}
 
 export const ALLOW_LOCAL_WARNING =
   "WARNING: --allow-local: http and loopback addresses are allowed for this run (private ranges stay refused); use it only for a site on this machine";
@@ -191,6 +200,8 @@ export async function runGateCommand(argv: string[]): Promise<number> {
   }
 
   if (allowLocal) process.stderr.write(`${ALLOW_LOCAL_WARNING}\n`);
+  const hint = httpHint([target], allowLocal);
+  if (hint !== undefined) process.stderr.write(`${hint}\n`);
   // UAT-11 (PRI-L1-04, guardrail 7): what is sent where, said before it is sent; on stderr, so --json stays one document
   if ((adapters ?? ALL_ADAPTERS).includes("atlas")) process.stderr.write(`plumbline gate: ${ATLAS_DISCLOSURE}\n`);
   const gated = await runGate(

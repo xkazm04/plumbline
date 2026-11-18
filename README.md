@@ -20,56 +20,116 @@ A verified signature proves who published the files and that they did not change
 
 ## Use it
 
-**Start with the watch: one command, no key.** From your site's repository root:
+Every block below names the folder it runs in. `plumbline --help` lists the commands by role, and `plumbline <command>
+--help` gives one command's options. Exit codes everywhere: 0 clean, 1 findings (for `trust` without `--yes`: nothing
+added), 2 usage or I/O error.
+
+### Install, once (Node 22 or later)
+
+In the folder where you keep tools (not your site's repository):
 
 ```sh
-npm ci && npm run build                               # in a clone of this repository
-node dist/cli/index.js init --root ./site --workflow  # writes site/plumbline.lock.json and .github/workflows/plumbline-watch.yml
-node dist/cli/index.js watch --root ./site            # drift against the lock: exit 0 clean, 1 findings
-node dist/cli/index.js watch --url https://example.org/   # the same check of a PUBLISHED lock, as the Desk reads it
+git clone https://github.com/xkazm04/plumbline.git
+cd plumbline
+npm ci            # installs TypeScript and builds dist/
+npm link          # puts the plumbline command on your PATH
+plumbline --help
 ```
 
-`init` makes no key and asks for no trust decision; it prints the next steps. Commit the lock (and the workflow), and the
-daily watch keeps one drift issue. `--source <page>` names a page whose facts the network states, so a change to it is
-drift, and init prints which of those facts (prices, times, phone numbers, ...) the page states and which no page
-states. When you have reviewed a drift and accept it, `watch --relock` rewrites the lock and prints what changed.
+Without `npm link`, type `node <path to the clone>/dist/cli/index.js` wherever this page and the CLI's own output say
+`plumbline`. The Action builds the same code in CI; nothing is installed from npm.
 
-**Then sign: the upgrade.** A signature lets anyone check who published the agent files. The lock comes before the
-signature, because the lock is one of the signed files:
+### The quickest first result: gate one address
+
+From any folder:
 
 ```sh
-node dist/cli/index.js keygen --out ./keys            # keep keys/plumbline.private.json out of git
-node dist/cli/index.js sign --root ./site --key ./keys/plumbline.private.json --origin https://example.org   # signs the lock too
+plumbline gate https://your-site.example/
 ```
 
-A verifier first decides whom to trust; `verify` only ever trusts its own trust file. Here the publisher checks their
-own site; a verifier who is not the publisher first downloads the site's `.well-known/plumbline-key.json` and passes that:
+One report from three checkers (Plumbline's port of the reference validation rules, Agent Atlas and Agent Customs),
+each `pass`, `fail` or `unavailable`; unavailable is never a pass. The gate sends the address to Agent Atlas and says so
+before it does; `--adapters validator` sends it nowhere.
+
+### Publisher: publish and watch your own site
+
+From your site's repository root (the folder that holds `.github/`), with the site's files in `site/`:
 
 ```sh
-node dist/cli/index.js trust --key ./keys/.well-known/plumbline-key.json --origin https://example.org --file ./plumbline.trust.json
-#   prints the kid and adds nothing (exit 1). Confirm that kid with the publisher out of band, then rerun with --yes.
-node dist/cli/index.js trust --key ./keys/.well-known/plumbline-key.json --origin https://example.org --file ./plumbline.trust.json --yes
-#   or read the key record from the live site: trust --url https://example.org --file ./plumbline.trust.json [--yes]
-node dist/cli/index.js verify --root ./site --trust ./plumbline.trust.json --origin https://example.org   # a local copy
-node dist/cli/index.js verify --url https://example.org --trust ./plumbline.trust.json                    # the live site
-node dist/cli/index.js gate https://agent-atlas-phi.vercel.app/
-node dist/cli/index.js adopt --url https://example.org --trust ./plumbline.trust.json        # follow a published rotation
+plumbline init --root site --workflow    # writes site/plumbline.lock.json and .github/workflows/plumbline-watch.yml; no key
+plumbline watch --root site              # "watch: no drift" and exit 0, or the findings and exit 1
 ```
 
-Once a site is signed, accepting a drift is `--relock`, then signing again, because the lock is a signed file:
+`init` makes no key and asks for no trust decision; it prints what to commit and what to run next. Commit what it
+lists, and the daily workflow keeps one drift issue. `--source <page>` names a page whose facts the network states (a
+price list, opening hours), so a change to it is drift, and `init` prints which of those facts the page states and which
+no page states. After you review a drift you accept, `plumbline watch --root site --relock` rewrites the lock and prints
+what changed.
+
+**Then sign: the upgrade.** A signature lets anyone check who published the agent files. From the same folder, with
+the key outside the repository:
 
 ```sh
-node dist/cli/index.js watch --root ./site
-node dist/cli/index.js watch --root ./site --relock
-node dist/cli/index.js sign --root ./site --key ./keys/plumbline.private.json --origin https://example.org
+plumbline keygen --out ../plumbline-keys     # never commit plumbline.private.json
+mkdir -p site/.well-known && cp ../plumbline-keys/.well-known/plumbline-key.json site/.well-known/
+plumbline sign --root site --key ../plumbline-keys/plumbline.private.json --origin https://your-site.example
 ```
 
-Exit codes: 0 clean, 1 findings (for `trust` without `--yes`: nothing added), 2 usage or I/O error.
-`gate --allow-local` checks a site on your own machine over http and still refuses every private range. In CI:
-`uses: xkazm04/plumbline/action@<commit sha>` (gate or watch; `issues: true` keeps one drift issue, with a comment when
-its findings change) and `action/templates/plumbline-watch.yml` (a daily drift issue, closed by the next clean run).
-The Action builds Plumbline from the commit you pin, so the code that runs is exactly that commit's (`action/README.md`,
-which also says how to hear about security fixes and move the pin).
+The lock is one of the signed files, so once the site is signed, accepting a drift is `plumbline watch --root site
+--relock` and then the same `plumbline sign` again.
+
+### Verifier: check a partner or a stranger
+
+From any folder; the trust file is yours and lives where you keep it:
+
+```sh
+plumbline trust --url https://partner.example --file plumbline.trust.json
+#   prints the kid and adds nothing (exit 1). Confirm that kid with the publisher out of band, then:
+plumbline trust --url https://partner.example --file plumbline.trust.json --yes
+plumbline verify --url https://partner.example --trust plumbline.trust.json    # verified, invalid or unverifiable
+plumbline watch --url https://partner.example/                                 # re-checks the lock the site publishes
+plumbline adopt --url https://partner.example --trust plumbline.trust.json     # follows a rotation the site publishes
+```
+
+`verify` only ever trusts its own trust file: a stranger is never `verified`, whatever the math says. To rehearse
+against a site on this machine (`http://127.0.0.1:<port>`), add `--allow-local` to each command; private ranges stay
+refused.
+
+### Operator: run a portfolio
+
+From any folder, with `sites.txt` holding one https address per line:
+
+```sh
+plumbline scan sites.txt --out scan-report
+```
+
+It writes `scan-report/report.json` and `scan-report/report.html`, the sites that need attention first, and says what
+it sends where before it starts. `--adapters validator` sends no address to a third party; `--trust <your trust file>`
+checks each site's signature against your own trust file; `--allow-local` takes a staging list on this machine. Before a
+launch, `plumbline gate --root <build folder>` checks the files with the validator's rules and sends nothing anywhere.
+
+### The bad day: your signing key leaked
+
+From your site's repository root. Do not `rotate` after a leak: whoever holds the leaked key can rotate too.
+
+```sh
+plumbline revoke --root site --key ../plumbline-keys/plumbline.private.json    # writes site/plumbline-revocation.json; it is final
+plumbline keygen --out ../plumbline-keys-new                                  # a NEW key, one no rotation names
+cp ../plumbline-keys-new/.well-known/plumbline-key.json site/.well-known/
+plumbline sign --root site --key ../plumbline-keys-new/plumbline.private.json --origin https://your-site.example
+plumbline dns --key ../plumbline-keys-new/.well-known/plumbline-key.json --origin https://your-site.example
+```
+
+Publish the site (the revocation included), replace the `_plumbline` TXT record with the one `dns` printed, and give
+each verifier the new kid out of band, as at first contact (`docs/signature-format.md`, "Revocation").
+
+### CI
+
+The workflow `init --workflow` wrote runs the Action pinned by commit SHA: `uses: xkazm04/plumbline/action@<commit
+sha>` (gate or watch; `issues: true` keeps one drift issue, with a comment when its findings change). The Action builds
+Plumbline from the commit you pin, so the code that runs is exactly that commit's. To have it propose the relock as one
+pull request, the repository needs three settings, which the workflow's header and `action/README.md` name (it also
+says how to gate a branch before deployment, how to hear about security fixes and how to move the pin).
 
 ## Documents
 
@@ -80,7 +140,7 @@ which also says how to hear about security fixes and move the pin).
 - `docs/jws-profile.md` - the same signature as a detached JWS (EdDSA), and the canonical bytes against RFC 8785.
 - `docs/proposals/` - texts written to be submitted upstream as they stand.
 - `docs/trust-bootstrap.md` - first contact through a second channel (a DNS record naming the kid), and the designs not built yet.
-- `docs/ecosystem-scan.md` - the scan of a list of agentic sites, its report schema, and the gate badge.
+- `docs/ecosystem-scan.md` - `plumbline scan` over a list of sites, its report schema, and the gate badge.
 - `site/README.md` - how the Desk is built, its Content-Security-Policy, and how to serve it.
 - `action/README.md` - the Action and the watch template.
 

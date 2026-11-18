@@ -128,6 +128,15 @@ exist", when there was no branch). So a second drift while the pull request is o
 same pull request, and a run after a merged pull request whose branch was kept opens a new one on it. A branch someone
 else moved between the fetch and the push is not overwritten: the push is refused and the step fails.
 
+**The GitHub settings the pull request loop needs** (UAT-28, DEV-L1-07). The workflow `init --workflow` writes keeps
+the issue only; its header lists the three changes for the loop. (1) `relock-pr: true` under `with:`. (2) The job's
+`permissions:` `contents: write`, `issues: write` and `pull-requests: write`. (3) The repository setting **Settings >
+Actions > General > Workflow permissions > "Allow GitHub Actions to create and approve pull requests"**, which GitHub
+leaves off: without it the pull request step fails. A pull request opened with the job's own token (`github.token`)
+starts no workflow runs, so required checks do not run on it until a person pushes to its branch; give `token:` a
+fine-grained personal access token or a GitHub App token if you need them to. These are GitHub's rules, named from its
+documentation; they have not been exercised on a real runner here.
+
 ```yaml
 - uses: xkazm04/plumbline/action@COMMIT_SHA
   with:

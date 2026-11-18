@@ -102,6 +102,17 @@ export async function detectRuntime(lock: Lock, env: DetectorEnv): Promise<Drift
   return out;
 }
 
+/**
+ * " until <UTC time>" for GitHub's `x-ratelimit-reset` header (Unix seconds), or "" when it is absent or not a plain
+ * number of seconds in a sane range (before 2100), so a header never reaches the sentence as anything but a time.
+ */
+export function resetWords(reset: string | undefined): string {
+  if (reset === undefined || !/^[0-9]{1,10}$/.test(reset)) return "";
+  const seconds = Number(reset);
+  if (seconds <= 0 || seconds >= 4_102_444_800) return "";
+  return ` until ${new Date(seconds * 1000).toISOString().replace(/\.000Z$/, "Z").replace("T", " ").replace(/Z$/, " UTC")}`;
+}
+
 /** The newest commit a GitHub listing names, or why it could not be read. */
 async function newestCommit(env: DetectorEnv, url: string): Promise<{ sha: string } | { reason: string }> {
   let response;
@@ -113,7 +124,8 @@ async function newestCommit(env: DetectorEnv, url: string): Promise<{ sha: strin
   if (response.status === 403 || response.status === 429) {
     const reset = response.headers["x-ratelimit-reset"];
     const limited = response.status === 429 || response.headers["x-ratelimit-remaining"] === "0" || response.headers["retry-after"] !== undefined;
-    return { reason: limited ? `GitHub rate-limited the request${reset ? ` until epoch ${reset}` : ""}` : "GitHub refused the request (HTTP 403)" };
+    // UAT-28 (DEV-L2-2): the reset is a Unix time in seconds; it is said as a UTC time a person reads, never as an epoch
+    return { reason: limited ? `GitHub rate-limited the request${resetWords(reset)}` : "GitHub refused the request (HTTP 403)" };
   }
   if (!response.ok) return { reason: `GitHub answered HTTP ${response.status}` };
   let sha: unknown;

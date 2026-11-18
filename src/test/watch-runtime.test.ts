@@ -84,6 +84,9 @@ test("runtime upstream: failing to ask is info 'could not check upstream', never
   }
   const limited = await watch(root, { ...baseRoutes(), [UPSTREAM_COMMITS_URL]: cases[2]![1] });
   assert.match(limited.findings[0]!.summary, /rate-limited/);
+  // UAT-28 (DEV-L2-2): the reset is a UTC time, never a raw epoch
+  assert.match(limited.findings[0]!.summary, /rate-limited the request until \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC/);
+  assert.doesNotMatch(limited.findings[0]!.summary, /epoch/);
 });
 
 test("runtime upstream: a lock with no recorded commit says upstream cannot be compared", async () => {

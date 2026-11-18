@@ -17,16 +17,20 @@ import { firstSignerWords, runInit, type FirstSigner } from "../watch/index.js";
 import { readLock } from "../watch/lock.js";
 import { KEPT_DIR } from "../watch/kept.js";
 import { keptLine } from "./watch-command.js";
-import { ALLOW_LOCAL_WARNING } from "./gate-command.js";
+import { fileURLToPath } from "node:url";
+import { ALLOW_LOCAL_WARNING, httpHint } from "./gate-command.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
 
-const USAGE = "usage: plumbline init [--root <site dir>] [--source <path-or-https-url>]... [--workflow] [--allow-local] [--timeout <ms>] [--json]\n";
+export const USAGE = "usage: plumbline init [--root <site dir>] [--source <path-or-https-url>]... [--workflow] [--allow-local] [--timeout <ms>] [--json]\n";
 
 /** Where --workflow writes, relative to the current folder (the repository root the workflow runs in). */
 export const WORKFLOW_PATH = ".github/workflows/plumbline-watch.yml";
 
 /** The Action's watch template, shipped beside the built CLI (dist/cli -> ../../action/templates). */
 const TEMPLATE_URL = new URL("../../action/templates/plumbline-watch.yml", import.meta.url);
+
+/** Plumbline's own Desk, beside this build (dist/cli -> ../../site): never the site a reader means to initialise. */
+const OWN_DESK = resolve(fileURLToPath(new URL("../../site", import.meta.url)));
 
 /** The template's root line, which init replaces with the site folder. */
 const TEMPLATE_ROOT_LINE = /^( +root: )"\."$/m;
@@ -95,6 +99,13 @@ export async function runInitCommand(argv: string[]): Promise<number> {
   const cwd = process.cwd();
   const root = rootValue === undefined ? cwd : resolve(rootValue);
   const rootArg = rootValue ?? ".";
+  // UAT-28 (PRI-L1-13): the README taken literally inside the clone of Plumbline "initialised" Plumbline's own Desk and
+  // wrote a workflow into the tool's checkout; that is refused, naming where to run it, before anything is written
+  if (process.platform === "win32" ? root.toLowerCase() === OWN_DESK.toLowerCase() : root === OWN_DESK) {
+    return refuse(
+      "--root names Plumbline's own Desk (site/ in the Plumbline clone), not your site: run init from your site repository's root, such as: cd <your site repository> && plumbline init --root <your site folder> --workflow",
+    );
+  }
   let timeoutMs: number | undefined;
   const timeoutValue = args.values.get("timeout");
   if (timeoutValue !== undefined) {
@@ -140,6 +151,8 @@ export async function runInitCommand(argv: string[]): Promise<number> {
   if (before.kind === "missing") {
     try {
       if (allowLocal) process.stderr.write(`${ALLOW_LOCAL_WARNING}\n`);
+      const hint = httpHint(sources, allowLocal);
+      if (hint !== undefined) process.stderr.write(`${hint}\n`);
       const written = await runInit({ root, init: true, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }, { extraSources: sources, ...(allowLocal ? { fetchOptions: { allowLocal: true } } : {}) });
       if (written === null) throw new Error(`${LOCK_FILE} appeared while init ran`);
       ({ findings, coverage } = written);

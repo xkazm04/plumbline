@@ -1,11 +1,14 @@
 # The ecosystem scan
 
-One command gives the state of a list of agentic sites:
+One command gives the state of a list of agentic sites (an agency's portfolio, or an ecosystem list). From the
+Plumbline clone, after the README's install:
 
 ```sh
-npm run build
-node scripts/scan-ecosystem.mjs ecosystem/sites.txt --out ecosystem/out
+plumbline scan ecosystem/sites.txt --out ecosystem/out
 ```
+
+`node scripts/scan-ecosystem.mjs <list file> --out <dir> ...` is the same command under its old name (UAT-28): the
+script runs the CLI's own module, so both write the same report.
 
 For each address it records the gate report (`plumbline gate`), the drift report of the lock the site publishes
 (`plumbline watch --url`, the reader the Desk runs) and whether the site publishes a signature and a key record. It

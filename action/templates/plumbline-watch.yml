@@ -6,7 +6,14 @@
 # After you review a drift you accept: `watch --root <your site> --relock` (then sign again if the site is signed).
 # It only reads the repository and keeps ONE issue titled "Plumbline drift" (the Action's `issues: true`): opened on
 # warn or block findings, edited with a comment naming what is new when they change, closed with a comment on the next
-# clean run. That is why it needs `issues: write`. It never pushes or opens a PR.
+# clean run. That is why it needs `issues: write`. As written it never pushes or opens a PR.
+# To have it also propose the relock as ONE pull request a person merges (the Action's `relock-pr: true`):
+#   1. add `relock-pr: true` under `with:` below;
+#   2. set `permissions:` to `contents: write`, `issues: write` and `pull-requests: write`;
+#   3. in the repository's Settings > Actions > General > Workflow permissions, tick "Allow GitHub Actions to create
+#      and approve pull requests" (off by default; without it the pull request step fails).
+# A pull request opened with the job's own token starts no workflow runs, so your required checks do not run on it
+# until a person pushes to its branch (or give the Action's `token:` a fine-grained token or a GitHub App token).
 name: Plumbline watch
 
 on:

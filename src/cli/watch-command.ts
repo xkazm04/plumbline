@@ -23,11 +23,11 @@ import { readLock } from "../watch/lock.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
 import { parseExternalArg } from "../watch/external.js";
 import type { ExternalKind } from "../core/types.js";
-import { ALLOW_LOCAL_WARNING, isHttpUrl } from "./gate-command.js";
+import { ALLOW_LOCAL_WARNING, httpHint, isHttpUrl } from "./gate-command.js";
 import { printable } from "./diff-command.js";
 import { KEPT_DIR } from "../watch/kept.js";
 
-const USAGE =
+export const USAGE =
   "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]... [--accept-signer <peer>]... [--accept <ref>]...] [--source <path-or-https-url>]... [--external a2a-card=<https url>]... [--trust <trust file>] [--allow-local] [--timeout <ms>] [--json]\n" +
   "       plumbline watch --url <https site address> [--allow-local] [--timeout <ms>] [--json]\n";
 
@@ -101,11 +101,15 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
       process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
     }
+    const hint = httpHint([url], allowLocal);
+    if (hint !== undefined) process.stderr.write(`${hint}\n`);
     return printReport(report, json);
   }
   // UAT-21 (DEV-L1-08, TOM-L1-11): a publisher rehearses on this machine before production; safeFetch then takes http
   // and loopback for the peers, cards and https sources it fetches, and private ranges stay refused
   if (allowLocal) process.stderr.write(`${ALLOW_LOCAL_WARNING}\n`);
+  const sourceHint = httpHint(extraSources, allowLocal);
+  if (sourceHint !== undefined) process.stderr.write(`${sourceHint}\n`);
   const local = allowLocal ? { fetchOptions: { allowLocal: true } } : {};
 
   if (init && relock) return refuse("--init and --relock do not go together: --init writes a first lock, --relock replaces one");
@@ -300,6 +304,11 @@ function printReport(report: WatchReport, json: boolean): 0 | 1 {
   else {
     if (noLock) process.stdout.write(`lock  ${report.lockState}: ${printable(report.lockSummary ?? "")}\n`);
     else if (report.findings.length === 0) process.stdout.write("watch: no drift\n");
+    // UAT-28 (PRI-L2-4): a clean watch says so in words, even when info notes follow (an info is never drift)
+    else if (!report.findings.some((f) => f.severity === "warn" || f.severity === "block")) {
+      const n = report.findings.length;
+      process.stdout.write(`watch: no drift (nothing at warn or block); ${n === 1 ? "1 note follows" : `${n} notes follow`}\n`);
+    }
     for (const f of report.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${printable(f.ref)}: ${printable(f.summary)}\n`);
   }
   return exitOf(report);
