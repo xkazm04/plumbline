@@ -61,14 +61,19 @@ for the checkout); it never pushes or opens a pull request. On `warn` or `block`
 the open one. Editing a body notifies nobody, so when the findings themselves change (a severity, kind or ref, not a
 summary's wording) it also comments, naming what is new and what is no longer reported, and a new `block` comes first.
 The body carries the findings in a hidden `<!-- plumbline:digest ... -->` marker, which is how the next run tells what
-is new. An unchanged run writes nothing. The next clean run closes the issue with a comment linking that run. Output
+is new. An unchanged run writes nothing. The next clean run closes the issue with a comment linking that run and saying
+what clean covers: the locked files, peers and runtime match the lock, and the site's signature, if it has one, still
+covers its files (the watch reports a signature that does not as `block`, so a merged unsigned relock never closes the
+issue as clean). Output
 `issue-action` says which it did: `create`, `edit`, `close` or `none`. Without `issues: true` the Action touches no
 issue, and you can keep your own with `findings` and `issue-body`.
 
 **Accepting drift in one review** (`relock-pr: true`, watch only). On `warn` or `block` findings the Action runs
 `watch --relock` on the branch `plumbline/relock` (made from the commit the job checked out) and keeps ONE pull request
 from it, titled `Plumbline: accept the drift (relock)`. Its body lists what the new lock changes (`added`, `removed`,
-`changed`, as `--relock` prints them) and the findings it accepts, whose summaries carry the counts (what changed in a
+`changed`, as `--relock` prints them), what the relock does not accept or keeps as it was (a page that dropped a fact the
+network still states, a pin it could not re-read: those keep reporting after a merge, and are not listed as accepted),
+and the findings it accepts, whose summaries carry the counts (what changed in a
 peer, how many facts a page no longer states, how many skills a card added). With `signing-key` (a secret holding the
 JSON of `plumbline.private.json`) and `origin`, it also signs, and the body names the kid; without a key, the body says
 to sign locally and the pull request stays a draft. A person merges; the run accepts nothing. A relock that changes no

@@ -446,6 +446,24 @@ test("the relock body: what the new lock changes, the findings it accepts with t
   assert.doesNotMatch(renew, /peer\.example/, "a renewal lists the expiry only");
 });
 
+test("UAT-2: the relock body says what the relock does not accept (a stale fact, a kept pin) and does not list it as accepted", () => {
+  const stale = { kind: "grounding", severity: "warn", ref: "rooms.html", summary: "A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact." };
+  const notAccepted = { kind: "grounding", severity: "warn", ref: "rooms.html", summary: "Not accepted: the network still states 1 fact this page no longer states (1 price), and no other locked page states it, so the agent may answer with an old fact." };
+  const body = prBody({ mode: "relock", report: { findings: [stale, peerChange] }, relock: { ...relockOut, findings: [notAccepted, { kind: "runtime", severity: "info", ref: "x", summary: "info stays out" }] }, kid: null, runUrl });
+  const notSection = body.slice(body.indexOf("**What this relock does not accept"), body.indexOf("**The findings this accepts"));
+  assert.match(notSection, /\| warn \| grounding \| rooms\.html \| Not accepted: the network still states 1 fact this page no longer states \(1 price\)/);
+  assert.doesNotMatch(notSection, /info stays out/);
+  const accepts = body.slice(body.indexOf("**The findings this accepts"));
+  assert.doesNotMatch(accepts, /rooms\.html/, "a ref the relock kept is not listed as accepted");
+  assert.match(accepts, /peer\.example/);
+  assert.doesNotMatch(prBody({ mode: "relock", report: { findings: [peerChange] }, relock: relockOut, kid: null, runUrl }), /does not accept/);
+});
+
+test("UAT-2: the close comment says what clean covers, the site's own signature included", () => {
+  const plan = issuePlan({ findings: 0, body: "", open: [issueOf({ findings: [warn] }, 5)], runUrl });
+  assert.match(plan.comment, /and the site's signature, if it has one, still covers its files\. Closing\./);
+});
+
 test("the pull request decision: create (a draft when unsigned), none for the same body, edit, close when nothing is wanted", () => {
   const body = prBody({ mode: "relock", report: { findings: [peerChange] }, relock: relockOut, kid: null, runUrl });
   assert.deepEqual(prPlan({ mode: "relock", wanted: true, body, signed: false, open: [], runUrl }), { action: "create", draft: true, title: PR_TITLES.relock, branch: PR_BRANCHES.relock });

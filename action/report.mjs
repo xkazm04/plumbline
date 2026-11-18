@@ -221,7 +221,7 @@ export function issuePlan({ findings, body, open, runUrl }) {
     action: "close",
     number: issue.number,
     comment:
-      `Plumbline watch is clean as of ${runUrl}: the locked files, peers and runtime match plumbline.lock.json. Closing. ` +
+      `Plumbline watch is clean as of ${runUrl}: the locked files, peers and runtime match plumbline.lock.json, and the site's signature, if it has one, still covers its files. Closing. ` +
       "(Clean is not safe: it means nothing locked has drifted.)\n",
   };
 }
@@ -259,7 +259,16 @@ export function prBody({ mode, report, relock, kid, runUrl }) {
     const all = [...list("added", changes.added), ...list("removed", changes.removed), ...list("changed", changes.changed)];
     lines.push(`Plumbline watch found drift as of ${runUrl}, and this pull request accepts it: \`plumbline watch --relock\` rewrote \`plumbline.lock.json\` from the current state.`, "");
     lines.push("**What the new lock changes:**", "", ...(all.length > 0 ? all : ["- no ref changed (only the capture times)"]), "");
-    const findings = openFindings(report);
+    // what the relock itself would not accept, or kept as it was (UAT-2: a stale fact; UAT-3: a pin it could not
+    // re-read): said before the findings it does accept, and those refs are not listed as accepted
+    const kept = (Array.isArray(relock?.findings) ? relock.findings : []).filter((f) => f && (f.severity === "warn" || f.severity === "block"));
+    if (kept.length > 0) {
+      lines.push("**What this relock does not accept, or keeps as it was** (these keep reporting after a merge):", "", "| Severity | Kind | Ref | What |", "| --- | --- | --- | --- |");
+      for (const f of kept) lines.push(`| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
+      lines.push("");
+    }
+    const keptRefs = new Set(kept.map((f) => `${f.kind} ${f.ref}`));
+    const findings = openFindings(report).filter((f) => !keptRefs.has(`${f.kind} ${f.ref}`));
     if (findings.length > 0) {
       lines.push("**The findings this accepts** (review each before merging; a `block` is changed code):", "", "| Severity | Kind | Ref | What |", "| --- | --- | --- | --- |");
       for (const f of findings) lines.push(`| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
