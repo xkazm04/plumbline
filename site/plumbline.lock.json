@@ -49,7 +49,7 @@
     "sources": [
       {
         "ref": "agent-manifest.json",
-        "sha256": "a8f5614318b4e324db3809e0f37266581c78942e3ab799ac46c92ade6e78ef22"
+        "sha256": "849b02537601c366aca5f0d1d7a6b71f8a52c2dcec8801226ed9a819854b023e"
       },
       {
         "ref": "links.json",
@@ -60,18 +60,18 @@
         "sha256": "872a92ccc1b249d804eb51365dc33f66250e16517b1180db5748689fe77ec25a"
       }
     ],
-    "builtAt": "2026-11-17T23:42:53.185Z"
+    "builtAt": "2026-11-18T00:19:46.117Z"
   },
   "peers": {
     "https://agent-atlas-phi.vercel.app/agent_atlas": {
       "sha256": "5edbbc5eb5fc00b45cfcc0e516cb80cf5dad5decea05c0b652ee99fcc34e002a",
       "links": "f70a05ff786b9d4f94ddc62ebf707e063e01bf6ae1504b4887e6a218682ffa27",
-      "checkedAt": "2026-11-17T23:42:53.185Z"
+      "checkedAt": "2026-11-18T00:19:46.117Z"
     },
     "https://montbaga.github.io/agent-customs/agent_customs": {
       "sha256": "b7d4dee97506615168c44ba0b9dc8304394bdac50b66464e9000942d7bebaacf",
       "links": "b1cc75b90ad31cbe7c49d0787bb681cf8b0265779bb8e6f564e969dee0c3e6a2",
-      "checkedAt": "2026-11-17T23:42:53.185Z"
+      "checkedAt": "2026-11-18T00:19:46.117Z"
     }
   }
 }

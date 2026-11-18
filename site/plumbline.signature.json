@@ -4,16 +4,32 @@
   "alg": "Ed25519",
   "kid": "91971cfa8d0e630c",
   "origin": "https://plumbline.xkazm04.workers.dev",
-  "signedAt": "2026-11-17T23:43:02.484Z",
-  "expiresAt": "2027-02-15T23:43:02.484Z",
+  "signedAt": "2026-11-18T00:19:47.765Z",
+  "expiresAt": "2027-02-16T00:19:47.765Z",
   "subjects": [
     {
       "path": "agent-manifest.json",
-      "sha256": "a8f5614318b4e324db3809e0f37266581c78942e3ab799ac46c92ade6e78ef22"
+      "sha256": "849b02537601c366aca5f0d1d7a6b71f8a52c2dcec8801226ed9a819854b023e"
     },
     {
       "path": "bridge/action-bridge.html",
       "sha256": "401eeb8bedc6c1a84f203078a7ca1a95ba847dbc40cb97adb3144266c96623e5"
+    },
+    {
+      "path": "desk.js",
+      "sha256": "ce1e0aab1389561fe646d9a18aff20c7722a82a4996e1120e9efe779748834c2"
+    },
+    {
+      "path": "drift.js",
+      "sha256": "23a3941b6bad1ce31830781f92af92f350dcce631b1bf719882cc500009ebf1c"
+    },
+    {
+      "path": "examples.js",
+      "sha256": "0ab9666a79edf8aae804e10e609d1f6dfdd51b489dc455547e71344abc41d2a2"
+    },
+    {
+      "path": "fetcher.js",
+      "sha256": "80e05213b830d8ba81e41de4d2350f868d01c38bd525f816c51abf3dca354dc9"
     },
     {
       "path": "links.json",
@@ -21,16 +37,24 @@
     },
     {
       "path": "plumbline.lock.json",
-      "sha256": "7430c81587362506e9438a65d6f2b6a2abf9e3f69379353c8572b85ac624d10d"
+      "sha256": "12bc95f3675bbeabd96f564b58c3e06980bbcc1c01a88b71f9886e68041acbdd"
     },
     {
       "path": "plumbline_desk.network.json",
       "sha256": "872a92ccc1b249d804eb51365dc33f66250e16517b1180db5748689fe77ec25a"
     },
     {
+      "path": "review-dialog.js",
+      "sha256": "bed448288846817f9f512261564aca352e25311f4de53618e6d6f6af9fb35169"
+    },
+    {
       "path": "site-actions.js",
       "sha256": "e86d0a9ec3ce38ee71bb38114b46e92578d6e2b5331d45b6c282b4cf0554c349"
+    },
+    {
+      "path": "strings.js",
+      "sha256": "f0672976c6bf57ffb32109baf810dfbdc75dc31f1bc34615ace6a4dcef10533e"
     }
   ],
-  "sig": "a7J9RwLRfygmivVgLqwluMTyUZjuC0U6rL0CPeWq3AciB1dSlCwnbGj8Wbajx5YBoXtambqGx_qwwHRChWrxDA"
+  "sig": "SsHP5DDlQsDzaXJj8jmNybhtrsJwfCIGsRAi-BQS8bsEfJNlJNISWiLK3STb9MuMyYw_Ro5-lgM9ADWGBrJZDA"
 }
