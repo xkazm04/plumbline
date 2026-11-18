@@ -55,10 +55,15 @@ export function inputProblem({ command, target, failOn, issues, rootIsFolder, re
   if (!rootIsFolder) return "root must name a folder in the workspace: the site folder holding plumbline.lock.json";
   if (relockPr === "true" && renew === "true") return "relock-pr and renew are separate workflows: give one of them (action/templates/ has one for each)";
   if (renew === "true" && !signingKey) return "renew: true needs signing-key (a secret holding plumbline.private.json): a renewal is a new signature";
-  if ((relockPr === "true" || renew === "true") && signingKey && !/^https:\/\/[^/\s]+$/.test(origin)) {
+  // UAT-34: CI never signs a change before a person has reviewed it. A relock is signed by a person on the pull
+  // request's branch, or, once merged, by the renew workflow over the merged files.
+  if (relockPr === "true" && signingKey) {
+    return "signing-key goes with renew only: CI never signs a relock before a person reviews it. Sign the relock pull request's branch yourself, or merge it and let the renew workflow sign the merged files";
+  }
+  if (renew === "true" && signingKey && !/^https:\/\/[^/\s]+$/.test(origin)) {
     return "signing needs origin: the https origin the site is published from, like https://example.org";
   }
-  if (signingKey && relockPr !== "true" && renew !== "true") return "signing-key goes with relock-pr or renew: nothing else signs";
+  if (signingKey && renew !== "true") return "signing-key goes with renew only: nothing else signs";
   return null;
 }
 
@@ -650,10 +655,17 @@ const SIGNATURE_REF = "plumbline.signature.json";
 
 /** The codes of the site's own signature near or past its expiry (src/core/types.ts DRIFT_CODES, UAT-17). */
 const EXPIRY_CODES = new Set(["signature-expiring", "signature-expired"]);
+/**
+ * UAT-34: the site's signature no longer covers its files on the default branch, as after a relock pull request a
+ * person merged unsigned. A renewal then signs the merged files: what it signs was reviewed when it was merged.
+ */
+const NOT_COVERING = "signature-not-covering";
+const RENEW_CODES = new Set([...EXPIRY_CODES, NOT_COVERING]);
 
 /**
- * True when the watch report says the site's own signature expires within the warning window or has expired. UAT-35:
- * decided by the finding's code; only a report written before codes (it has none) is read from its sentence.
+ * True when the watch report says the site's own signature expires within the warning window or has expired, or no
+ * longer covers its files (UAT-34). UAT-35: decided by the finding's code; only a report written before codes (it has
+ * none) is read from its sentence.
  */
 export function renewNeeded(report) {
   const findings = Array.isArray(report?.findings) ? report.findings : [];
@@ -662,7 +674,7 @@ export function renewNeeded(report) {
       f &&
       f.ref === SIGNATURE_REF &&
       (f.severity === "warn" || f.severity === "block") &&
-      (typeof f.code === "string" ? EXPIRY_CODES.has(f.code) : /expire/.test(String(f.summary ?? ""))),
+      (typeof f.code === "string" ? RENEW_CODES.has(f.code) : /expire/.test(String(f.summary ?? ""))),
   );
 }
 
@@ -763,14 +775,26 @@ function prTechnical({ mode, report, relock, kid, runUrl, siteSigned = true, nam
     const cut = cutLines(findings, "node dist/cli/index.js", "<path to your site>", namedIn);
     if (cut.length > 0) lines.push(...cut.slice(1), "", "Close this pull request unmerged if you cut the partner: the relock after the cut replaces it.", "");
   } else {
-    lines.push(`The site's signature is close to its expiry, or past it, as of ${runUrl}. This pull request signs the same files again with a new expiry.`, "");
-    for (const f of openFindings(report).filter((x) => x.ref === SIGNATURE_REF)) lines.push(`- **${cell(f.severity)}** ${cell(f.summary)}`);
+    const sigFindings = openFindings(report).filter((x) => x.ref === SIGNATURE_REF);
+    if (sigFindings.some((x) => x.code === NOT_COVERING)) {
+      // UAT-34: the signature this proposes covers files that changed since the last one; the person merging it vouches
+      // for every one of them, so the body says which and how to see the changes
+      lines.push(
+        `The site's files changed since they were last signed, as of ${runUrl} (a relock pull request merged unsigned, or another change). This pull request signs the files as they are on this branch's base now, with a new expiry.`,
+        "",
+        "**Merging this vouches for every changed file below as yours.** Check each change since the last signature (`git log -p` on the files named) before merging; if one is not yours, close this unmerged.",
+        "",
+      );
+    } else {
+      lines.push(`The site's signature is close to its expiry, or past it, as of ${runUrl}. This pull request signs the same files again with a new expiry.`, "");
+    }
+    for (const f of sigFindings) lines.push(`- **${cell(f.severity)}** ${cell(f.summary)}`);
     lines.push("");
   }
   if (kid !== null) lines.push(`Signed in this run with the key in the workflow's secret (kid \`${kid}\`). Check the kid is yours before merging.`, "");
   else if (siteSigned) {
     lines.push(
-      "**Not signed.** The lock is a signed file, so the site's signature reads invalid (tampered) until it is signed again. Check out this branch, run `plumbline sign` with your key, push, and mark this pull request ready. It stays a draft until then.",
+      "**Not signed: CI never signs a change before a person has reviewed it.** The lock is a signed file, so the site's signature reads invalid (tampered) until it is signed again. Once you have reviewed this, check out this branch, run `plumbline sign` with your key, push, and mark this pull request ready. It stays a draft until then. If it is merged unsigned, the renew workflow, when you have it, opens a pull request that signs the merged files.",
       "",
     );
   }

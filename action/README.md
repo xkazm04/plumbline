@@ -128,9 +128,10 @@ one command per peer that a person runs after deciding (with several peers each 
 key gets `--trust <your trust file>`), with a comment (`pr-action: describe`); with none open, the drift issue says it,
 with the same commands. The watch keeps reporting such a peer as `block`, so the issue stays open until a person
 decides. The findings' summaries carry the counts (what changed in a
-peer, how many facts a page no longer states, how many skills a card added). With `signing-key` (a secret holding the
-JSON of `plumbline.private.json`) and `origin`, it also signs, and the body names the kid; without a key, the body says
-to sign locally and the pull request stays a draft. A site that publishes no `plumbline.signature.json` has nothing to
+peer, how many facts a page no longer states, how many skills a card added). The run never signs it (UAT-34): CI signs nothing a person has
+not reviewed, so `signing-key` is refused with `relock-pr`. For a signed site the body says to review, sign the branch
+locally and mark it ready, and the pull request stays a draft until then; if it is merged unsigned, the renew workflow
+below proposes a signature over the merged files. A site that publishes no `plumbline.signature.json` has nothing to
 sign: its pull request is not a draft and its body and issue say nothing about signing (UAT-12), so a scheduled run with
 the pull request open, marked ready and unchanged does nothing. A person merges; the run accepts nothing. A relock that changes no
 ref opens nothing; a body that has not changed pushes nothing; the next run with nothing to accept closes the pull
@@ -156,15 +157,16 @@ documentation; they have not been exercised on a real runner here.
     command: watch
     root: site
     issues: true
-    relock-pr: true
-    signing-key: ${{ secrets.PLUMBLINE_SIGNING_KEY }}   # optional: without it, a draft to sign locally
-    origin: https://example.org                          # with signing-key
+    relock-pr: true     # never with signing-key: a relock is signed by a person after review (UAT-34)
 ```
 
 **Renewing the signature** (`renew: true`, watch only, needs `signing-key` and `origin`). When the watch reports that
-the site's signature expires within 14 days, or has expired, the Action signs the same files again on the branch
+the site's signature expires within 14 days, or has expired, or no longer covers the files on the checked-out branch
+(a relock pull request merged unsigned, or any other merged change; UAT-34), the Action signs the files as they are on
+the branch
 `plumbline/renew` and keeps ONE pull request `Plumbline: renew the signature`. `action/templates/plumbline-renew.yml`
-runs it weekly. The key reaches the CLI as an environment variable only (`plumbline sign --key-env`): it is never an
+runs it weekly. What it signs is already on the branch, so it was reviewed when it was merged; the body of a renewal
+for changed files names them and says that merging vouches for each one. The key reaches the CLI as an environment variable only (`plumbline sign --key-env`): it is never an
 argument, never written to disk and never printed; the CLI's notes on CI custody are printed with the signature.
 
 **Forwarding the drift issue to a chat** needs no new code: the `issue-body` output is the path of the issue's Markdown.
@@ -184,7 +186,7 @@ The body holds Plumbline's sentences, the findings' refs and the digest marker; 
 
 **Refusals.** Before the build, the Action refuses a `command` other than `gate` or `watch`, a gate without `target`, a
 `fail-on` other than `fail` or `unavailable`, an `issues` other than `true` or `false`, `issues: true` with the gate,
-a watch `root` that is not a folder in the workspace, a `relock-pr` or `renew` other than `true` or `false` or with the gate, both together, `renew` without `signing-key`, a `signing-key` without an https `origin`, and a `signing-key` with neither. Each fails the step with its reason.
+a watch `root` that is not a folder in the workspace, a `relock-pr` or `renew` other than `true` or `false` or with the gate, both together, `renew` without `signing-key`, a `signing-key` without an https `origin`, and a `signing-key` without `renew` (with `relock-pr` too: UAT-34). Each fails the step with its reason.
 
 Every decision is in `action/report.mjs` (plain Node, no dependencies): the input check, the one read of the report, and
 what to do with the drift issue; the Action's shell only carries them out. `node --test "action/*.test.mjs"` tests them,

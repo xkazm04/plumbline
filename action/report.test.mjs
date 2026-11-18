@@ -429,7 +429,6 @@ const expiring = { kind: "grounding", severity: "warn", ref: "plumbline.signatur
 test("pull request inputs: relock-pr and renew with watch only, never both; renew and signing need a key and an https origin", () => {
   const ok = { command: "watch", target: "", failOn: "fail", issues: "false", rootIsFolder: true };
   assert.equal(inputProblem({ ...ok, relockPr: "true" }), null, "relock-pr without a key: a draft to sign locally");
-  assert.equal(inputProblem({ ...ok, relockPr: "true", signingKey: true, origin: "https://example.org" }), null);
   assert.equal(inputProblem({ ...ok, renew: "true", signingKey: true, origin: "https://example.org" }), null);
   const cases = [
     [{ ...ok, relockPr: "yes" }, /relock-pr must be true or false/],
@@ -437,9 +436,11 @@ test("pull request inputs: relock-pr and renew with watch only, never both; rene
     [{ ...ok, command: "gate", target: "https://x.example/", relockPr: "true" }, /watch only/],
     [{ ...ok, relockPr: "true", renew: "true", signingKey: true, origin: "https://example.org" }, /separate workflows/],
     [{ ...ok, renew: "true" }, /renew: true needs signing-key/],
-    [{ ...ok, relockPr: "true", signingKey: true, origin: "http://example.org" }, /signing needs origin/],
-    [{ ...ok, relockPr: "true", signingKey: true, origin: "https://example.org/" }, /signing needs origin/],
-    [{ ...ok, signingKey: true, origin: "https://example.org" }, /signing-key goes with relock-pr or renew/],
+    [{ ...ok, renew: "true", signingKey: true, origin: "http://example.org" }, /signing needs origin/],
+    [{ ...ok, renew: "true", signingKey: true, origin: "https://example.org/" }, /signing needs origin/],
+    [{ ...ok, signingKey: true, origin: "https://example.org" }, /signing-key goes with renew only/],
+    // UAT-34: CI never signs a relock before a person reviews it
+    [{ ...ok, relockPr: "true", signingKey: true, origin: "https://example.org" }, /signing-key goes with renew only: CI never signs a relock before a person reviews it/],
   ];
   for (const [input, message] of cases) assert.match(inputProblem(input) ?? "", message, JSON.stringify(input));
 });
@@ -463,7 +464,7 @@ test("the relock body: what the new lock changes, the findings it accepts with t
   assert.match(signed, /Signed in this run with the key in the workflow's secret \(kid `0123456789abcdef`\)/);
   assert.match(signed, /Nothing is accepted until a person merges this/);
   const unsigned = prBody({ mode: "relock", report: { findings: [peerChange] }, relock: relockOut, kid: null, runUrl });
-  assert.match(unsigned, /\*\*Not signed\.\*\* .*It stays a draft until then\./);
+  assert.match(unsigned, /\*\*Not signed: CI never signs a change before a person has reviewed it\.\*\* .*It stays a draft until then\./);
   const renew = prBody({ mode: "renew", report: { findings: [expiring, warn] }, relock: null, kid: "0123456789abcdef", runUrl });
   assert.match(renew, /expires on 2026-12-01/);
   assert.doesNotMatch(renew, /peer\.example/, "a renewal lists the expiry only");
@@ -857,7 +858,7 @@ test("UAT-12 (DEV-L1-04): a keyless site's issue and pull request say nothing ab
   const keyless = prBody({ ...relocked, siteSigned: false });
   assert.doesNotMatch(keyless, /sign/i, keyless);
   assert.equal(prBody(relocked), prBody({ ...relocked, siteSigned: true }), "a signed site's body is unchanged");
-  assert.match(prBody(relocked), /\*\*Not signed\.\*\*.*It stays a draft until then\./);
+  assert.match(prBody(relocked), /\*\*Not signed: CI never signs a change before a person has reviewed it\.\*\*.*It stays a draft until then\./);
   // the draft rule: only a signed site that this run did not sign waits as a draft
   const plan = (siteSigned, open) => prPlan({ mode: "relock", wanted: true, body: keyless, signed: false, open, runUrl: "https://run", siteSigned });
   assert.deepEqual(plan(false, []), { action: "create", draft: false, title: PR_TITLES.relock, branch: PR_BRANCHES.relock });
@@ -1159,8 +1160,8 @@ test("UAT-35: renewNeeded decides on the expiry codes, whatever the sentence say
   // the documented codes decide, whatever the words
   assert.equal(renewNeeded({ findings: [{ severity: "warn", kind: "grounding", code: "signature-expiring", ref: sig, summary: "The seal lapses in 3 days." }] }), true);
   assert.equal(renewNeeded({ findings: [{ severity: "block", kind: "grounding", code: "signature-expired", ref: sig, summary: "Lapsed." }] }), true);
-  // another code on the signature file is not a renewal, even if its words say expire
-  assert.equal(renewNeeded({ findings: [{ severity: "block", kind: "grounding", code: "signature-not-covering", ref: sig, summary: "Files changed; the old signature will expire anyway." }] }), false);
+  // another code on the signature file is not a renewal, even if its words say expire (signature-not-covering is one
+  // since UAT-34: test below)
   assert.equal(renewNeeded({ findings: [{ severity: "warn", kind: "grounding", code: "signature-unreadable", ref: sig, summary: "It could not be read to see when it expires." }] }), false);
   // a report written before codes (UAT-17) is read as before
   assert.equal(renewNeeded({ findings: [{ severity: "warn", kind: "grounding", ref: sig, summary: "The site's signature expires on 2026-12-01, in 5 days; sign the site again before then." }] }), true);
@@ -1184,4 +1185,26 @@ test("UAT-33: the pull request plan ignores a pull request whose head is in anot
 test("UAT-33: the Action asks gh whether each pull request's head is in another repository", () => {
   const action = read("action/action.yml");
   assert.match(action, /gh pr list --head "\$branch" --state open --json number,body,isDraft,isCrossRepository > "\$pr\/open\.json"/);
+});
+
+// ---- UAT-34: CI never signs a relock before a person has reviewed it; renew signs merged files ----
+
+test("UAT-34: the Action signs only in a renewal, and the relock step never holds the key", () => {
+  const action = read("action/action.yml");
+  assert.match(action, /if \[ "\$MODE" = "renew" \] && \[ -n "\$PLUMBLINE_SIGNING_KEY" \]; then\n\s+node "\$cli" sign /);
+  assert.match(action, /PLUMBLINE_SIGNING_KEY: \$\{\{ inputs\.renew == 'true' && inputs\.signing-key \|\| '' \}\}/);
+  assert.equal((action.match(/node "\$cli" sign /g) ?? []).length, 1, "one sign call in the whole Action");
+});
+
+test("UAT-34: a signature that no longer covers the merged files is a renewal, and its body says what merging vouches for", () => {
+  const sig = "plumbline.signature.json";
+  const notCovering = { severity: "block", kind: "grounding", code: "signature-not-covering", ref: sig, summary: "The site's signature no longer covers its files: 1 of 4 signed files differs from the signed version or is missing (plumbline.lock.json), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign)." };
+  assert.equal(renewNeeded({ findings: [notCovering] }), true);
+  const body = prBody({ mode: "renew", report: { findings: [notCovering] }, relock: null, kid: "0123456789abcdef", runUrl });
+  assert.match(body, /The site's files changed since they were last signed/);
+  assert.match(body, /\*\*Merging this vouches for every changed file below as yours\.\*\*/);
+  assert.match(body, /\(plumbline\.lock\.json\)/);
+  assert.doesNotMatch(body, /close to its expiry/);
+  // an expiry renewal keeps its words
+  assert.match(prBody({ mode: "renew", report: { findings: [expiring] }, relock: null, kid: "0123456789abcdef", runUrl }), /close to its expiry/);
 });
