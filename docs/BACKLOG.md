@@ -582,6 +582,29 @@ may run in parallel, because it adds no claim.
 - Size: L (wire).
 - Must not break: guardrail 2; the sentences stay (codes are added beside them). It is the precondition for UAT-29's
   generated plain language and for the agent-host step in the onboarding concept.
+- State: fixed (commit 4b4b995), awaiting recertify. Wire (`docs/signature-format.md`): `DriftFinding.code` from the
+  closed `DRIFT_CODES` (66 codes; each one's kind, severity and what `expected`/`actual` hold in the new "Reason codes"
+  table of `docs/gate-and-watch.md`), `DriftFinding.counts` (`DriftCounts`: a changed peer's agents and hosts added,
+  removed and changed and `frontChanged`; a changed card's skills and `signatures`), `DriftReport.checkedAt` and
+  `DriftReport.records` (`WatchedRecord`, one row per peer, pending peer and external definition: `part`, pin, recorded
+  kid, a card's `signatures`, `lockedAt`, a `state` from `RECORD_STATES` and the report's codes for it), and
+  `ExternalRecord.signatures` (the card's JWS count at lock time). A rotation and a bare signer change differ by code
+  (`signer-rotation-published`, `signer-rotated-verified`, `signer-rotation-unverified`, `signer-no-rotation`); card and
+  peer differ by `part` and by the code family (`external-*`). `init`, `watch --init` and `--relock` JSON carry
+  `checkedAt` and `records` too. `verify --json` carries `hint: { code: "rotation-published", rotationFrom, command }`
+  and `signerChange: { trusted, signer, rotation, rotationFrom? }`; `adopt --json` says `successors` until something is
+  adopted, `adopted` only then; `adopt` on a site with no rotation is `unverifiable`, exit 1, `refusedBy: "no-rotation"`
+  (a rotation file that cannot be fetched stays exit 2). Live on kiln-row (harness relock with the card, then
+  `seller-rotates`, `seller-signer-swapped`, `card-skills-change`, `seller-offline`, harness watch `--json`): five rows,
+  each with pin, state, kid or card signature count, `lockedAt` and codes; ashgrove `changed`
+  `signer-rotation-published`, brackenfold `changed` `signer-no-rotation`, copperwick `unchanged`, dovetail
+  `not-checked` `peer-unreachable`, the card `changed` `external-changed` with counts `{skillsAdded:1, skillsRemoved:0,
+  skillsChanged:1, signatures:1}`; real CLI `adopt --url` on brackenfold: exit 1, `refusedBy: "no-rotation"`. Tests:
+  `src/test/watch-inventory.test.ts` (the closed list against the docs table; the five-column inventory from fields
+  over a week of events), "UAT-17" lines in `src/test/cli-trust.test.ts`, `src/test/cli-url-lifecycle.test.ts`,
+  `src/test/watch-external.test.ts`. Not done: Tomasz's own `inventory.mjs` (in `uat/runs/`, not edited here) reads
+  fields that predate these names, so the recertifier re-points it at `records`, `checkedAt` and `code`; the CLI's
+  one-line headline ("1 block, 0 warn", DEV-L1-11) is not added (not in this item's Done when).
 
 ### UAT-18. The old partner definition, so the change can be seen
 
