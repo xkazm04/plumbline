@@ -73,6 +73,13 @@ and so does a report that cannot be read, so a broken run is never taken for a c
     issues: true                            # keep the drift issue; the job needs `issues: write`
 ```
 
+**The owner's part** (UAT-29). The issue and the relock pull request open with one sentence for the site's owner,
+made from the findings' codes (`docs/gate-and-watch.md`, "The owner's line"), then a link to the Desk's drift reading
+of the site with its address filled in (`site-address`, the https address the site is published at; without it, the
+origin the site's own `plumbline.signature.json` names; with neither, the issue says where the Desk is; `desk` names
+another Desk), so the owner can see it in a browser with no install. The developer's part follows under "For whoever
+looks after the website", the words it uses explained in one paragraph, then the table and commands as before.
+
 **The drift issue** (`issues: true`, watch only). The Action keeps ONE open issue titled `Plumbline drift` with the
 job's token (input `token`, default `github.token`), so the job needs `permissions: issues: write` (and `contents: read`
 for the checkout); it never pushes or opens a pull request. On `warn` or `block` findings it opens the issue, or edits

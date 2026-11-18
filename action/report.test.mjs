@@ -977,3 +977,121 @@ test("UAT-25 (DEV-L2-3): the issue and the relock pull request offer the cut pat
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---- UAT-29: the owner's line, the Desk link, and the words explained where they appear ----
+
+const OWNER_CASES = [
+  [{ findings: [] }, {}],
+  [{ findings: [], lockState: "absent" }, {}],
+  [{ findings: [], lockState: "unreadable" }, {}],
+  [{ findings: [{ severity: "warn", kind: "grounding", code: "grounding-stale-fact", ref: "rooms.html", summary: "s", counts: { factsWatched: 7, factsGone: 1, factsUnplaced: 0, factsStale: 1, staleKinds: { money: 1 } } }] }, {}],
+  [{ findings: [{ severity: "warn", code: "grounding-stale-fact", ref: "a.html", counts: { staleKinds: { money: 2, time: 1 } } }, { severity: "warn", code: "grounding-stale-fact", ref: "b.html" }] }, {}],
+  [{ findings: [{ severity: "warn", code: "grounding-changed", ref: "rooms.html", counts: { factsWatched: 4, factsGone: 0, factsUnplaced: 0, factsStale: 0 } }] }, {}],
+  [{ findings: [{ severity: "warn", code: "grounding-changed", ref: "rooms.html", counts: { factsWatched: 4, factsGone: 1, factsUnplaced: 0, factsStale: 0 } }, { severity: "warn", code: "grounding-changed", ref: "larch_house.network.json" }, { severity: "block", code: "signature-not-covering", ref: "plumbline.signature.json" }] }, {}],
+  [{ findings: [{ severity: "warn", code: "grounding-changed", ref: "rooms.html", counts: { factsWatched: 4, factsGone: 1, factsUnplaced: 0, factsStale: 0 } }] }, { siteSigned: false }],
+  [{ findings: [{ severity: "block", code: "signature-not-covering", ref: "plumbline.signature.json" }] }, {}],
+  [{ findings: [{ severity: "block", code: "signature-expired", ref: "plumbline.signature.json" }] }, {}],
+  [{ findings: [{ severity: "warn", code: "signature-expiring", ref: "plumbline.signature.json", actual: "2026-12-01T00:00:00.000Z" }] }, {}],
+  [{ findings: [{ severity: "block", code: "runtime-changed", ref: "runtime/x.js" }, { severity: "warn", code: "peer-unreachable", ref: "https://p.example/n" }] }, {}],
+  [{ findings: [{ severity: "block", code: "peer-changed", ref: "https://p.example/n" }] }, {}],
+  [{ findings: [{ severity: "block", code: "signer-no-rotation", ref: "https://p.example/n" }] }, {}],
+  [{ findings: [{ severity: "warn", code: "peer-pending", ref: "https://p.example/n" }] }, {}],
+  [{ findings: [{ severity: "warn", code: "grounding-line-endings", ref: "rooms.html" }] }, {}],
+  [{ findings: [{ severity: "warn", code: "grounding-unreadable", ref: "rooms.html" }] }, {}],
+  [{ findings: [{ severity: "warn", code: "grounding-not-locked", ref: "hours.html" }] }, {}],
+  [{ findings: [{ severity: "warn", code: "grounding-changed", ref: "rooms.html", counts: { factsWatched: 3, factsGone: 0, factsUnplaced: 1 } }] }, {}],
+  [{ findings: [{ severity: "block", kind: "runtime", ref: "runtime/x.js", summary: "changed" }] }, {}],
+];
+
+test("UAT-29: the owner's line is src/watch/owner.ts word for word, made from codes and counts", async () => {
+  const { ownerLine } = await import("./report.mjs");
+  const lines = OWNER_CASES.map(([r, c]) => ownerLine(r.findings, { ...(r.lockState ? { lockState: r.lockState } : {}), ...c }));
+  assert.equal(lines[0], null, "a clean report has no owner's line");
+  assert.match(lines[3], /^Your page rooms\.html changed, and your assistant may still be telling visitors an old price from it/);
+  assert.match(lines[4], /^Some of your pages changed, and your assistant may still be telling visitors old facts \(2 prices, 1 time\) from them/);
+  assert.match(lines[6], /no old fact is left: one step remains for whoever looks after your website, to record the change and sign the site again\.$/);
+  assert.match(lines[7], /to record the change\.$/);
+  assert.match(lines[10], /expires on 2026-12-01/);
+  assert.match(lines[11], /\(your site's own copy of it\).*\(and 1 more thing below for them\)\.$/);
+  assert.match(lines[14], /this is not an all-clear/);
+  const built = new URL("../dist/watch/owner.js", import.meta.url);
+  if (existsSync(built)) {
+    const core = await import(built.href);
+    OWNER_CASES.forEach(([r, c], i) => assert.equal(core.ownerLine(r.findings, { ...(r.lockState ? { lockState: r.lockState } : {}), ...c }), lines[i], `case ${i}`));
+  }
+});
+
+// Marta's 28-term list (uat/runs/2026-11-18-first-five/evidence/marta-recert/jargon.mjs), counted the same way
+const JARGON = ["drift", "lock", "plumbline.lock.json", "grounding", "source", "network", "agent", "re-lock", "relock", "sign", "signed", "signature", "clone", "commit", "workflow", "block", "warn", "severity", "kind", "ref", "vendored", "runtime", "peer", "links.json", "verifiers", "tampered", "pin", "capture"];
+const termsIn = (text) => {
+  const t = text.replace(/<!--[\s\S]*?-->/g, "").toLowerCase();
+  return JARGON.filter((w) => new RegExp(`(^|[^a-z.])${w.replace(/\./g, "\\.")}([^a-z]|$)`).test(t));
+};
+
+test("UAT-29 (MAR-L1-06, MAR-L1-11): the issue opens with the owner's line and the Desk link; every word of Marta's list it uses is explained where it appears", async () => {
+  const { deskLink, issueBody, ownerLine, glossaryFor } = await import("./report.mjs");
+  const raise = {
+    lockState: "found",
+    findings: [
+      { kind: "grounding", severity: "warn", code: "grounding-stale-fact", ref: "rooms.html", expected: "a".repeat(64), actual: "b".repeat(64), summary: "A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.", counts: { factsWatched: 7, factsGone: 1, factsUnplaced: 0, factsStale: 1, staleKinds: { money: 1 } } },
+      { kind: "peer", severity: "warn", code: "peer-pending", ref: "http://127.0.0.1:4101/fellside_bikes", summary: "A peer could not be captured when the lock was written (pending since 2026-11-18), so it is not watched; it was not contacted now either: it is not an https address, an address Plumbline does not contact." },
+    ],
+  };
+  const link = deskLink("https://larchhouse.example/");
+  assert.equal(link, "https://plumbline.xkazm04.workers.dev/#/drift?target=https%3A%2F%2Flarchhouse.example%2F");
+  const body = issueBody(raise, { link });
+  const [first, , second] = body.split("\n");
+  assert.equal(first, ownerLine(raise.findings, { lockState: "found", siteSigned: true }));
+  assert.equal(second, `**See it in your browser**, with no install and no key: [the reading of your site](${link}).`);
+  // the owner's part uses none of the words on her list but the explained "signature"
+  const ownerPart = body.slice(0, body.indexOf("### For whoever looks after the website"));
+  assert.deepEqual(termsIn(ownerPart.replace(/\(https?:[^)]*\)/g, "")), []);
+  // every listed word the technical part uses is in the glossary right above it, in italics
+  const glossaryLine = body.split("\n").find((l) => l.startsWith("**Words used below.**"));
+  const technical = body.slice(body.indexOf(glossaryLine) + glossaryLine.length);
+  const unexplained = termsIn(technical).filter((w) => !termsIn(glossaryLine).includes(w));
+  assert.deepEqual(unexplained, [], glossaryLine);
+  assert.ok(termsIn(technical).length >= 15, "the technical part is the developer's, unchanged");
+  // the technical table stays, below
+  assert.match(body, /\| warn \| grounding \| rooms\.html \| A grounding source changed since the lock was written; 1 of 7 facts/);
+  // without an address, the issue says where the Desk is
+  assert.match(issueBody(raise), /open https:\/\/plumbline\.xkazm04\.workers\.dev\/#\/drift and type your site's address\./);
+  // a keyless site's glossary says nothing of signing (UAT-12)
+  assert.doesNotMatch(issueBody(raise, { siteSigned: false }), /\bsign/i);
+  // a clean report has no owner's part at all
+  assert.doesNotMatch(glossaryFor("lock"), /\*sign\*/);
+});
+
+test("UAT-29: the link's address is the workflow's site-address, else the origin the site's own signature names; anything not a plain https address is refused", async () => {
+  const { deskLink, siteAddressOf, inputProblem } = await import("./report.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "plumbline-uat29-"));
+  try {
+    assert.equal(siteAddressOf({ GITHUB_WORKSPACE: dir, PLUMBLINE_ROOT: ".", PLUMBLINE_SITE_ADDRESS: "https://given.example/" }), "https://given.example/");
+    assert.equal(siteAddressOf({ GITHUB_WORKSPACE: dir, PLUMBLINE_ROOT: "." }), null);
+    writeFileSync(join(dir, "plumbline.signature.json"), JSON.stringify({ origin: "https://signed.example" }));
+    assert.equal(siteAddressOf({ GITHUB_WORKSPACE: dir, PLUMBLINE_ROOT: "." }), "https://signed.example/");
+    writeFileSync(join(dir, "plumbline.signature.json"), JSON.stringify({ origin: "http://127.0.0.1:4100" }));
+    assert.equal(siteAddressOf({ GITHUB_WORKSPACE: dir, PLUMBLINE_ROOT: "." }), null, "CI links only an https address");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  for (const bad of ["javascript:alert(1)", "https://x.example/a b", "https://x.example/)[y](z", "http://x.example/", "https://user@x.example/"]) assert.equal(deskLink(bad), null, bad);
+  assert.equal(deskLink("https://x.example/", "https://evil.example/)"), null);
+  const base = { command: "watch", target: "", failOn: "fail", issues: "true", rootIsFolder: true };
+  assert.match(inputProblem({ ...base, siteAddress: "not an address" }), /site-address must be the https address/);
+  assert.match(inputProblem({ ...base, desk: "http://desk.example/" }), /desk must be an https address/);
+  assert.equal(inputProblem({ ...base, siteAddress: "https://larchhouse.example/", desk: "https://plumbline.xkazm04.workers.dev/" }), null);
+});
+
+test("UAT-29: the relock pull request opens with the owner's line and what the pull request is to her", async () => {
+  const { prBody, ownerLine } = await import("./report.mjs");
+  const report = { findings: [{ kind: "grounding", severity: "warn", code: "grounding-changed", ref: "rooms.html", summary: "changed", counts: { factsWatched: 4, factsGone: 0, factsUnplaced: 0, factsStale: 0 } }] };
+  const relock = { relocked: true, previous: "found", changes: { added: [], removed: [], changed: ["grounding rooms.html"] }, findings: [] };
+  const body = prBody({ mode: "relock", report, relock, kid: null, runUrl: "https://github.com/o/r/actions/runs/1", siteSigned: false });
+  assert.equal(body.split("\n")[0], ownerLine(report.findings, { siteSigned: false }));
+  assert.match(body, /This pull request is for whoever looks after your website: nothing on your site changes until they review it and merge it\./);
+  assert.match(body, /### For whoever looks after the website\n\n\*\*Words used below\.\*\*/);
+  assert.match(body, /Plumbline watch found drift as of https:\/\/github\.com\/o\/r\/actions\/runs\/1, and this pull request accepts it/);
+  // a renewal has no drift to tell the owner of
+  assert.doesNotMatch(prBody({ mode: "renew", report: { findings: [] }, relock: null, kid: "a".repeat(16), runUrl: "u" }), /whoever looks after/);
+});

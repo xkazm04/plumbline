@@ -33,8 +33,11 @@ const SEVERITY_RANK = { block: 0, warn: 1 };
  * `rootIsFolder` says whether `root` names a folder in the workspace: `watch` needs one, and so does a `gate` with no
  * target, which checks the files there (UAT-22).
  */
-export function inputProblem({ command, target, failOn, issues, rootIsFolder, relockPr = "false", renew = "false", signingKey = false, origin = "" }) {
+export function inputProblem({ command, target, failOn, issues, rootIsFolder, relockPr = "false", renew = "false", signingKey = false, origin = "", siteAddress = "", desk = "" }) {
   if (command !== "gate" && command !== "watch") return "command must be gate or watch";
+  // UAT-29: the Desk link is built from these, so each is a plain https address or empty
+  if (siteAddress !== "" && deskLink(siteAddress) === null) return "site-address must be the https address the site is published at, like https://example.org/";
+  if (desk !== "" && deskLink("https://example.org/", desk) === null) return "desk must be an https address, like https://plumbline.xkazm04.workers.dev/";
   if (issues !== "true" && issues !== "false") return "issues must be true or false";
   if (relockPr !== "true" && relockPr !== "false") return "relock-pr must be true or false";
   if (renew !== "true" && renew !== "false") return "renew must be true or false";
@@ -305,13 +308,198 @@ export function cutLines(findings, cli, site, namedIn = () => []) {
   ];
 }
 
+// ---- the owner's line (UAT-29): src/watch/owner.ts, kept word for word (the Action runs this file with no build;
+// action/report.test.mjs holds the two to the same cases). Generated from the findings' codes and counts, never from a
+// sentence or a stranger's words. ----
+
+/** Who acts, in the owner's words. */
+export const WHO = "whoever looks after your website";
+/** The seal, explained where it is named. */
+const SEAL = "your site's signature (the seal that shows your assistant's files are yours)";
+
+const OWNER_KIND_WORDS = {
+  money: ["price", "prices"],
+  time: ["time", "times"],
+  date: ["date", "dates"],
+  phone: ["phone number", "phone numbers"],
+  email: ["e-mail address", "e-mail addresses"],
+  percent: ["percentage", "percentages"],
+};
+const OWNER_KIND_ORDER = ["money", "time", "date", "phone", "email", "percent"];
+
+const PLAIN = /^[A-Za-z0-9._/-]{1,120}$/;
+
+/** A page as the owner reads it: a plain file name of the site's own (its last segment for an address), else "a page". */
+export function pageName(ref) {
+  const value = String(ref ?? "");
+  let path = value;
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      path = new URL(value).pathname.split("/").filter(Boolean).pop() ?? "";
+    } catch {
+      path = "";
+    }
+  }
+  return PLAIN.test(path) && !path.split("/").some((s) => s === "" || s === "." || s === "..") ? path : undefined;
+}
+
+/** "an old price", or "old facts (2 prices, 1 time)", from staleKinds; "an old fact" when the kinds are not told. */
+export function staleWords(kinds) {
+  const parts = OWNER_KIND_ORDER.map((k) => [k, Number(kinds?.[k] ?? 0)]).filter(([k, n]) => Number.isInteger(n) && n > 0 && Object.hasOwn(OWNER_KIND_WORDS, k));
+  const total = parts.reduce((sum, [, n]) => sum + n, 0);
+  if (total === 0) return "an old fact";
+  if (total === 1) return `an old ${OWNER_KIND_WORDS[parts[0][0]][0]}`;
+  return `old facts (${parts.map(([k, n]) => `${n} ${OWNER_KIND_WORDS[k][n === 1 ? 0 : 1]}`).join(", ")})`;
+}
+
+const RUNTIME_CHANGE = new Set(["runtime-changed", "runtime-missing", "runtime-unreadable", "runtime-added"]);
+const PARTNER_CODE_CHANGE = new Set(["peer-changed", "peer-links-appeared", "peer-links-changed", "peer-links-gone", "external-changed"]);
+const SIGNER_CHANGE = new Set(["signer-rotated-verified", "signer-rotation-published", "signer-rotation-unverified", "signer-no-rotation", "signer-gone"]);
+const LINE_ENDINGS = new Set(["grounding-line-endings", "runtime-line-endings"]);
+const AGENT_FILE = /(\.network\.json|\.hocon|agent-manifest\.json|links\.json)$/i;
+
+/** The page's words: "your page rooms.html", or "a page of your site" when its name is not plain. */
+const ownerPage = (ref) => {
+  const name = pageName(ref);
+  return name === undefined ? "a page of your site" : `your page ${name}`;
+};
+
+const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * The owner's line for a report's open findings (warn and block; info is never news to an owner), or null when there
+ * is nothing to say (a clean report). The most pressing situation leads; the rest are counted, never hidden.
+ */
+export function ownerLine(findings, context = {}) {
+  const state = context.lockState;
+  if (state !== undefined && state !== "found") {
+    return state === "absent"
+      ? `Plumbline has not been set up for your site yet, so nothing about your assistant is being checked: forward this to ${WHO}.`
+      : `Plumbline could not read its record of your site, so nothing about your assistant was checked this time: forward this to ${WHO}.`;
+  }
+  const open = findings.filter((f) => f && (f.severity === "warn" || f.severity === "block"));
+  if (open.length === 0) return null;
+  const code = (f) => String(f.code ?? "");
+  const has = (set) => open.filter((f) => set.has(code(f)));
+  const resign = context.siteSigned === false ? "" : " and sign the site again";
+
+  let lead;
+  let covered;
+  const stale = open.filter((f) => code(f) === "grounding-stale-fact");
+  // a page whose gone facts the network no longer states either: the right fix, one step from done (MAR-RC-2)
+  const fixed = open.filter((f) => code(f) === "grounding-changed" && (f.counts?.factsGone ?? 0) > 0 && f.counts?.factsStale === 0);
+  if (stale.length > 0) {
+    const kinds = {};
+    for (const f of stale) for (const [k, n] of Object.entries(f.counts?.staleKinds ?? {})) kinds[k] = (kinds[k] ?? 0) + Number(n ?? 0);
+    const where = stale.length === 1 ? ownerPage(stale[0]?.ref) : "some of your pages";
+    lead = `${capital(where)} changed, and your assistant may still be telling visitors ${staleWords(kinds)} from ${stale.length === 1 ? "it" : "them"}: forward this to ${WHO}, who updates what the assistant says`;
+    covered = stale;
+  } else if (has(RUNTIME_CHANGE).length > 0 || has(PARTNER_CODE_CHANGE).length > 0) {
+    const own = has(RUNTIME_CHANGE).length > 0;
+    lead = `Code that runs your assistant in your visitors' browsers changed (${own ? "your site's own copy of it" : "a partner service's"}): forward this to ${WHO} before your site is next updated, so they can check the change`;
+    covered = [...has(RUNTIME_CHANGE), ...has(PARTNER_CODE_CHANGE)];
+  } else if (has(SIGNER_CHANGE).length > 0) {
+    lead = `A partner service your assistant works with is now signed by someone other than the one on record, and nothing accepts that until ${WHO} has checked it with the partner: forward this to them`;
+    covered = has(SIGNER_CHANGE);
+  } else if (fixed.length > 0) {
+    lead = `${capital(ownerPage(fixed[0]?.ref))} changed, and your assistant's facts from it changed to match, so no old fact is left: one step remains for ${WHO}, to record the change${resign}`;
+    // the network's own change and the signature that no longer covers it are that one step
+    covered = open.filter((f) => f === fixed[0] || code(f) === "signature-not-covering" || (code(f) === "grounding-changed" && AGENT_FILE.test(String(f.ref ?? "")) && f.counts === undefined));
+  } else if (open.some((f) => code(f) === "signature-not-covering")) {
+    lead = `${capital(SEAL)} no longer matches its files: if you or ${WHO} just changed the site, they sign it again; if nobody did, forward this to them today`;
+    covered = open.filter((f) => code(f) === "signature-not-covering");
+  } else if (open.some((f) => code(f) === "signature-expired")) {
+    lead = `${capital(SEAL)} has expired, so checkers no longer accept it: ${WHO} signs the site again`;
+    covered = open.filter((f) => code(f) === "signature-expired");
+  } else {
+    const first = open.find((f) => code(f).startsWith("grounding-")) ?? open[0];
+    const c = code(first);
+    covered = [first];
+    if (c === "grounding-changed" && first.counts?.factsWatched !== undefined && (first.counts.factsGone ?? 0) === 0 && (first.counts.factsUnplaced ?? 0) === 0) {
+      const n = first.counts.factsWatched;
+      lead = `${capital(ownerPage(first.ref))} changed, but the ${n === 1 ? "1 fact" : `${n} facts`} your assistant gives from it that Plumbline watches ${n === 1 ? "is" : "are all"} still there; it does not watch everything on the page, so if the change was about something visitors ask about, forward this to ${WHO}`;
+    } else if (c === "grounding-changed" && first.counts === undefined && AGENT_FILE.test(String(first.ref ?? ""))) {
+      lead = `Your assistant's own instructions changed: if you or ${WHO} did not make this change, forward this to them today`;
+    } else if (LINE_ENDINGS.has(c)) {
+      lead = `A file of your site was saved with different line endings, a technical change that alters no word: ${WHO} fixes the setting`;
+    } else if (c === "grounding-unreadable") {
+      lead = `Plumbline could not read ${ownerPage(first.ref)}, so it could not check it: forward this to ${WHO}`;
+    } else if (c === "grounding-not-locked") {
+      lead = `Your site has a file Plumbline was not told to watch (${pageName(first.ref) ?? "a file of your site"}), so it is not checked: forward this to ${WHO}`;
+    } else if (c === "signature-expiring") {
+      const date = /^\d{4}-\d{2}-\d{2}/.exec(String(first.actual ?? ""))?.[0];
+      lead = `${capital(SEAL)} expires ${date !== undefined ? `on ${date}` : "soon"}: ${WHO} renews it before then`;
+    } else if (c === "signature-unreadable") {
+      lead = `Plumbline could not read ${SEAL}, so it could not check its date: forward this to ${WHO}`;
+    } else if (c.startsWith("grounding-") || c === "capture-source-unreadable" || c === "capture-page-no-fact" || c === "capture-stale-kept") {
+      lead = `${capital(ownerPage(first.ref))} changed, and Plumbline could not tell whether your assistant now gives an old fact from it: forward this to ${WHO} to check`;
+    } else if (c.startsWith("peer-") || c.startsWith("external-") || c.startsWith("signer-") || c.startsWith("network-") || c.startsWith("capture-")) {
+      lead = `Plumbline could not check everything your assistant depends on this time (a partner service, or the file that names them), so this is not an all-clear: forward this to ${WHO}`;
+    } else {
+      lead = `Plumbline found something on your site for ${WHO} to look at: forward this to them`;
+    }
+  }
+  const rest = open.length - covered.length;
+  return `${lead}${rest > 0 ? ` (and ${rest === 1 ? "1 more thing" : `${rest} more things`} below for them)` : ""}.`;
+}
+
+/** The Desk the issue links to: the public one, unless the workflow names another (an https address). */
+export const DEFAULT_DESK = "https://plumbline.xkazm04.workers.dev/";
+const ADDRESS = /^https:\/\/[A-Za-z0-9.-]+(?::[0-9]{1,5})?(?:\/[A-Za-z0-9._~\/-]*)?$/;
+
+/**
+ * The Desk's drift reading of the site, with the address filled in (UAT-29, MAR-L1-11), or null when no address is
+ * known. `address` is the site's published address (the workflow's `site-address`, else the origin its own signature
+ * names); both it and `desk` must be plain https addresses, so nothing a third party wrote reaches the link.
+ */
+export function deskLink(address, desk = DEFAULT_DESK) {
+  const site = String(address ?? "").trim();
+  const base = String(desk || DEFAULT_DESK).trim();
+  if (!ADDRESS.test(site) || !ADDRESS.test(base)) return null;
+  return `${base.endsWith("/") ? base : `${base}/`}#/drift?target=${encodeURIComponent(site)}`;
+}
+
+/**
+ * The words the technical part uses, each explained in one sentence where that part starts (UAT-29: Marta's count of
+ * terms she would have to look up drops to the ones explained where they appear). Each sentence is said only when the
+ * part below uses its words, so a keyless site's issue says nothing about signing (UAT-12). The part below is the
+ * developer's and stays as it was.
+ */
+const GLOSSARY = [
+  [/./, "*Drift* is a change since the *lock* (`plumbline.lock.json`), Plumbline's record of your site's agent files, pages and partners; *severity* is `warn` (look at it) or `block` (look before the next release), and *kind* and *ref* say which part and which file."],
+  [/grounding|source/i, "A *grounding source* is a page or file whose facts the assistant gives."],
+  [/network|agent/i, "The *network* is the assistant's instructions, carried out by its *agents*."],
+  [/runtime|vendored/i, "The *runtime* is the code that runs the assistant in the visitor's browser (*vendored*: copied into your site)."],
+  [/peer|links\.json/i, "A *peer* is a partner service, and *links.json* the file that lists a site's partners."],
+  [/\bpin|captur/i, "A *pin* is a file's fingerprint as the lock recorded it at *capture*, when the lock was written."],
+  [/re-?lock/i, "To *re-lock* (`--relock`) records the current state as the new lock."],
+  [/\bsign|verifier|tampered/i, "To *sign* puts the site's *signature* (the seal that shows the files are yours) on them again, the lock among the *signed* files; until then *verifiers*, anyone who checks the seal, read the files as *tampered*."],
+  [/clone|commit|workflow/i, "The commands run in a *clone* (a copy) of Plumbline's code; to *commit* saves a change in your repository, and the *workflow* is the daily job that wrote this."],
+];
+
+/** The glossary paragraph for a technical part's text: the sentences whose words it uses. */
+export function glossaryFor(text) {
+  return `**Words used below.** ${GLOSSARY.filter(([words]) => words.test(text)).map(([, sentence]) => sentence).join(" ")}`;
+}
+
+/** The lines that open the issue and the pull request: the owner's line, then the Desk link (or where the Desk is). */
+export function ownerLines(report, { siteSigned = true, link = null, desk = DEFAULT_DESK } = {}) {
+  const line = ownerLine(Array.isArray(report?.findings) ? report.findings : [], { ...(typeof report?.lockState === "string" ? { lockState: report.lockState } : {}), siteSigned });
+  if (line === null) return [];
+  const where =
+    link !== null
+      ? `**See it in your browser**, with no install and no key: [the reading of your site](${link}).`
+      : `**See it in your browser**, with no install and no key: open ${ADDRESS.test(String(desk)) ? String(desk) : DEFAULT_DESK}#/drift and type your site's address.`;
+  return [line, "", where, ""];
+}
+
 /**
  * The drift issue's body, built from warn and block findings only, ending with the hidden digest marker. The commands it
  * gives run in a clone of Plumbline, not in the site's repository, so the site is named as a placeholder: the workflow
  * cannot know where that clone is. UAT-12 (DEV-L1-04): `siteSigned` is whether the site publishes
  * plumbline.signature.json; a site with none is not told to sign (its lock is not a signed file there).
  */
-export function issueBody(report, { siteSigned = true, namedIn = () => [] } = {}) {
+export function issueBody(report, { siteSigned = true, namedIn = () => [], link = null, desk = DEFAULT_DESK } = {}) {
   const findings = openFindings(report);
   const rows = findings.map((f) => `| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
   const noLock = findings.some((f) => f.summary === "no lock");
@@ -319,49 +507,49 @@ export function issueBody(report, { siteSigned = true, namedIn = () => [] } = {}
   const signerChanged = signerChangeFindings(findings);
   const cli = "node dist/cli/index.js";
   const site = "<path to your site>";
-  return (
-    [
-      "Plumbline watch found drift since `plumbline.lock.json` was written.",
-      "",
-      "| Severity | Kind | Ref | What |",
-      "| --- | --- | --- | --- |",
-      ...rows,
-      "",
-      noLock
-        ? "There is no lock yet. In a clone of xkazm04/plumbline at the commit this workflow pins, run " +
-          `\`npm ci && ${cli} watch --root ${site} --init\`, review the lock` +
-          (siteSigned ? ", sign the site (the lock is a signed file) and commit both." : " and commit it.")
-        : "`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. " +
-          "After reviewing a change you accept, in a clone of xkazm04/plumbline at the commit this workflow pins, run " +
-          `\`${cli} watch --root ${site} --relock\`, ` +
-          (siteSigned ? "sign the site again (the lock is a signed file) and commit both." : "and commit the lock.") +
-          " The next clean run closes this issue.",
-      "",
-      ...diffLines(findings, cli, site),
-      ...cutLines(findings, cli, site, namedIn),
-      ...(signerChanged.length > 0
-        ? [
-            "",
-            `**A relock refuses while a peer's signer changed** (${signerChanged.map((f) => `\`${argOf(f.ref)}\``).join(", ")}): CI never accepts a signer change, so nothing is relocked and this issue stays open until a person decides. Decide each peer on its own (\`plumbline verify --url\`; \`plumbline adopt\` for a published rotation; for a different key with no rotation, or no signature, ask its publisher out of band), then run in that clone, one command per peer:`,
-            "",
-            ...acceptCommands(signerChanged.map((f) => ({ peer: f.ref, newKey: f.actual !== undefined })), cli, site).map((c) => `- \`${c}\``),
-          ]
-        : []),
-      "",
-      "A clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.",
-      "",
-      digestMarker(digestOf(report)),
-    ].join("\n") + "\n"
-  );
+  const technical = [
+    "Plumbline watch found drift since `plumbline.lock.json` was written.",
+    "",
+    "| Severity | Kind | Ref | What |",
+    "| --- | --- | --- | --- |",
+    ...rows,
+    "",
+    noLock
+      ? "There is no lock yet. In a clone of xkazm04/plumbline at the commit this workflow pins, run " +
+        `\`npm ci && ${cli} watch --root ${site} --init\`, review the lock` +
+        (siteSigned ? ", sign the site (the lock is a signed file) and commit both." : " and commit it.")
+      : "`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. " +
+        "After reviewing a change you accept, in a clone of xkazm04/plumbline at the commit this workflow pins, run " +
+        `\`${cli} watch --root ${site} --relock\`, ` +
+        (siteSigned ? "sign the site again (the lock is a signed file) and commit both." : "and commit the lock.") +
+        " The next clean run closes this issue.",
+    "",
+    ...diffLines(findings, cli, site),
+    ...cutLines(findings, cli, site, namedIn),
+    ...(signerChanged.length > 0
+      ? [
+          "",
+          `**A relock refuses while a peer's signer changed** (${signerChanged.map((f) => `\`${argOf(f.ref)}\``).join(", ")}): CI never accepts a signer change, so nothing is relocked and this issue stays open until a person decides. Decide each peer on its own (\`plumbline verify --url\`; \`plumbline adopt\` for a published rotation; for a different key with no rotation, or no signature, ask its publisher out of band), then run in that clone, one command per peer:`,
+          "",
+          ...acceptCommands(signerChanged.map((f) => ({ peer: f.ref, newKey: f.actual !== undefined })), cli, site).map((c) => `- \`${c}\``),
+        ]
+      : []),
+    "",
+    "A clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.",
+  ];
+  // UAT-29 (MAR-L1-06, MAR-L1-11): the owner's line and the Desk link first; the technical part follows, unchanged
+  const owner = ownerLines(report, { siteSigned, link, desk });
+  const head = owner.length > 0 ? [...owner, "### For whoever looks after the website", "", glossaryFor(technical.join("\n")), ""] : [];
+  return [...head, ...technical, "", digestMarker(digestOf(report))].join("\n") + "\n";
 }
 
 /**
  * The watch's outputs: how many findings are warn or block, and the issue body. A report without a findings list throws:
  * read as "no findings" it would close an open drift issue on a run that checked nothing.
  */
-export function watchOutputs(report, { siteSigned = true, namedIn = () => [] } = {}) {
+export function watchOutputs(report, { siteSigned = true, namedIn = () => [], link = null, desk = DEFAULT_DESK } = {}) {
   if (!Array.isArray(report?.findings)) throw new Error("the watch report has no findings list");
-  return { findings: openFindings(report).length, body: issueBody(report, { siteSigned, namedIn }) };
+  return { findings: openFindings(report).length, body: issueBody(report, { siteSigned, namedIn, link, desk }) };
 }
 
 const bullet = ([severity, kind, ref], summary) =>
@@ -476,7 +664,17 @@ export function signedKid(sign) {
  * saying to sign locally, in which case the pull request is a draft. A person merges; nothing is accepted by this run.
  * UAT-12 (DEV-L1-04): for a site that publishes no signature (`siteSigned` false) the body says nothing about signing.
  */
-export function prBody({ mode, report, relock, kid, runUrl, siteSigned = true, namedIn = () => [] }) {
+export function prBody({ mode, report, relock, kid, runUrl, siteSigned = true, namedIn = () => [], link = null, desk = DEFAULT_DESK }) {
+  const technical = prTechnical({ mode, report, relock, kid, runUrl, siteSigned, namedIn });
+  // UAT-29: the owner's line, then what this pull request is to her; the developer's part follows, unchanged
+  const owner = mode === "relock" ? ownerLines(report, { siteSigned, link, desk }) : [];
+  if (owner.length === 0) return technical;
+  const forOwner = "This pull request is for whoever looks after your website: nothing on your site changes until they review it and merge it.";
+  return [...owner, forOwner, "", "### For whoever looks after the website", "", glossaryFor(technical), "", technical].join("\n");
+}
+
+/** The pull request's body for the developer: the part below the owner's line. */
+function prTechnical({ mode, report, relock, kid, runUrl, siteSigned = true, namedIn = () => [] }) {
   const lines = [];
   if (mode === "relock" && relock?.refused === "signer") {
     // UAT-4: one proposal for all changes, so nothing is relocked while a signer change waits for a person
@@ -617,6 +815,21 @@ export function siteIsSigned(env) {
   return existsSync(join(siteRootOf(env), "plumbline.signature.json"));
 }
 
+/**
+ * The site's published address, for the Desk link (UAT-29): the workflow's `site-address`, else the https origin the
+ * site's own plumbline.signature.json names (the publisher's file, in the publisher's workspace), else null.
+ */
+export function siteAddressOf(env) {
+  const given = String(env.PLUMBLINE_SITE_ADDRESS ?? "").trim();
+  if (given !== "") return given;
+  try {
+    const origin = JSON.parse(readFileSync(join(siteRootOf(env), "plumbline.signature.json"), "utf8"))?.origin;
+    return typeof origin === "string" && /^https:\/\//.test(origin) ? `${origin}/` : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The watched site's folder in the workspace. */
 export function siteRootOf(env) {
   return join(env.GITHUB_WORKSPACE ?? process.cwd(), env.PLUMBLINE_ROOT ?? ".");
@@ -643,6 +856,8 @@ function main(argv) {
       // only whether a key was given: its value is never read here
       signingKey: Boolean(env.PLUMBLINE_SIGNING_KEY),
       origin: env.PLUMBLINE_ORIGIN ?? "",
+      siteAddress: env.PLUMBLINE_SITE_ADDRESS ?? "",
+      desk: env.PLUMBLINE_DESK ?? "",
     });
     if (problem === null) return 0;
     process.stderr.write(`::error::${problem}\n`);
@@ -664,7 +879,7 @@ function main(argv) {
     let findings;
     let body;
     try {
-      ({ findings, body } = watchOutputs(readReport(reportFile), { siteSigned: siteIsSigned(env), namedIn: (peer) => peerNamedIn(siteRootOf(env), peer) }));
+      ({ findings, body } = watchOutputs(readReport(reportFile), { siteSigned: siteIsSigned(env), namedIn: (peer) => peerNamedIn(siteRootOf(env), peer), link: deskLink(siteAddressOf(env), env.PLUMBLINE_DESK), desk: env.PLUMBLINE_DESK || DEFAULT_DESK }));
     } catch (error) {
       process.stderr.write(`::error::cannot read the watch report ${reportFile}: ${error.message}\n`);
       return 2;
@@ -723,7 +938,7 @@ function main(argv) {
       const changed = ["added", "removed", "changed"].some((k) => Array.isArray(changes[k]) && changes[k].length > 0);
       const wanted = mode === "relock" ? relock !== null && openFindings(report).length > 0 && changed : renewNeeded(report) && kid !== null;
       const siteSigned = siteIsSigned(env);
-      const body = prBody({ mode, report, relock, kid, runUrl, siteSigned, namedIn: (peer) => peerNamedIn(siteRootOf(env), peer) });
+      const body = prBody({ mode, report, relock, kid, runUrl, siteSigned, namedIn: (peer) => peerNamedIn(siteRootOf(env), peer), link: deskLink(siteAddressOf(env), env.PLUMBLINE_DESK), desk: env.PLUMBLINE_DESK || DEFAULT_DESK });
       const refused = mode === "relock" && relock?.refused === "signer";
       plan = prPlan({ mode, wanted, body, signed: kid !== null, open: JSON.parse(readFileSync(openFile, "utf8")), runUrl, refused, siteSigned });
       writeFileSync(bodyFile, body);

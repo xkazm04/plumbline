@@ -47,6 +47,14 @@ inputs:
     description: "With `signing-key`: the https origin the site is published from, as `plumbline sign --origin` takes it."
     required: false
     default: ""
+  site-address:
+    description: "For `watch`: the https address the site is published at, such as https://example.org/. The drift issue and the relock pull request then open with a link to the Desk's reading of that address, filled in, so the site's owner can see it in a browser with no install. Empty, the address the site's own plumbline.signature.json names is used; with neither, the issue says where the Desk is."
+    required: false
+    default: ""
+  desk:
+    description: "For `watch`: the Desk the issue links to (an https address). Default the public Plumbline Desk."
+    required: false
+    default: "https://plumbline.xkazm04.workers.dev/"
 
 outputs:
   state:
@@ -86,6 +94,8 @@ runs:
         PLUMBLINE_RENEW: ${{ inputs.renew }}
         PLUMBLINE_SIGNING_KEY: ${{ inputs.signing-key }}
         PLUMBLINE_ORIGIN: ${{ inputs.origin }}
+        PLUMBLINE_SITE_ADDRESS: ${{ inputs.site-address }}
+        PLUMBLINE_DESK: ${{ inputs.desk }}
       run: node "$GITHUB_ACTION_PATH/report.mjs" inputs
 
     # The code that runs is this action's own checkout: pinning the action by commit SHA pins the code, with no package
@@ -107,6 +117,8 @@ runs:
         PLUMBLINE_ADAPTERS: ${{ inputs.adapters }}
         PLUMBLINE_FAIL_ON: ${{ inputs.fail-on }}
         PLUMBLINE_ROOT: ${{ inputs.root }}
+        PLUMBLINE_SITE_ADDRESS: ${{ inputs.site-address }}
+        PLUMBLINE_DESK: ${{ inputs.desk }}
       run: |
         cli="$GITHUB_ACTION_PATH/../dist/cli/index.js"
         report="$RUNNER_TEMP/plumbline-$PLUMBLINE_COMMAND.json"
@@ -210,6 +222,8 @@ runs:
         PLUMBLINE_ROOT: ${{ inputs.root }}
         PLUMBLINE_SIGNING_KEY: ${{ inputs.signing-key }}
         PLUMBLINE_ORIGIN: ${{ inputs.origin }}
+        PLUMBLINE_SITE_ADDRESS: ${{ inputs.site-address }}
+        PLUMBLINE_DESK: ${{ inputs.desk }}
       run: |
         cli="$GITHUB_ACTION_PATH/../dist/cli/index.js"
         pr="$RUNNER_TEMP/plumbline-pr"
