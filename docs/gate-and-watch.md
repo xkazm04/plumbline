@@ -189,7 +189,18 @@ with `-` means the member is omitted. A report written before 2026-11-18 has no 
 (`peer-changed`) and a changed card (`external-changed`) also carry `counts`, the numbers their sentence says
 (`agentsAdded`, `agentsRemoved`, `agentsChanged`, `hostsAdded`, `hostsRemoved`, `frontChanged`; for a card
 `skillsAdded`, `skillsRemoved`, `skillsChanged` and `signatures`), omitted when the sentence says what changed is not
-told.
+told. Since UAT-29, a changed page whose watched facts were checked (`grounding-changed`, `grounding-stale-fact`) carries
+`counts` too: `factsWatched`, `factsGone`, `factsUnplaced`, `factsStale` (omitted when the networks could not be read)
+and, for a stale fact, `staleKinds` (`{ "money": 1 }`: kinds, never values).
+
+**The owner's line.** The drift issue, the relock pull request and the Desk's drift reading open with one sentence in a
+site owner's words (`src/watch/owner.ts`; `action/report.mjs` keeps it word for word), made from these codes and counts,
+never from a sentence or a site's own words: "Your page rooms.html changed, and your assistant may still be telling
+visitors an old price from it: forward this to whoever looks after your website, who updates what the assistant says."
+It names the page only by a plain file name the lock holds and a partner never by its address; it is never greener than
+the findings (a page whose facts could not all be placed is "could not tell", an unreachable partner "not an all-clear",
+and a clean report has none); the most pressing situation leads and the rest are counted. The technical table follows,
+under "For whoever looks after the website", with the words it uses explained in one paragraph above it.
 
 | Code | Kind | Severity | Means | expected / actual |
 | --- | --- | --- | --- | --- |

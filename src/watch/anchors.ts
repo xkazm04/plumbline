@@ -599,6 +599,16 @@ export function kindCounts(literals: readonly string[]): Partial<Record<AnchorKi
   return out;
 }
 
+/** How many of each kind, in the fixed order (UAT-29: DriftCounts.staleKinds); kinds absent from the list are left out. */
+export function kindsByCount(kinds: readonly AnchorKind[]): Partial<Record<AnchorKind, number>> {
+  const out: Partial<Record<AnchorKind, number>> = {};
+  for (const kind of KIND_ORDER) {
+    const n = kinds.filter((k) => k === kind).length;
+    if (n > 0) out[kind] = n;
+  }
+  return out;
+}
+
 /** "3 prices, 2 times, 1 phone number", or "none". Kinds only: never a literal. */
 export function describeKinds(kinds: readonly AnchorKind[] | readonly string[]): string {
   const asKinds = kinds.map((k) => (k.includes(":") ? literalKind(k) : (k as AnchorKind)));
@@ -758,7 +768,15 @@ export async function groundingFindingsWithAnchors(sources: readonly GroundingSo
           present,
           ...(moved.length > 0 ? { moved: moved.length } : {}),
           ...(unplaced > 0 ? { unplaced } : {}),
-          ...(still !== undefined ? { stillStated: { count: still.length, kinds: describeKinds(still.map((h) => network!.stated.get(h)!)) } } : {}),
+          ...(still !== undefined
+            ? {
+                stillStated: {
+                  count: still.length,
+                  kinds: describeKinds(still.map((h) => network!.stated.get(h)!)),
+                  byKind: kindsByCount(still.map((h) => network!.stated.get(h)!)),
+                },
+              }
+            : {}),
         };
         finding = groundingFinding(source, s, check, "page");
       }

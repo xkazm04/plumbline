@@ -448,13 +448,33 @@ export const DRIFT_CODES = [
 export type DriftCode = (typeof DRIFT_CODES)[number];
 
 /**
+ * Since 2026-11-18 (UAT-29): the kinds of fact the watch anchors on a page, as `DriftCounts.staleKinds` keys them:
+ * prices, times, dates, phone numbers, e-mail addresses and percentages.
+ */
+export const FACT_KINDS = ["money", "time", "date", "phone", "email", "percent"] as const;
+export type FactKind = (typeof FACT_KINDS)[number];
+
+/**
  * Since 2026-11-18 (UAT-17, DEV-L1-11): the counts a changed definition's sentence says, as numbers. For a peer's
  * network (`peer-changed`) with an outline on both sides: agents and outbound hosts added, removed and changed, and
  * whether the front agent changed. For an A2A card (`external-changed`) with parts on both sides: skills added, removed
  * and changed, and how many JWS signatures it carries now (counted, never verified). Omitted when the sentence says
  * what changed is not told.
+ *
+ * Since 2026-11-18 (UAT-29): for a changed page whose watched facts were checked (`grounding-changed` or
+ * `grounding-stale-fact`, a page with anchors that could be reduced to text), how many facts the lock watches on it
+ * (`factsWatched`), how many are no longer where the lock recorded them (`factsGone`, moved ones included), how many
+ * are on it with no recorded place (`factsUnplaced`), and, when the networks could be read now, how many of the gone
+ * ones the network still states (`factsStale`) with their kinds (`staleKinds`, keys from FACT_KINDS, only when
+ * `factsStale` is above 0). Never a literal. So an owner-facing sentence names the kind of fact from fields, not from
+ * the sentence.
  */
 export interface DriftCounts {
+  factsWatched?: number;
+  factsGone?: number;
+  factsUnplaced?: number;
+  factsStale?: number;
+  staleKinds?: Partial<Record<FactKind, number>>;
   agentsAdded?: number;
   agentsRemoved?: number;
   agentsChanged?: number;

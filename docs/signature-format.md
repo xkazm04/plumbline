@@ -54,7 +54,12 @@ card and in every lock written before. A malformed `signatures` makes the lock `
 checkedAt?, records? }`, each finding `{ kind, severity, code, ref, expected?, actual?, summary, counts? }`. Since
 2026-11-18 (UAT-17), each omitted when absent, never `null`: every finding carries `code`, one of `DRIFT_CODES` (a
 closed list; `docs/gate-and-watch.md` "Reason codes" gives each one's kind, severity and what `expected` and `actual`
-hold), and a changed peer or card carries `counts` (`DriftCounts`, the numbers its sentence says); the report carries
+hold), and a changed peer or card carries `counts` (`DriftCounts`, the numbers its sentence says); since 2026-11-18
+(UAT-29) so does a changed page whose watched facts were checked (`grounding-changed`, `grounding-stale-fact`):
+`factsWatched`, `factsGone` (no longer where the lock recorded them, moved ones included), `factsUnplaced` (on it with
+no recorded place), `factsStale` (of the gone ones, how many the network still states; omitted when the networks could
+not be read now) and `staleKinds` (only when `factsStale` is above 0: a count per kind, keyed by `FACT_KINDS`: `money`,
+`time`, `date`, `phone`, `email`, `percent`), numbers only, never a literal; the report carries
 `checkedAt`, the UTC ISO time the watch ran, and, when the lock was found, `records` (`WatchedRecord`: one row per peer,
 pending peer and external definition the lock holds, with its pin, recorded signer, `lockedAt`, a `state` from
 `RECORD_STATES` and this report's codes for it). A report written before has none of these. `DRIFT_CODES` grows only by adding a code, documented in the same change: `allowed-peer-unused` was added on 2026-11-18 (UAT-25), an `info` for an origin the manifest's `allowed_peers` lists that no network or links.json names a peer at.

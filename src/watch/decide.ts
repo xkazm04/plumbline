@@ -22,6 +22,7 @@ import {
   type DriftCode,
   type DriftCounts,
   type DriftFinding,
+  type FactKind,
   type DriftReport,
   type RecordState,
   type WatchedRecord,
@@ -134,7 +135,8 @@ export type AnchorCheck =
       moved?: number;
       /** On the page, with no place recorded (an old lock, or a place that could not be told): where it is is not checked. */
       unplaced?: number;
-      stillStated?: { count: number; kinds: string };
+      /** `byKind` (UAT-29): the same count by kind of fact, for DriftCounts.staleKinds. */
+      stillStated?: { count: number; kinds: string; byKind?: Partial<Record<FactKind, number>> };
     }
   | { total: number; problem: string };
 
@@ -251,7 +253,21 @@ export function groundingFinding(
   }
   // UAT-17: a fact the network still states that is no longer on the page where the lock recorded it has its own code
   const stale = anchors !== undefined && !("problem" in anchors) && (anchors.stillStated?.count ?? 0) > 0 && anchors.present + (anchors.unplaced ?? 0) < anchors.total;
-  return { kind: "grounding", severity: "warn", code: stale ? "grounding-stale-fact" : "grounding-changed", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary };
+  // UAT-29: the numbers that sentence says, as fields, so an owner-facing line names the kind of fact from them
+  let counts: DriftCounts | undefined;
+  if (anchors !== undefined && !("problem" in anchors) && anchors.total > 0) {
+    const gone = anchors.total - anchors.present - (anchors.unplaced ?? 0);
+    const still = anchors.stillStated;
+    const byKind = still !== undefined && still.count > 0 && gone > 0 ? still.byKind : undefined;
+    counts = {
+      factsWatched: anchors.total,
+      factsGone: gone,
+      factsUnplaced: anchors.unplaced ?? 0,
+      ...(still !== undefined ? { factsStale: gone > 0 ? still.count : 0 } : {}),
+      ...(byKind !== undefined && Object.keys(byKind).length > 0 ? { staleKinds: byKind } : {}),
+    };
+  }
+  return { kind: "grounding", severity: "warn", code: stale ? "grounding-stale-fact" : "grounding-changed", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary, ...(counts !== undefined ? { counts } : {}) };
 }
 
 export function runtimeFinding(file: string, expected: string, seen: Observed, lineEndings?: LineEndingChange): DriftFinding | null {

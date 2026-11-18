@@ -453,3 +453,82 @@ test("MAR-RC-1: a lock whose places do not belong to its anchors is unusable", a
   assert.equal(lockProblem(lock({ anchors: [h], places: { [h]: [] } })), "the lock's grounding sources are malformed");
   assert.equal(lockProblem(lock({ anchors: [h], places: null })), "the lock's grounding sources are malformed");
 });
+
+// ---- UAT-29: the counts a page's sentence says, as fields, and the owner's line made from them ----
+
+test("UAT-29: a changed page carries its fact counts and the kinds of a stale fact; the owner's line is made from them", async () => {
+  const { ownerLine } = await import("../watch/owner.js");
+  const { ANCHOR_KINDS } = await import("../watch/anchors.js");
+  const { FACT_KINDS } = await import("../core/types.js");
+  assert.deepEqual([...FACT_KINDS].sort(), [...ANCHOR_KINDS].sort(), "the wire's kinds are the anchors' kinds");
+  const root = larchSite();
+  await watch(root, baseRoutes(), { init: true, extraSources: ["rooms.html"] });
+  const page = async () => (await watch(root, baseRoutes())).findings;
+  const rooms = (findings: Awaited<ReturnType<typeof page>>) => findings.find((f) => f.ref === "rooms.html");
+
+  writeFileSync(join(root, "rooms.html"), ROOMS("€95"));
+  const raised = await page();
+  assert.equal(rooms(raised)?.code, "grounding-stale-fact");
+  assert.deepEqual(rooms(raised)?.counts, { factsWatched: 4, factsGone: 1, factsUnplaced: 0, factsStale: 1, staleKinds: { money: 1 } });
+  assert.equal(
+    ownerLine(raised, { siteSigned: false }),
+    "Your page rooms.html changed, and your assistant may still be telling visitors an old price from it: forward this to whoever looks after your website, who updates what the assistant says.",
+  );
+
+  writeFileSync(join(root, "rooms.html"), ROOMS("€89", "Six rooms under the larches."));
+  const cosmetic = await page();
+  assert.deepEqual(rooms(cosmetic)?.counts, { factsWatched: 4, factsGone: 0, factsUnplaced: 0, factsStale: 0 });
+  assert.match(ownerLine(cosmetic) ?? "", /^Your page rooms\.html changed, but the 4 facts your assistant gives from it that Plumbline watches are all still there; it does not watch everything on the page/);
+
+  // the right fix before the re-sign (MAR-RC-2): no alarm, one step left
+  writeFileSync(join(root, "rooms.html"), ROOMS("€95"));
+  writeFileSync(join(root, "fixture_guesthouse.network.json"), JSON.stringify(LARCH("€95")));
+  const fixed = await page();
+  assert.deepEqual(rooms(fixed)?.counts, { factsWatched: 4, factsGone: 1, factsUnplaced: 0, factsStale: 0 });
+  assert.equal(
+    ownerLine([...fixed, { severity: "block", code: "signature-not-covering", ref: "plumbline.signature.json" }]),
+    "Your page rooms.html changed, and your assistant's facts from it changed to match, so no old fact is left: one step remains for whoever looks after your website, to record the change and sign the site again.",
+  );
+  assert.match(ownerLine(fixed, { siteSigned: false }) ?? "", /to record the change\.$/);
+  for (const f of [...raised, ...cosmetic, ...fixed]) assert.ok(!JSON.stringify(f.counts ?? {}).match(/89|95|€/), "no literal in a count");
+
+  // the Desk's reader carries the same counts
+  const SITE = "https://larch.example";
+  writeFileSync(join(root, "fixture_guesthouse.network.json"), JSON.stringify(LARCH("€89")));
+  const lock = JSON.parse(readFileSync(join(root, LOCK_FILE), "utf8")) as PlumblineLock;
+  const published: Record<string, Route> = { [`${SITE}/agent-manifest.json`]: { body: readFileSync(join(root, "agent-manifest.json"), "utf8") } };
+  for (const ref of [LOCK_FILE, ...lock.grounding.sources.map((s) => s.ref)]) published[`${SITE}/${ref}`] = { body: readFileSync(join(root, ref), "utf8") };
+  const desk = (await readPublishedLock(`${SITE}/`, scripted({ ...baseRoutes(), ...published }).fetch)).findings.find((f) => f.ref === "rooms.html");
+  assert.deepEqual(desk?.counts, rooms(raised)?.counts);
+});
+
+test("UAT-29: the owner's line is never greener than the findings, and names no partner and no stranger's words", async () => {
+  const { ownerLine, staleWords, pageName } = await import("../watch/owner.js");
+  assert.equal(ownerLine([]), null, "a clean report has no owner's line");
+  assert.equal(ownerLine([{ severity: "info", code: "upstream-ahead" }]), null, "an info is never news to an owner");
+  assert.match(ownerLine([], { lockState: "unreadable" }) ?? "", /nothing about your assistant was checked this time/);
+  assert.match(ownerLine([], { lockState: "absent" }) ?? "", /has not been set up for your site yet/);
+  // a page whose facts could not all be placed is "could not tell", never "all still there"
+  assert.match(ownerLine([{ severity: "warn", code: "grounding-changed", ref: "rooms.html", counts: { factsWatched: 3, factsGone: 0, factsUnplaced: 1 } }]) ?? "", /could not tell whether your assistant now gives an old fact/);
+  // a gone fact with the networks unreadable is not the right fix
+  assert.match(ownerLine([{ severity: "warn", code: "grounding-changed", ref: "rooms.html", counts: { factsWatched: 3, factsGone: 1, factsUnplaced: 0 } }]) ?? "", /could not tell/);
+  // an unreachable partner is not an all-clear, and its address is never said
+  const down = ownerLine([{ severity: "warn", code: "peer-unreachable", ref: "https://evil.example/<b>x</b>" }]) ?? "";
+  assert.match(down, /this is not an all-clear/);
+  assert.doesNotMatch(down, /evil|<b>/);
+  // a partner's code change leads over a page's wording change, and the rest is counted
+  assert.match(
+    ownerLine([
+      { severity: "warn", code: "grounding-changed", ref: "rooms.html", counts: { factsWatched: 4, factsGone: 0, factsUnplaced: 0, factsStale: 0 } },
+      { severity: "block", code: "peer-changed", ref: "https://partner.example/net" },
+    ]) ?? "",
+    /^Code that runs your assistant in your visitors' browsers changed \(a partner service's\).*\(and 1 more thing below for them\)\.$/,
+  );
+  assert.equal(staleWords({ money: 2, time: 1 }), "old facts (2 prices, 1 time)");
+  assert.equal(staleWords({}), "an old fact");
+  assert.equal(pageName("https://site.example/pages/rooms.html"), "rooms.html");
+  assert.equal(pageName("rooms <b>.html"), undefined);
+  assert.match(ownerLine([{ severity: "warn", code: "grounding-stale-fact", ref: "x y.html" }]) ?? "", /^A page of your site changed/);
+  // a report written before codes still gets a line that sends it on, never a green one
+  assert.match(ownerLine([{ severity: "block", ref: "runtime/x.js" }]) ?? "", /^Plumbline found something on your site/);
+});
