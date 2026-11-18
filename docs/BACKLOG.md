@@ -324,6 +324,23 @@ may run in parallel, because it adds no claim.
 - standard: `quality-gates/policy-projection`.
 - Size: M. No wire change (derive from the findings). Signed Desk file.
 - Must not break: guardrail 6 (the state and the exit codes are unchanged; only the words and their derivation).
+- State: fixed (commits 6da7e72, 9626832, a669572, pin 7c09e1f), awaiting recertify. Causes confirmed. Live on
+  tallow-finch, with nothing sent to the public Atlas or Customs: CLI `gate --adapters validator` 4400 "gate pass: ...
+  - checked by 1 of 1 (validator pass)" (exit 0); 4409 (slow) "gate unavailable: ... - the site could not be reached
+  (the request timed out); nothing was checked, so this is not a pass" and 4410 (down) "... (the connection failed);
+  ..." (exit 1). Harness scan (Atlas and Customs stand-ins) of 4400, 4409, 4410: the gate cells read "unavailable:
+  checked by 1 of 3 (validator pass); Atlas and Customs had no verdict" (grey) and "unavailable: the site could not be
+  reached (...); nothing was checked, so this is not a pass" (class s-unreachable, red). The Action's summary reader
+  (`report.mjs gate`) over those three gate reports: "### Plumbline gate: unavailable" + "Checked by 1 of 3 (validator
+  pass); Atlas and Customs had no verdict.", and "### Plumbline gate: unavailable: the site could not be reached (...);
+  nothing was checked, so this is not a pass" for the slow and the down site. The Desk's check view (Playwright route
+  stand-ins for Atlas and Customs): 4400 "Checked by 1 of 3 (validator pass); Atlas and Customs had no verdict." (not
+  an alarm), 4410 "The site could not be reached (the connection failed); nothing was checked, so this is not a pass."
+  with the alarm class. Docs for `--fail-on unavailable` (gate-and-watch.md, action/README.md, action.yml) say Customs
+  has receipts for few sites. Ceiling: "site could not be reached" is told from the adapters' own "the target could not
+  be reached" sentence, so a site that answers but serves no manifest reads "checked by ..." or "nothing was checked",
+  not "down"; the Action's summary was proved through its reader over real reports, not a full Action gate run (the
+  runner drives the watch path only); the badge (UAT-10) is unchanged; the slow site was not driven in the Desk.
 
 ### UAT-10. The client badge is never green over what it did not check, and is dated by the check
 
