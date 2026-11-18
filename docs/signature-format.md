@@ -461,8 +461,9 @@ Exit codes: `0` clean, `1` findings, `2` usage or I/O error. Every command accep
 every command that reads the clock accepts `--now <ISO timestamp>` to pin it (tests, reproducible runs). On a usage
 error (an unknown or missing option, an option without its value, a bad `--origin`, `--days` or `--now`) a command
 prints the message and then its own usage line; with `--json` the error object carries it as `usage`. An I/O error
-prints no usage line. The commands are `keygen`, `sign`, `verify`, `rotate`, `revoke`, `trust`, `adopt`, `gate` and
-`watch`; anything else (including `init`, listed once and never built) is an unknown command, exit 2.
+prints no usage line. The commands are `init`, `watch`, `gate`, `keygen`, `sign`, `verify`, `rotate`, `revoke`, `trust`
+and `adopt`; anything else is an unknown command, exit 2. `init` (since 2026-11-18) writes the watch's lock and, with
+`--workflow`, its daily workflow, and makes no key (`docs/gate-and-watch.md`).
 
 | Command | Does |
 | --- | --- |

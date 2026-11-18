@@ -13,6 +13,7 @@ import { LOCK_FILE, type DriftFinding, type PlumblineLock } from "../core/types.
 import { SafeFetchError } from "../net/fetch-types.js";
 import { copySite, scripted, type Route } from "./net-helpers.js";
 import { baseRoutes, NOW, PEER, watch } from "./watch-helpers.js";
+import { NOT_CHECKED_FROM_URL, runWatchUrl } from "../watch/index.js";
 
 const BUILD = fileURLToPath(new URL("../", import.meta.url));
 const REPO = fileURLToPath(new URL("../../", import.meta.url));
@@ -29,7 +30,7 @@ type ReadDrift = (target: string, fetcher: unknown, options?: object) => Promise
 /** The browser-safe modules beyond core that drift.js reaches: scripts/build-site.mjs must copy the same list. */
 const BROWSER_MODULES: Record<string, string[]> = {
   net: ["address.js", "canonical.js", "locate.js", "fetch-types.js"],
-  watch: ["decide.js", "observe.js"],
+  watch: ["decide.js", "observe.js", "published.js"],
 };
 
 let loaded: Promise<ReadDrift> | undefined;
@@ -179,6 +180,40 @@ test("Desk drift and the CLI's watch agree: the same lock and the same bytes giv
   const key = (f: DriftFinding) => JSON.stringify([f.kind, f.severity, f.ref, f.expected, f.actual, f.summary]);
   assert.ok(cli.length >= 4, JSON.stringify(cli));
   assert.deepEqual(desk.findings.map(key).sort(), cli.map(key).sort());
+});
+
+test("D1 parity: the CLI's watch --url and the Desk's drift reader give the same findings for the same published lock", async () => {
+  const readDrift = await loadDrift();
+  const root = copySite();
+  await watch(root, baseRoutes(), { init: true, extraSources: ["data/rooms.json"] });
+  writeFileSync(join(root, "data", "rooms.json"), '{"rooms": []}\n');
+  writeFileSync(join(root, "runtime", "engine.js"), "patched\n");
+  const lock = JSON.parse(readFileSync(join(root, LOCK_FILE), "utf8")) as PlumblineLock;
+  // a stranger's additions to the published lock: a refused peer, a refused absolute ref and a pending peer
+  lock.peers["https://10.0.0.1/x"] = { sha256: HEX("c"), links: "absent", checkedAt: NOW.toISOString() };
+  lock.grounding.sources.push({ ref: "https://localhost/data.json", sha256: HEX("a") });
+  lock.pendingPeers = { "https://later.example/partner": { since: NOW.toISOString() } };
+  const routes = baseRoutes();
+  routes["https://peer.example/partner.network.json"] = { body: { changed: true } };
+  routes["https://other-peer.example/links.json"] = { status: 404 };
+  const published: Record<string, Route> = {
+    [`${SITE}/agent-manifest.json`]: { body: readFileSync(join(root, "agent-manifest.json"), "utf8") },
+    [`${SITE}/${LOCK_FILE}`]: { body: JSON.stringify(lock) },
+    [`${SITE}/plumbline.signature.json`]: { status: 404 },
+  };
+  for (const ref of [...lock.grounding.sources.map((s) => s.ref), ...Object.keys(lock.runtime.files)]) {
+    const path = join(root, ref);
+    if (!ref.startsWith("https:")) published[`${SITE}/${ref}`] = existsSync(path) ? { body: readFileSync(path, "utf8") } : { status: 404 };
+  }
+  const desk = await readDrift(`${SITE}/`, scripted({ ...routes, ...published }).fetch);
+  const cli = await runWatchUrl({ url: `${SITE}/` }, { fetch: scripted({ ...routes, ...published }).fetch, now: () => NOW });
+  // the CLI adds one line of its own: the not-checked sentence (and the signature expiry, none here)
+  const shared = cli.findings.filter((f) => f.summary !== NOT_CHECKED_FROM_URL);
+  assert.equal(cli.findings.length - shared.length, 1);
+  const key = (f: DriftFinding) => JSON.stringify([f.kind, f.severity, f.ref, f.expected, f.actual, f.summary]);
+  assert.ok(shared.length >= 7, JSON.stringify(shared));
+  assert.deepEqual(desk.findings.map(key), shared.map(key), "the same findings, in the same order");
+  assert.deepEqual([cli.lockState, desk.lockState], ["found", "found"]);
 });
 
 test("Desk drift reports a lock's pending peers as the watch does, without contacting them", async () => {

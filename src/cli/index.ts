@@ -1,15 +1,20 @@
 #!/usr/bin/env node
-// plumbline keygen|sign|verify|rotate|revoke|trust|adopt|gate|watch
+// plumbline init|watch|gate|keygen|sign|verify|rotate|revoke|trust|adopt
 // Exit 0 clean, 1 findings, 2 usage or I/O error. Signing commands in commands.ts; the verifier's trust-store commands
 // in trust-command.ts; gate and watch in their own command modules.
 
 import { CliError, UsageError } from "./args.js";
 import { USAGE, keygen, revoke, rotate, sign, verify, type Out } from "./commands.js";
 import { runGateCommand } from "./gate-command.js";
+import { runInitCommand } from "./init-command.js";
 import { adopt, trust } from "./trust-command.js";
 import { runWatchCommand } from "./watch-command.js";
 
+// The watch comes first: a publisher gets value with no key (init, watch); signing is the upgrade.
 const HANDLERS: Record<string, (argv: string[], out: Out) => Promise<number>> = {
+  init: (argv) => runInitCommand(argv),
+  watch: (argv) => runWatchCommand(argv),
+  gate: (argv) => runGateCommand(argv),
   keygen,
   sign,
   verify,
@@ -17,8 +22,6 @@ const HANDLERS: Record<string, (argv: string[], out: Out) => Promise<number>> = 
   revoke,
   trust,
   adopt,
-  gate: (argv) => runGateCommand(argv),
-  watch: (argv) => runWatchCommand(argv),
 };
 
 const COMMANDS = Object.keys(HANDLERS);

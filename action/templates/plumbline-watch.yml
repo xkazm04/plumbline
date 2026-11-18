@@ -1,8 +1,9 @@
 # Plumbline watch: a daily check for three drifts (grounding, runtime, peer) against plumbline.lock.json.
-# Copy this file to .github/workflows/plumbline-watch.yml in the site's repository.
-# Needs plumbline.lock.json committed first: in a clone of xkazm04/plumbline at the pinned commit, run
-# `npm ci && node dist/cli/index.js watch --root <your site> --init`, then sign the site (the lock is a signed file),
-# and commit both. After you review a drift you accept: `watch --root <your site> --relock`, sign again, commit both.
+# Copy this file to .github/workflows/plumbline-watch.yml in the site's repository, or let `plumbline init --workflow`
+# write it with `root:` set to your site folder. Needs plumbline.lock.json committed first: in a clone of
+# xkazm04/plumbline at the pinned commit, run `npm ci && node dist/cli/index.js init --root <your site>` (no key is
+# needed), and commit the lock. If the site is signed, sign it again (the lock is a signed file) and commit both.
+# After you review a drift you accept: `watch --root <your site> --relock` (then sign again if the site is signed).
 # It only reads the repository and keeps ONE issue titled "Plumbline drift" (the Action's `issues: true`): opened on
 # warn or block findings, edited with a comment naming what is new when they change, closed with a comment on the next
 # clean run. That is why it needs `issues: write`. It never pushes or opens a PR.

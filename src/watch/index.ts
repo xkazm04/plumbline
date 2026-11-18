@@ -3,12 +3,14 @@
 // nothing else; `runRelock` rewrites it after a person reviewed the drift. Opening, editing and closing the drift issue is
 // the Action's job (action/action.yml with `issues: true`), never this library's.
 
-import { LOCK_FILE, type DriftFinding } from "../core/types.js";
+import { LOCK_FILE, SIGNATURE_FILE, type DriftFinding } from "../core/types.js";
 import { DEFAULT_TIMEOUT_MS, safeFetch } from "../net/safe-fetch.js";
 import { captureLock } from "./capture.js";
-import { lockChanges, type Lock, type LockChanges, type LockState, type WatchReport } from "./decide.js";
+import { lockChanges, signatureExpiryFinding, type Lock, type LockChanges, type LockState, type WatchReport } from "./decide.js";
 import { detectCoverage, detectGrounding, detectPeers, detectRuntime, detectSignature, type DetectorEnv } from "./detectors.js";
 import { readLock, replaceLock, writeLock, type LockRead, type WatchDeps } from "./lock.js";
+import { describeWatchError } from "./observe.js";
+import { readPublishedLock } from "./published.js";
 
 export type { WatchDeps } from "./lock.js";
 export type { LockChanges, LockState, WatchReport } from "./decide.js";
@@ -109,4 +111,63 @@ export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Pr
   }
   await replaceLock(options.root, lock);
   return { previous: stateOf(read).lockState, changes: lockChanges(before, lock), findings };
+}
+
+/**
+ * What `watch --url` does not check, in words, as one `info` finding (info is clean: it never fails a run). Each of these
+ * needs the site's checkout, which a reader of published files does not have: a folder cannot be listed over HTTP, the
+ * coverage check reads what the site's root names, and the upstream check is the checkout's (it also spends GitHub's
+ * unauthenticated quota, which a scan of many sites would exhaust). And the lock is the host's word until a signature
+ * the caller trusts covers it.
+ */
+export const NOT_CHECKED_FROM_URL =
+  "Not checked from a published site: a file added to the vendored runtime folder, whether the lock covers every file and peer the site names, and the runtime's upstream (each needs the site's checkout: watch --root); nor whether a signature you trust covers this lock (verify --url with your trust file).";
+
+export interface UrlWatchOptions {
+  /** The site address: a site, network or manifest address, as the gate reads it. */
+  url: string;
+  timeoutMs?: number;
+  /** http and loopback for a site on this machine; private ranges stay refused (safeFetch's allowLocal). */
+  allowLocal?: boolean;
+}
+
+/**
+ * `watch --url`: re-check a site's PUBLISHED lock, as the Desk does, through safeFetch. The reader is
+ * src/watch/published.ts, the code the Desk's drift reader runs; the CLI adds the site's own signature expiry (read from
+ * the published plumbline.signature.json, as the checkout's watch reads it from disk) and, when a lock was found, the
+ * sentence naming what was not checked. Lock states and their sentences are the published reader's; `refused` is the
+ * browser's and never comes from here (for safeFetch a network failure is the connection failing: `unreadable`).
+ */
+export async function runWatchUrl(options: UrlWatchOptions, deps: WatchDeps = {}): Promise<WatchReport> {
+  const fetch = deps.fetch ?? safeFetch;
+  const fetchOptions = {
+    timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    ...(options.allowLocal === true ? { allowLocal: true } : {}),
+    ...(deps.fetchOptions ?? {}),
+  };
+  const now = (deps.now ?? (() => new Date()))();
+  const reading = await readPublishedLock(options.url, fetch, { fetchOptions });
+  const signature = await publishedSignatureExpiry(reading.base, fetch, fetchOptions, now);
+  if (reading.lockState !== "found") {
+    return { lockState: reading.lockState, ...(reading.lockSummary !== undefined ? { lockSummary: reading.lockSummary } : {}), findings: signature };
+  }
+  const notChecked: DriftFinding = { kind: "grounding", severity: "info", ref: LOCK_FILE, summary: NOT_CHECKED_FROM_URL };
+  return { lockState: "found", findings: [...reading.findings, ...signature, notChecked] };
+}
+
+/** The published signature's expiry, by the rule the checkout's watch applies to the file on disk (decide.ts). */
+async function publishedSignatureExpiry(base: string, fetch: NonNullable<WatchDeps["fetch"]>, fetchOptions: object, now: Date): Promise<DriftFinding[]> {
+  let text: string | undefined;
+  try {
+    const response = await fetch(`${base}${SIGNATURE_FILE}`, fetchOptions);
+    if (response.status === 404 || response.status === 410) return [];
+    if (!response.ok) {
+      return [{ kind: "grounding", severity: "warn", ref: SIGNATURE_FILE, summary: `The site's signature file could not be read to check its expiry: it answered HTTP ${response.status}.` }];
+    }
+    text = response.text();
+  } catch (error) {
+    return [{ kind: "grounding", severity: "warn", ref: SIGNATURE_FILE, summary: `The site's signature file could not be read to check its expiry: it could not be fetched (${describeWatchError(error)}).` }];
+  }
+  const finding = signatureExpiryFinding(text, now);
+  return finding ? [finding] : [];
 }

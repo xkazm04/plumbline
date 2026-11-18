@@ -215,17 +215,16 @@ test("rotate writes plumbline-rotation.json that a verifier holding the old key 
   assert.equal(same.code, 2);
 });
 
-test("gate without a target is a usage error; init and any other unknown command are usage errors (exit 2)", () => {
+test("gate without a target is a usage error; any unknown command is a usage error (exit 2) and the usage line leads with the watch", () => {
   const gate = run("gate");
   assert.equal(gate.code, 2);
   assert.match(gate.err, /usage: plumbline gate/);
-  // init was listed and never built: it is gone from the usage line and is an unknown command like any other
-  const init = run("init");
-  assert.equal(init.code, 2);
-  assert.match(init.err, /unknown command: init/);
-  assert.doesNotMatch(init.err, /[<|]init[|>]/, "the usage line does not offer init");
-  assert.match(init.err, /^usage: plumbline <keygen\|sign\|verify\|rotate\|revoke\|trust\|adopt\|gate\|watch>/m);
-  assert.equal(run("nonsense").code, 2);
+  // init is built now (D1): the keyless entry point, listed first with the watch; signing follows
+  const unknown = run("nonsense");
+  assert.equal(unknown.code, 2);
+  assert.match(unknown.err, /unknown command: nonsense/);
+  assert.match(unknown.err, /^usage: plumbline <init\|watch\|gate\|keygen\|sign\|verify\|rotate\|revoke\|trust\|adopt>/m);
+  assert.equal(run("init", "--verbose").code, 2, "init refuses an unknown option");
   assert.equal(run("toString").code, 2, "only own command names dispatch");
   assert.equal(run().code, 2);
 });

@@ -10,23 +10,35 @@ your visitor's tab. Generation is solved elsewhere; Plumbline is the layer after
 
 | Part | What it does |
 |---|---|
+| **watch** | Grounding, runtime and peer drift against `plumbline.lock.json`, each `info`, `warn` or `block`; `init` writes the lock and the daily workflow with no key, `watch --url` re-checks a site's published lock; a scheduled workflow keeps one drift issue. |
 | **sign** | The publisher signs the exact bytes of the agent files (`agent-manifest.json`, its networks, the action module, bridge and coded-tools bundle it names, `links.json`, the lock) with an Ed25519 key they hold: `plumbline.signature.json`, with `.well-known/plumbline-key.json`. Rotation for planned changes, self-signed revocation for leaks. |
 | **verify** | Three honest verdicts against the verifier's own trust store: `verified`, `invalid` (tampered, expired, bad-signature, kid-mismatch, malformed, revoked) or `unverifiable`. A stranger is never `verified`, whatever the math says. |
 | **gate** | One report from three independent checkers: a port of the reference validation rules, Agent Atlas and Agent Customs' signed receipts. Each `pass`, `fail` or `unavailable`; unavailable is never a pass. |
-| **watch** | Grounding, runtime and peer drift against `plumbline.lock.json`, each `info`, `warn` or `block`; a scheduled workflow keeps one drift issue up to date. |
 | **the Desk** | `site/`: an open agentic website where a visitor or another site's agent does all of the above in the browser. It runs on the reference browser runtime as the agentic-web skill ships it: nsdeploy's runtime with the skill's edits, copied here unchanged (`site/runtime/README.md` lists the edits). Agent Atlas and Agent Customs are its consented peers. |
 
 A verified signature proves who published the files and that they did not change. It does not prove a site is safe.
 
 ## Use it
 
-A publisher, in order (the lock comes before the signature, because the lock is one of the signed files):
+**Start with the watch: one command, no key.** From your site's repository root:
 
 ```sh
-npm ci && npm run build
+npm ci && npm run build                               # in a clone of this repository
+node dist/cli/index.js init --root ./site --workflow  # writes site/plumbline.lock.json and .github/workflows/plumbline-watch.yml
+node dist/cli/index.js watch --root ./site            # drift against the lock: exit 0 clean, 1 findings
+node dist/cli/index.js watch --url https://example.org/   # the same check of a PUBLISHED lock, as the Desk reads it
+```
+
+`init` makes no key and asks for no trust decision; it prints the next steps. Commit the lock (and the workflow), and the
+daily watch keeps one drift issue. `--source <page>` names a page whose facts the network states, so a change to it is
+drift. When you have reviewed a drift and accept it, `watch --relock` rewrites the lock and prints what changed.
+
+**Then sign: the upgrade.** A signature lets anyone check who published the agent files. The lock comes before the
+signature, because the lock is one of the signed files:
+
+```sh
 node dist/cli/index.js keygen --out ./keys            # keep keys/plumbline.private.json out of git
-node dist/cli/index.js watch --root ./site --init     # 1. writes plumbline.lock.json
-node dist/cli/index.js sign --root ./site --key ./keys/plumbline.private.json --origin https://example.org   # 2. signs the lock too
+node dist/cli/index.js sign --root ./site --key ./keys/plumbline.private.json --origin https://example.org   # signs the lock too
 ```
 
 A verifier first decides whom to trust; `verify` only ever trusts its own trust file. Here the publisher checks their
@@ -43,8 +55,7 @@ node dist/cli/index.js gate https://agent-atlas-phi.vercel.app/
 node dist/cli/index.js adopt --url https://example.org --trust ./plumbline.trust.json        # follow a published rotation
 ```
 
-Later, the watch reports drift against the lock. Once a person has reviewed a drift and accepts it, `--relock` rewrites
-the lock and prints what changed; sign again, because the lock is a signed file:
+Once a site is signed, accepting a drift is `--relock`, then signing again, because the lock is a signed file:
 
 ```sh
 node dist/cli/index.js watch --root ./site

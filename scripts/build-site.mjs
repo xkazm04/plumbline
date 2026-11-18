@@ -11,6 +11,7 @@
 //   net/address.js       the address rules safeFetch and the Desk's peer check share (pure)
 //   watch/decide.js      the drift decisions the CLI watch and the Desk share (pure)
 //   watch/observe.js     the one fetcher-injected peer and published-file reader (pure)
+//   watch/published.js   the reader of a published lock: the CLI's `watch --url` and the Desk's drift.js (pure)
 //
 // After copying, every module is scanned: a node:* import, a require() or an import that does not resolve inside
 // site/lib/plumbline fails the build, and so does a use of the Node global `Buffer` (it would throw only when that
@@ -75,7 +76,7 @@ async function main() {
   await copy(path.join(DIST, "gate"), gate, path.join(OUT, "gate"));
   await copy(path.join(DIST, "net"), ["address.js", "canonical.js", "locate.js", "fetch-types.js"], path.join(OUT, "net"));
   // the drift decisions the CLI watch and the Desk share (pure: no node:* import)
-  await copy(path.join(DIST, "watch"), ["decide.js", "observe.js"], path.join(OUT, "watch"));
+  await copy(path.join(DIST, "watch"), ["decide.js", "observe.js", "published.js"], path.join(OUT, "watch"));
   const { errors, warnings, count } = await scan();
   for (const w of warnings) console.log(`WARNING: ${w}`);
   for (const e of errors) console.log(`ERROR: ${e}`);

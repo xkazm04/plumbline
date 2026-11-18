@@ -66,9 +66,11 @@
         "src/cli/files.ts",
         "src/cli/gate-command.ts",
         "src/cli/index.ts",
+        "src/cli/init-command.ts",
         "src/cli/trust-command.ts",
         "src/cli/watch-command.ts",
         "src/test/cli-helpers.ts",
+        "src/test/cli-init-watch-url.test.ts",
         "src/test/cli-trust.test.ts",
         "src/test/cli-verify-url.test.ts",
         "src/test/cli.test.ts",
@@ -157,7 +159,8 @@
         "src/watch/detectors.ts",
         "src/watch/discover.ts",
         "src/watch/index.ts",
-        "src/watch/lock.ts"
+        "src/watch/lock.ts",
+        "src/watch/published.ts"
       ],
       "entry_points": [
         "src/watch/index.ts"

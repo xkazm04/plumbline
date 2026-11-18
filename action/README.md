@@ -1,5 +1,11 @@
 # Plumbline in CI
 
+**Start here: the watch, with no key.** In a clone of this repository, from your site repository's root:
+`node <clone>/dist/cli/index.js init --root <your site> --workflow` writes `plumbline.lock.json` into the site and
+`.github/workflows/plumbline-watch.yml` from the template below (with `root:` set to your site folder; it never
+overwrites a workflow that is there). Commit both: the daily watch runs on the lock alone and keeps one drift issue.
+Signing the site is the upgrade, and the lock is then one of the signed files.
+
 One composite Action (`action/action.yml`) with two commands, and a daily watch template that uses it. The Action
 builds Plumbline from its own checkout (`npm ci`, then the build) and runs `node dist/cli/index.js`, so **pinning the
 Action by commit SHA pins the code that runs**: no package registry is involved. (The npm name `plumbline` belongs to
@@ -53,10 +59,11 @@ what to do with the drift issue; the Action's shell only carries them out. `node
 and runs the Action's two issue steps through bash against a stub `gh` (on Windows, set `PLUMBLINE_TEST_BASH` to Git
 Bash, or that one test is skipped).
 
-**The watch template** (`action/templates/plumbline-watch.yml`) uses the Action pinned by commit SHA. Copy it to
-`.github/workflows/plumbline-watch.yml`. Once, in a clone of this repository at the pinned commit, run
-`npm ci && node dist/cli/index.js watch --root <your site> --init`, then sign the site (the lock is a signed file) and
-commit both. It runs daily and on demand with `contents: read` and `issues: write` only, and passes `issues: true`, so
+**The watch template** (`action/templates/plumbline-watch.yml`) uses the Action pinned by commit SHA. `plumbline init
+--workflow` writes it to `.github/workflows/plumbline-watch.yml` with your site folder as `root:`, or copy it there by
+hand. Once, in a clone of this repository at the pinned commit, run `npm ci && node dist/cli/index.js init --root <your
+site>` (the same capture as `watch --init`) and commit the lock; if the site is signed, sign it again after the lock is
+written (the lock is a signed file) and commit both. It runs daily and on demand with `contents: read` and `issues: write` only, and passes `issues: true`, so
 the Action keeps the drift issue as above. `info` findings
 (upstream runtime is ahead, upstream could not be asked) stay in the job log. When you have reviewed a drift and accept
 it, run `node dist/cli/index.js watch --root <your site> --relock` in that clone: it rewrites the lock from the current

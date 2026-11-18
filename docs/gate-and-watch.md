@@ -126,6 +126,40 @@ checked out with CRLF, and should add that line. Locks written before 2026-11-17
 JSON hashes no longer match: write a fresh lock (below). The signer check compares the kid only; verifying a signature
 needs a trust store and is `src/core`'s job.
 
+### The entry point: `plumbline init`
+
+`plumbline init [--root <dir>] [--source <ref>]... [--workflow] [--timeout <ms>] [--json]` is where a publisher starts:
+no key and no trust decision. It writes the lock exactly as `watch --init` does (below), keeps a lock that is already
+there (never rewrites it: accepting drift is `--relock`, after a review), and with `--workflow` writes
+`.github/workflows/plumbline-watch.yml` under the current folder from `action/templates/plumbline-watch.yml`, with the
+Action's `root:` set to the site folder. `--workflow` refuses, before anything is written, a workflow file that is
+already there (it is never overwritten) and a `--root` outside the current folder or named with characters other than
+letters, digits, `.`, `_`, `-` and `/` (run it from the repository root). It then prints the next steps: commit the
+lock, run the watch, name with `--source` the pages whose facts the network states, and, as the upgrade, `keygen` and
+`sign`. It makes no key and reads none. Exit 0 when the lock was written or kept with nothing `warn` or `block`, 1 for a
+capture with a gap (a pending peer, a source that could not be read) or a lock that is there and cannot be used, 2 for
+a usage or I/O error. `--json`: `{ lock: "written" | "kept", lockFile, counts: { grounding, runtime, peers, pending },
+findings, workflow?, workflowRoot?, next }`.
+
+### A published lock: `plumbline watch --url`
+
+`plumbline watch --url <site> [--allow-local] [--timeout <ms>] [--json]` re-checks the lock a site PUBLISHES, from its
+address, as the Desk's drift reader does. The reader is one module, `src/watch/published.ts` (pure, fetcher-injected,
+copied into the Desk by `build-site.mjs`): the CLI runs it through `safeFetch`, the Desk's `site/drift.js` through the
+page's fetcher, and a test gives both the same published lock and the same bytes and compares the findings. Lock
+references resolve against the lock's own URL; the lock is a stranger's document, so its peer addresses and absolute
+grounding refs are held to the address rule below ("The Desk's drift reader") before anything is fetched, with
+`--allow-local` too (it lets the CLI read a site on this machine, never send a stranger's lock there). The lock states
+and the exit rule are the watch's: anything but `found` is exit 1. A connection failure is `unreadable`; `refused` is the
+browser's alone.
+
+What the CLI adds to the shared reader: the site's own signature expiry, read from the published
+`plumbline.signature.json` by the rule the watch applies to the file on disk; and, when a lock was found, one `info`
+finding (kind `grounding`, ref `plumbline.lock.json`) that says what was **not** checked: a file added to the vendored
+runtime folder (a folder cannot be listed over HTTP), whether the lock covers every file and peer the site names
+(coverage reads the checkout), the runtime's upstream (the checkout's watch asks GitHub; a scan of many sites would spend
+the unauthenticated quota), and whether a signature the caller trusts covers the lock (`verify --url`).
+
 `--init` captures (`src/watch/capture.ts`, `src/watch/discover.ts`):
 
 - **runtime**: every file under `runtime/` (else `site/runtime/`); the nsdeploy commit its README or NOTICE names
@@ -219,7 +253,8 @@ signature `invalid tampered` (`docs/signature-format.md`). So the publisher's or
 
 ### The Desk's drift reader (`site/drift.js`)
 
-The Desk re-checks a site's PUBLISHED lock in the browser. What every read means (the lock's shape rule, each finding
+The Desk re-checks a site's PUBLISHED lock in the browser, with the reader `plumbline watch --url` runs
+(`src/watch/published.ts`); `drift.js` only gives it the browser's error sentence and the `refused` lock state. What every read means (the lock's shape rule, each finding
 and its severity, the peer signer rule, pending peers) is `src/watch/decide.ts`, an I/O-free module the CLI's watch
 loads too, so the two cannot disagree; a test gives both the same lock and the same bytes and compares the findings.
 What is read of a published file or a peer, and in what order (the network definition located through the peer's
