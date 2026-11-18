@@ -83,6 +83,20 @@ function siteOf(args: ParsedArgs, local: "root" | "key"): { site?: SiteSource; b
 }
 
 /** Reads one file the command cannot do without: absent or unreadable is exit 2. */
+/** True when the site's plumbline-revocation.json names `kid` (any statement of it; unverified: it only takes away). */
+async function siteRevokes(site: SiteSource, kid: string): Promise<boolean> {
+  const read = await site.read(REVOCATION_FILE);
+  if (read.state !== "present") return false;
+  let value: unknown;
+  try {
+    value = JSON.parse(decode(read.bytes));
+  } catch {
+    return false;
+  }
+  const listed = statementsOf(value);
+  return "statements" in listed && listed.statements.some((s) => typeof s === "object" && s !== null && (s as { kid?: unknown }).kid === kid);
+}
+
 async function readRequired(site: SiteSource, rel: string): Promise<string> {
   const read = await site.read(rel);
   if (read.state === "absent") throw new CliError(`${rel} not found in ${site.where}`);
@@ -158,8 +172,13 @@ export async function trust(argv: string[], out: Out, deps: TrustDeps = {}): Pro
   const dns: DnsCheck | undefined = base !== undefined ? await askDns(base.hostname, kid, deps.resolveTxt) : undefined;
   const lines = [`kid ${kid} for ${origin}`, `public key ${publicKey}`, ...(dns !== undefined ? [describeDns(dns)] : []), `WARNING: ${FIRST_CONTACT_WARNING}`];
   let added = false;
-  const decision = trustDecision({ already, yes, requireDns, ...(dns !== undefined ? { dns } : {}) });
-  const refusedBy = decision.refusedBy;
+  // UAT-7 (INE-L1-10): a site that publishes a revocation of the very key it offers is not trusted with it. A
+  // revocation only ever takes trust away, so it is honoured unverified here, as the Desk does; --yes cannot override it.
+  const revokedBySite = site !== undefined && (await siteRevokes(site, kid));
+  const decision: ReturnType<typeof trustDecision> = revokedBySite
+    ? { action: "refuse", line: `nothing added: ${site?.label(REVOCATION_FILE)} revokes this very key, so it is not trusted. Ask the publisher for their new key id through another channel.` }
+    : trustDecision({ already, yes, requireDns, ...(dns !== undefined ? { dns } : {}) });
+  const refusedBy = revokedBySite ? "revocation" : decision.refusedBy;
   let code: number;
   if (decision.action === "already") {
     lines.push(`already trusted: ${file} has this key for ${origin}; nothing to add`);

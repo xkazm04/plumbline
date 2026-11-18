@@ -162,7 +162,10 @@ know, at the top level and in each entry. It only ever appends an entry or adds 
 
 **A revocation recorded anywhere counts everywhere.** When the CLI reads the trust file, a kid that carries `revokedAt`
 in ANY entry is revoked in every entry, at every origin, and so is every entry whose `adoptedVia` chain leads to a
-revoked kid (`spreadRevocations` in core; the Desk applies the same rule).
+revoked kid (`spreadRevocations` in core; the Desk applies the same rule). And a kid revoked in any entry is found as
+revoked for an origin the trust file holds no entry for (the CLI's trust store lookup, `trustStoreOf`): a stolen key
+signing, or publishing a rotation, for another origin reads `invalid revoked` (`verify`, `adopt`), as on the Desk, never
+"the signer is unknown". Only a revoked entry is found that way, so it can only take trust away.
 
 ## Bytes: what is hashed and what is signed
 
@@ -460,6 +463,9 @@ From the CLI, steps 3 and 4 are `plumbline trust --key <the fetched plumbline-ke
 and takes the origin from the URL (`--origin` is refused beside it). Fetching the record from the site adds no trust:
 the kid is still compared out of band, and the same warning is printed. It refuses a record whose `kid` is not derived from its `publicKey` (exit 2), a bad origin
 (exit 2), and a kid this trust file records as revoked at any origin (exit 2: a revoked key is never trusted again).
+With `--url` it also reads the site's `plumbline-revocation.json`: a site that publishes a revocation of the very key
+it offers is refused, `--yes` or not (exit 1, nothing written, `--json` `refusedBy: "revocation"`), as the Desk does
+not offer it; the revocation is honoured unverified there because it can only take trust away.
 Otherwise it prints the kid and the first-contact warning and, **without `--yes`, adds nothing and exits 1** ("confirm
 out of band, then rerun with --yes"). With `--yes` it appends `{ kid, origin, publicKey }` (creating the file when it
 does not exist) and exits 0; a key already trusted for that origin is not added twice (exit 0).
@@ -490,7 +496,9 @@ prints no usage line. The commands are `init`, `watch`, `gate`, `badge`, `keygen
 | --- | --- |
 | `plumbline keygen --out <dir>` | writes `plumbline.private.json` and `.well-known/plumbline-key.json` under `<dir>`, prints the `kid` and the custody warnings; refuses to overwrite |
 | `plumbline sign --root <site> (--key <private file> \| --key-env <NAME>) --origin <origin> [--days N]` | with `--key-env`, the private key file's JSON is read from that environment variable (a CI secret): never printed, never written; a refusal names the variable, never its content, and the output adds notes on CI custody (`--json`: `keyFrom: "env"`, `custody`). It signs the files above (the lock too, when it exists: run `watch --init` first), writes `plumbline.signature.json`. Refuses (exit 2, pointing at `keygen`) when the root's `plumbline-revocation.json` revokes the signing key, checked under that key; a revocation of another key, one that does not verify under this key, or one that is not JSON does not stop it. Refuses (exit 2) a private key file inside the root, or a root holding `plumbline.private.json`. Warns when the root's `.well-known/plumbline-key.json` is absent or another key's; `--json` carries `keyRecord: "match" \| "mismatch" \| "absent"` |
-| `plumbline verify --trust <trust file> (--root <site> [--origin <origin>] \| --url <site base> [--allow-local] [--timeout <seconds>]) [--jws <file>]` | with `--jws`, the signature is checked through that detached JWS instead of its native `sig`, everything else unchanged (`docs/jws-profile.md`); prints the verdict line, `verified`, `invalid <reason>` or `unverifiable`, then the kid, origin and detail; exit 0 only for `verified`, 1 for `invalid` or `unverifiable`, 2 for I/O or usage errors (including a trust file with a malformed entry, and no `plumbline.signature.json`). Reads `.well-known/plumbline-key.json` only to say whether the math holds for an unknown signer. With `--origin`, a signature made for another origin is `unverifiable` (above). When a `plumbline-revocation.json` is found beside the site, it is applied first with `applyRevocationText`, spread to every origin and to every entry adopted through the revoked key, and **recorded in the trust file** when it verified: the text output says `revocation applied` or `revocation not applied` with one line per trust entry checked, then `revocation recorded in <file> (N entries)` or `revocation already recorded in <file>`, before the verdict line; `--json` adds `revocation: { file, applied, recorded, trustFile?, recordedEntries?, results }`. When the signer is unknown and the site holds a `plumbline-rotation.json`, a hint names `plumbline adopt` (with `--url` for a site read by URL) |
+| `plumbline verify --trust <trust file> (--root <site> [--origin <origin>] \| --url <site base> [--allow-local] [--timeout <seconds>]) [--jws <file>]` | with `--jws`, the signature is checked through that detached JWS instead of its native `sig`, everything else unchanged (`docs/jws-profile.md`); prints the verdict line, `verified`, `invalid <reason>` or `unverifiable`, then the kid, origin and detail; exit 0 only for `verified`, 1 for `invalid` or `unverifiable`, 2 for I/O or usage errors (including a trust file with a malformed entry, and a `plumbline.signature.json` that could
+not be fetched). A site or folder with no `plumbline.signature.json` is `unverifiable` (exit 1, a `--json` verdict),
+printed after the revocation lines, so a revocation recorded on the way is never written silently. Reads `.well-known/plumbline-key.json` only to say whether the math holds for an unknown signer. With `--origin`, a signature made for another origin is `unverifiable` (above). When a `plumbline-revocation.json` is found beside the site, it is applied first with `applyRevocationText`, spread to every origin and to every entry adopted through the revoked key, and **recorded in the trust file** when it verified: the text output says `revocation applied` or `revocation not applied` with one line per trust entry checked, then `revocation recorded in <file> (N entries)` or `revocation already recorded in <file>`, before the verdict line; `--json` adds `revocation: { file, applied, recorded, trustFile?, recordedEntries?, results }`. When the signer is unknown and the site holds a `plumbline-rotation.json`, a hint names `plumbline adopt` (with `--url` for a site read by URL) |
 | `plumbline rotate --root <site> --old-key <file> --new-key <file>` | writes `plumbline-rotation.json` (a planned change only), or appends to the chain it holds; refuses a revoked old or new key and a key file inside the root (see "Rotation"). `--json`: `{ from, to, rotationFile, written, chainLength }` |
 | `plumbline revoke --root <site> --key <file> [--reason <text>]` | writes `plumbline-revocation.json`, signed by that key, or appends to the list it holds (see "Revocation"). `--json`: `{ kid, revokedAt?, revocationFile, written, revocations }` |
 | `plumbline trust --file <trust file> (--key <plumbline-key.json> --origin <origin> \| --url <site base> [--allow-local] [--require-dns]) [--yes]` | first contact (above): prints the kid, what DNS says (with `--url`) and the warning; adds `{ kid, origin, publicKey }` only with `--yes` (exit 0), otherwise exit 1 and nothing written; a DNS disagreement, or `--require-dns` without agreement, refuses `--yes` (exit 1). `--json`: `{ kid, origin, publicKey, trustFile, added, alreadyTrusted, warning, keyRecord?, dns?, refusedBy? }` (`keyRecord`: the URL the record was fetched from) |
@@ -510,8 +518,10 @@ fragment are dropped), and the files are checked **as the URL's origin**: `--url
 `--origin` is refused beside it, and a signature made for another origin is `unverifiable`. It fetches, as exact bytes:
 `plumbline-revocation.json` (first), `plumbline.signature.json`, every signed path (a path that is not a safe
 site-relative path is never fetched), `links.json`, `plumbline.lock.json` and `.well-known/plumbline-key.json`. A 404 or
-410 means absent. Any other answer, or a fetch that fails, is never read as absent: a missing signature is exit 2
-either way, and when the revocation, `links.json`, the lock or a signed file could not be read, a result that would be
+410 means absent. Any other answer, or a fetch that fails, is never read as absent: a signature that answers 404 or 410
+is the verdict `unverifiable` ("This site publishes no plumbline.signature.json ..., so nothing can be verified.",
+exit 1, with a `--json` verdict, as the Desk says it; since 2026-11-19, before which it was exit 2), and one that cannot
+be fetched is an I/O error (exit 2) after the revocation lines, if any, are printed on stderr; and when the revocation, `links.json`, the lock or a signed file could not be read, a result that would be
 `verified` or `invalid tampered` becomes `unverifiable`, naming what was not served. `--allow-local` accepts http and
 loopback addresses (private ranges stay refused), for a site on this machine and for tests; it prints a warning.
 

@@ -2,7 +2,7 @@
 // files are checked as. The site is served by a loopback server in this process; the CLI runs with --allow-local and
 // the no-network preload, so nothing here reaches the internet.
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { keygen, readTrust, run, runAsync, scratchDir, writeSite, writeTrust } from "./cli-helpers.js";
@@ -115,13 +115,13 @@ test("verify --url never claims verified when links.json or the revocation canno
   }
 });
 
-test("verify --url: no signature is exit 2; http without --allow-local, and --url with --root, are usage errors", async () => {
+test("verify --url: no signature is unverifiable, exit 1; http without --allow-local, and --url with --root, are usage errors", async () => {
   const trust = writeTrust(path.join(root, "none.trust.json"), []);
   forced.set("/sub/plumbline.signature.json", 404);
   try {
     const missing = await runAsync("verify", "--url", `${server.url}/sub/`, "--trust", trust, "--allow-local");
-    assert.equal(missing.code, 2);
-    assert.match(missing.err, /plumbline\.signature\.json not found/);
+    assert.equal(missing.code, 1);
+    assert.match(missing.out, /^unverifiable - This site publishes no plumbline\.signature\.json \(http:\/\/127\.0\.0\.1:\d+\/sub\/\), so nothing can be verified\.$/m);
   } finally {
     forced.delete("/sub/plumbline.signature.json");
   }
@@ -136,4 +136,25 @@ test("verify --url: no signature is exit 2; http without --allow-local, and --ur
   const offline = await runAsync("verify", "--url", "https://site.example/", "--trust", trust);
   assert.equal(offline.code, 2);
   assert.match(offline.err, /cannot fetch/);
+});
+
+test("UAT-7: trust --url refuses a key the same site publishes a revocation of, --yes or not; the Desk does not offer it either", async () => {
+  const keys = keygen(path.join(root, "keys-revoked-offer"));
+  // the site publishes A's key record and A's revocation (between revoke and re-sign)
+  mkdirSync(path.join(site, ".well-known"), { recursive: true });
+  writeFileSync(path.join(site, ".well-known", "plumbline-key.json"), readFileSync(keys.recordFile));
+  const scratch = scratchDir();
+  writeSite(scratch);
+  assert.equal(run("revoke", "--root", scratch, "--key", keys.privateFile).code, 0);
+  writeFileSync(path.join(site, "plumbline-revocation.json"), readFileSync(path.join(scratch, "plumbline-revocation.json")));
+  const file = path.join(root, "fresh.trust.json");
+  try {
+    const r = await runAsync("trust", "--url", `${server.url}/sub/`, "--file", file, "--allow-local", "--yes", "--json");
+    assert.equal(r.code, 1, r.out + r.err);
+    const out = JSON.parse(r.out);
+    assert.deepEqual([out.added, out.refusedBy], [false, "revocation"]);
+    assert.throws(() => readFileSync(file), "nothing written");
+  } finally {
+    rmSync(path.join(site, "plumbline-revocation.json"), { force: true });
+  }
 });

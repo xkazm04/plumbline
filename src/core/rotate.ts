@@ -217,6 +217,10 @@ export async function walkRotationChain(
     }
   }
   if (start < 0) {
+    // a statement signed by a key this verifier records as revoked (for any origin) is a revoked rotation, never an
+    // unknown one: a revocation recorded anywhere counts everywhere (UAT-7, INE-L1-03; the Desk's rule)
+    const revokedFrom = [...chain].reverse().find((s) => trustEntries.some((e) => e.kid === s.from && e.revokedAt !== undefined));
+    if (revokedFrom !== undefined) return { result: revokedResult("rotation", revokedFrom.from, origin), hops: [], entries: [], newest };
     // the oldest statement's signer is the one a verifier would have to know; verifyRotation words the stranger verdict
     const result = await verifyRotation(chain[chain.length - 1] as PlumblineRotation, { find: () => undefined }, origin);
     return {

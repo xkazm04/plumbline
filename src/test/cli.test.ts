@@ -176,7 +176,8 @@ test("sign exits 2 on a bad origin, a mismatched key file, a path that escapes t
   assert.equal(run("sign", "--bogus", "x").code, 2);
   assert.equal(run("sign").code, 2);
   assert.equal(run("verify", "--root", site, "--trust", path.join(tmp, "nope.json")).code, 2);
-  assert.equal(run("verify", "--root", tmp, "--trust", path.join(tmp, "empty.trust.json")).code, 2, "no signature file is an I/O error");
+  // UAT-7: a folder with no signature is a verdict (unverifiable, exit 1), not an I/O error
+  assert.equal(run("verify", "--root", tmp, "--trust", path.join(tmp, "empty.trust.json")).code, 1, "no signature file is unverifiable");
 });
 
 test("verify honours --now: past expiry is invalid expired (exit 1)", () => {
@@ -424,15 +425,18 @@ test("the trust file's kid, publicKey and adoptedVia are held to their exact pat
   }
 });
 
-test("verify's refusal paths: no signature file (2), a signature that is not JSON (1), a revocation that is not JSON, a file that is not a trust store (2)", () => {
+test("verify's refusal paths: no signature file (unverifiable, 1), a signature that is not JSON (1), a revocation that is not JSON, a file that is not a trust store (2)", () => {
   const { site, trust } = signedSite("refusals");
   const sigFile = path.join(site, "plumbline.signature.json");
   const signature = readFileSync(sigFile, "utf8");
 
   rmSync(sigFile);
-  const missing = run("verify", "--root", site, "--trust", trust);
-  assert.equal(missing.code, 2);
-  assert.match(missing.err, /plumbline\.signature\.json not found in /);
+  // UAT-7: no signature is a verdict with a JSON body, as on the Desk, never an I/O error
+  const missing = run("verify", "--root", site, "--trust", trust, "--json");
+  assert.equal(missing.code, 1);
+  const none = JSON.parse(missing.out).results[0];
+  assert.equal(none.verdict, "unverifiable");
+  assert.match(none.detail, /^This site publishes no plumbline\.signature\.json \(.*\), so nothing can be verified\.$/);
 
   writeFileSync(sigFile, "{ SECRET not json");
   const garbled = run("verify", "--root", site, "--trust", trust, "--json");

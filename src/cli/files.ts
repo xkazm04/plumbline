@@ -197,9 +197,18 @@ export async function readTrustFile(file: string, options: { missingIsEmpty?: bo
   return { file, raw: value as TrustFile["raw"], entries: spreadRevocations(read) };
 }
 
-/** core's lookup over a list of entries. */
+/**
+ * core's lookup over a list of entries. A kid recorded as revoked at ANY origin is found as revoked at every origin
+ * (UAT-7, INE-L1-03): "a revocation recorded anywhere counts everywhere", so a stolen key signing for an origin this
+ * verifier never trusted it for reads `invalid revoked`, as the Desk says, never "the signer is unknown". Only a revoked
+ * entry is lent across origins: it can only turn a result into `invalid revoked`, never into `verified`.
+ */
 export function trustStoreOf(entries: readonly TrustEntry[]): TrustStore {
-  return { find: (kid, origin) => entries.find((e) => e.kid === kid && e.origin === origin) };
+  return {
+    find: (kid, origin) =>
+      entries.find((e) => e.kid === kid && e.origin === origin) ??
+      ((revoked) => (revoked !== undefined ? { ...revoked, origin } : undefined))(entries.find((e) => e.kid === kid && e.revokedAt !== undefined)),
+  };
 }
 
 /**

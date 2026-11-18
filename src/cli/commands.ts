@@ -528,18 +528,27 @@ export async function verify(argv: string[], out: Out): Promise<number> {
   } else if (revocationRead.state === "unknown") unread.push(REVOCATION_FILE);
 
   // 2. The signature.
+  // UAT-7 (REC-3, TOM-L1-06, INE-L1-04): a site with no signature, or one whose signature cannot be read, is a verdict
+  // (`unverifiable`, exit 1, a JSON verdict), as on the Desk, never an I/O error; and whatever the revocation above
+  // recorded is printed with it, never written silently.
   const sigRead = await site.read(SIGNATURE_FILE);
-  if (sigRead.state === "absent") throw new CliError(`${SIGNATURE_FILE} not found in ${site.where}`);
-  if (sigRead.state === "unknown") throw new CliError(`cannot fetch ${SIGNATURE_FILE} from ${site.where} (${sigRead.why})`);
   let signature: unknown;
-  try {
-    signature = JSON.parse(decode(sigRead.bytes));
-  } catch {
-    signature = undefined;
+  if (sigRead.state === "present") {
+    try {
+      signature = JSON.parse(decode(sigRead.bytes));
+    } catch {
+      signature = undefined;
+    }
   }
 
   let result: VerifyResult;
-  if (signature === undefined) {
+  if (sigRead.state === "absent") {
+    result = { verdict: "unverifiable", detail: `This site publishes no ${SIGNATURE_FILE} (${site.where}), so nothing can be verified.` };
+  } else if (sigRead.state === "unknown") {
+    // a site that could not be read is an I/O error (exit 2), not a verdict; what the revocation recorded is said first
+    if (revocation) for (const line of revocationLines(revocation, trust, true)) process.stderr.write(`${line}\n`);
+    throw new CliError(`cannot fetch ${SIGNATURE_FILE} from ${site.where} (${sigRead.why})`);
+  } else if (signature === undefined) {
     result = { verdict: "invalid", reason: "malformed", detail: "The signature file is not valid JSON." };
   } else {
     // 3. Every signed file as exact bytes, plus links.json and the lock whenever they exist, signed or not: an

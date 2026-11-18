@@ -314,3 +314,41 @@ test("trust refuses a --key file that is not a key record (exit 2) and writes no
   }
   assert.equal(existsSync(file), false);
 });
+
+// ---- UAT-7: one verdict vocabulary on the CLI and the Desk ----
+
+test("UAT-7: a key revoked for one origin signing for another reads invalid revoked, as on the Desk, never 'unknown'; adopt too", () => {
+  const { root, keys: a, trust } = signedSite();
+  const mirror = path.join(root, "mirror");
+  writeSite(mirror);
+  const MIRROR = "https://mirror.example";
+  assert.equal(run("sign", "--root", mirror, "--key", a.privateFile, "--origin", MIRROR).code, 0);
+  // before the revocation: A is trusted for the clinic only, so the mirror's own-origin signature is a stranger's
+  const before = JSON.parse(run("verify", "--root", mirror, "--trust", trust, "--origin", MIRROR, "--json").out).results[0];
+  assert.equal(before.verdict, "unverifiable");
+  // the verifier records A's revocation (as verifying the clinic's site does)
+  const t = readTrust(trust);
+  writeTrust(trust, t.entries.map((e) => ({ ...e, revokedAt: "2026-11-18T12:00:00.000Z" })));
+  const after = JSON.parse(run("verify", "--root", mirror, "--trust", trust, "--origin", MIRROR, "--json").out).results[0];
+  assert.deepEqual([after.verdict, after.reason, after.kid], ["invalid", "revoked", a.record.kid]);
+  // a rotation the thief publishes from A for the mirror: adopt reads it as revoked, not as from an unknown key
+  const b = keygen(path.join(root, "keys-thief"));
+  assert.equal(run("rotate", "--root", mirror, "--old-key", a.privateFile, "--new-key", b.privateFile).code, 0);
+  const adopt = run("adopt", "--root", mirror, "--origin", MIRROR, "--trust", trust, "--yes", "--json");
+  assert.equal(adopt.code, 1, adopt.out + adopt.err);
+  assert.match(adopt.out, /"reason":"revoked"/);
+  assert.doesNotMatch(adopt.out, /unknown to this verifier/);
+});
+
+test("UAT-7: with the signature taken down, verify says what the revocation recorded, then unverifiable (exit 1), never a silent write", () => {
+  const { site, keys: a, trust } = signedSite();
+  assert.equal(run("revoke", "--root", site, "--key", a.privateFile, "--now", "2026-11-18T12:00:00.000Z").code, 0);
+  rmSync(path.join(site, "plumbline.signature.json"));
+  const r = run("verify", "--root", site, "--trust", trust);
+  assert.equal(r.code, 1, r.err);
+  assert.match(r.out, /revocation recorded/);
+  assert.match(r.out, /^unverifiable - This site publishes no plumbline\.signature\.json/m);
+  assert.equal(readTrust(trust).entries[0]?.revokedAt, "2026-11-18T12:00:00.000Z");
+  const json = JSON.parse(run("verify", "--root", site, "--trust", trust, "--json").out);
+  assert.equal(json.results[0].verdict, "unverifiable");
+});
