@@ -157,6 +157,14 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: S. Then move the template pin (follow-up commit), and MC-4.
 - Must not break: guardrail 3 (the PR is still only a proposal); `persist-credentials: false` and the pins.
+- State: fixed (commits a8599e6, pin b8552e6), awaiting recertify. The lease now names the fetched commit, or "must not
+  exist" when the branch is absent. Live on larch-house through `uat/driver/run-action.mjs --harness --relock-pr true`:
+  r0 created issue #1 and draft PR #2; after `cosmetic-edit` (pushed), r1 edited PR #2 and its branch moved to a new
+  commit (every step exit 0; before the fix this push was `! [rejected] ... (stale info)`); after a person merged PR #2
+  with the branch kept, `raise-price`, r2 created PR #3 on the same branch (exit 0). The renewal branch is proved by
+  `action/report.test.mjs` with the real git against a bare remote (create, second run, after merge), not live: the
+  runner never gives the Action a key, and renewal needs one. Ceiling: a real GitHub runner and branch protection are
+  not exercised; a branch someone else moves between fetch and push is still refused (the step fails, by design).
 
 ### UAT-6. New evidence on an open issue or PR is announced
 
