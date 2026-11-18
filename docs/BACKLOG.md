@@ -618,6 +618,32 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: M.
 - Must not break: guardrail 2 (names only in the publisher's own terminal, never in the issue).
+- State: fixed (commit 8ca2f6c, pin 412ce77), awaiting recertify. Built to the hypothesis: `init`, `watch --init` and
+  every `--relock` keep a copy of what the new lock pins of each peer (its network definition, and its links.json when
+  it publishes one) in `<root>/.plumbline/peers/<sha256>.json`, outside the lock (which stays hashes only), written once,
+  never removed; they say `kept    N copies ...` and `--json` `kept`; init's next steps say to commit `.plumbline/`
+  with the lock. New form `plumbline diff --root <site> --peer <address> [--allow-local] [--timeout] [--json]`: the kept
+  copy against the peer now, by name: agents added, removed, changed, each changed agent's fields before and after,
+  outbound hosts, the front agent, and the links.json against its kept copy with the hosts it adds; a copy a checkout
+  turned to CRLF is read back as pinned and says so; an edited or missing one is said (exit 2, with the relock that
+  keeps one). The watch counts a links.json that appeared or changed by the outbound hosts it names that the lock saw in
+  neither the locked definition nor the locked links.json ("It names 1 outbound host the lock did not see for this
+  peer ...", `counts.hostsAdded`; a reader of a published site, with no copy, says it is not told for a changed one).
+  The drift issue names `diff --root <site> --peer <address>` for each peer whose definition or links.json changed
+  (from the code); the relock pull request commits `.plumbline/peers`. Live on meridian-trips: harness `--init` kept 1
+  copy; `partner-adds-agent` + `partner-adds-links`; real CLI `diff --peer --allow-local` printed "agents added:
+  fee_estimator", "agent changed: fx_front / tools: [\"rate_lookup\"] -> [\"rate_lookup\",\"fee_estimator\"]",
+  "outbound hosts added: mcp.ledgerline.example", "links.json outbound hosts added: agents.ledgerline.example", exit 1;
+  the watch's links finding said "It names 1 outbound host ...". MC-4 with `run-action.mjs --harness --relock-pr true`:
+  r1 created issue #1 (with the diff line) and PR #2 (branch commits the lock and the new kept copy), r2 commented and
+  the branch gained the links.json copy, a merge then r3 closed both, every step exit 0; after `partner-changes-again`,
+  `diff --peer` from a fresh clone of the merged main showed both changed agents' instructions old and new (0.5% ->
+  0.9%). MC-5: a real-CLI relock with nothing reachable on a copy kept every peer pin. Tests:
+  `src/test/diff-peer.test.ts`, "UAT-18" tests in `action/report.test.mjs`. Decided here (the owner may revisit): the
+  copies live under the site root, beside the lock, so one rule serves the CLI, the Action and every layout; a host
+  that serves the root serves them too (they are the partners' own published files; the docs say to leave
+  `.plumbline/` out of the deploy if preferred). Ceiling: a lock written before this has no copies until its next
+  relock; copies are never pruned.
 
 ### UAT-19. A portfolio report a junior can act on
 
