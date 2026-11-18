@@ -764,6 +764,21 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: M (wire).
 - Must not break: guardrail 4.
+- State: fixed (commit e7ed51d), awaiting recertify. Wire (`docs/signature-format.md`): `TrustEntry.addedAt` (written
+  by `trust --yes` and `adopt --yes`, both now taking `--now`) and `TrustEntry.revokedRecordedAt` (written when an entry
+  first gains `revokedAt` here, by `verify` or `adopt --yes`; `revokedAt` stays the revocation's own time, the source
+  key's for a cascade). Both informational, ISO-checked on read (a malformed one makes the file unreadable, exit 2).
+  `verify` with no trust file reads it as empty: `unverifiable`, exit 1, `--json` `trustFileAbsent: true`, and "note:
+  there is no trust file at <path>, so nothing is trusted yet ...; make one by a first contact ...: plumbline trust
+  --file <path> --url <site>". Live on northgate-clinic (the wrong-order arm): `verify --url` with no pharmacy trust file
+  printed the note and `unverifiable`, exit 1; `trust --url --yes` stamped A's `addedAt`; after `forgery` and
+  `attacker-rotates`, `adopt --root <mirror> --origin <clinic> --yes` stamped the attacker key's `addedAt`; after Ines's
+  `revoke` of A, the pharmacy's `verify --url` recorded both: A `revokedAt` 17:43:36.482Z, `revokedRecordedAt`
+  17:43:36.774Z; the attacker key `addedAt` 17:43:35.987Z, `revokedAt` 17:43:36.482Z (A's), `revokedRecordedAt`
+  17:43:36.774Z. Tests: "UAT-23 ..." in `src/test/cli-trust.test.ts` (the cascade with a back-dated revocation), and the
+  updated `cli.test.ts`, `jws.test.ts`, `cli-url-lifecycle.test.ts`. Ceiling: the Desk's own trust list neither writes
+  nor keeps the stamps (it drops unknown members on import); `adopt` with no trust file is still an I/O error (it needs a
+  key it already holds).
 
 ### UAT-24. The validator says which file and which key
 
