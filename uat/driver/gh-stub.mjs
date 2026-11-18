@@ -70,7 +70,7 @@ if (noun === "issue" && verb === "list") {
   record("pr create", true, { number: n });
   save();
   process.stdout.write(`https://github.com/stub/stub/pull/${n}\n`);
-} else if (noun === "pr" && (verb === "edit" || verb === "ready" || verb === "close")) {
+} else if (noun === "pr" && (verb === "edit" || verb === "ready" || verb === "close" || verb === "comment")) {
   const n = Number(argv[2]);
   const pr = state.prs.find((p) => p.number === n);
   if (!pr) {
@@ -81,6 +81,10 @@ if (noun === "issue" && verb === "list") {
     pr.body = body();
     pr.history.push({ run, did: "body edited" });
     record("pr edit", false, { number: n });
+  } else if (verb === "comment") {
+    pr.comments.push({ run, body: body() });
+    pr.history.push({ run, did: "commented" });
+    record("pr comment", true, { number: n });
   } else if (verb === "ready") {
     pr.isDraft = has("--undo");
     pr.history.push({ run, did: has("--undo") ? "made draft" : "made ready" });

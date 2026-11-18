@@ -17,7 +17,7 @@
 // finding in its own right: a publisher could not have done it with the product before going live.
 //
 //   node uat/driver/local-cli.mjs watch --root <dir> [--init] [--source <ref>]... [--external a2a-card=<url>]... [--timeout <ms>] [--json]
-//   node uat/driver/local-cli.mjs watch --root <dir> --relock [--source <ref>]... [--drop <ref>]... [--external a2a-card=<url>]... [--json]
+//   node uat/driver/local-cli.mjs watch --root <dir> --relock [--source <ref>]... [--drop <ref>]... [--accept-signer <peer>]... [--accept <ref>]... [--external a2a-card=<url>]... [--trust <file>] [--json]
 //   node uat/driver/local-cli.mjs scan <address>... [--out <dir>] [--json] [--real-atlas]
 //
 // --external here also takes http://127.0.0.1 / http://localhost addresses (the product's parser refuses http); every
@@ -101,7 +101,7 @@ function printReport(report, json) {
 async function watch(argv) {
   let args;
   try {
-    args = parse(argv, ["root", "timeout"], ["init", "relock", "json"], ["source", "drop", "external"]);
+    args = parse(argv, ["root", "timeout", "trust"], ["init", "relock", "json"], ["source", "drop", "external", "accept-signer", "accept"]);
   } catch (error) {
     return usage(error.message);
   }
@@ -112,6 +112,10 @@ async function watch(argv) {
   const json = args.flags.has("json");
   const sources = args.lists.get("source");
   const drops = args.lists.get("drop");
+  // UAT-4: the CLI's --accept-signer, --accept and --trust, passed through as the CLI passes them
+  const acceptSigners = args.lists.get("accept-signer");
+  const accept = args.lists.get("accept");
+  if ((acceptSigners.length || accept.length) && !relock) return usage("--accept-signer and --accept go with --relock: they name what the relock accepts");
   if (init && relock) return usage("--init and --relock do not go together: --init writes a first lock, --relock replaces one");
   if (drops.length && !relock) return usage("--drop goes with --relock: it takes a ref out of the lock --relock writes");
   const { parseExternalArg } = await load("watch/external.js");
@@ -136,12 +140,35 @@ async function watch(argv) {
   const { RESIGN_REMINDER } = await load("watch/decide.js");
   const { factCoverageCounts, factCoverageLines } = await load("watch/anchors.js");
   const options = { root, init, ...(timeoutMs !== undefined ? { timeoutMs } : {}) };
-  const deps = { fetchOptions: LOCAL, extraSources: sources, externals };
+  let trust;
+  if (args.values.has("trust")) {
+    const { readTrustFile } = await load("cli/files.js");
+    try {
+      trust = (await readTrustFile(args.values.get("trust"))).entries;
+    } catch (error) {
+      process.stderr.write(`watch failed: ${error?.message ?? "the trust file could not be read"}\n`);
+      return 2;
+    }
+  }
+  const deps = { fetchOptions: LOCAL, extraSources: sources, externals, ...(trust ? { trust } : {}) };
   if (relock) {
     let result;
     try {
-      result = await runRelock(options, { ...deps, dropSources: drops });
+      result = await runRelock(options, { ...deps, dropSources: drops, acceptSigners, accept });
     } catch (error) {
+      // a refused relock, printed as the CLI prints it (src/cli/watch-command.ts printRefusal)
+      if (error?.name === "RelockRefused") {
+        const refusal = error.refusal;
+        if (refusal.refused === "drop-peer") return usage(`--drop takes a grounding ref or an external definition the lock holds; ${refusal.refs.join(", ")} is a peer, which leaves the lock when no network names it: remove it from the site's network (or links.json), then relock`);
+        const command = `plumbline watch --root ${args.values.get("root") ?? "."} --relock ${refusal.peers.map((p) => `--accept-signer ${p.peer}`).join(" ")}`;
+        if (json) process.stdout.write(`${JSON.stringify({ relocked: false, refused: "signer", peers: refusal.peers, command }, null, 2)}\n`);
+        else {
+          process.stdout.write("relock refused: a peer is signed by another key than the lock recorded, and a relock does not accept a new signer unless a person names it. Nothing was written.\n");
+          for (const p of refusal.peers) process.stdout.write(`  peer ${p.peer}: the lock recorded ${p.from}; it is now signed by ${p.to} (${p.how})\n`);
+          process.stdout.write(`After deciding whether you trust the new key (verify --url, adopt for a rotation), run: ${command}\n`);
+        }
+        return 1;
+      }
       process.stderr.write(`watch failed: ${error?.message ?? "unknown error"}\n`);
       return 2;
     }
@@ -154,6 +181,7 @@ async function watch(argv) {
       for (const ref of added) process.stdout.write(`added   ${ref}\n`);
       for (const ref of removed) process.stdout.write(`removed ${ref}\n`);
       for (const ref of changed) process.stdout.write(`changed ${ref}\n`);
+      for (const c of result.signers ?? []) process.stdout.write(`signer  peer ${c.peer}: ${c.from} -> ${c.to} (${c.how}; ${c.backing ?? ""})\n`);
       if (added.length + removed.length + changed.length === 0) process.stdout.write("no ref changed\n");
       for (const line of coverage ? factCoverageLines(coverage) : []) process.stdout.write(`${line}\n`);
       for (const f of result.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
