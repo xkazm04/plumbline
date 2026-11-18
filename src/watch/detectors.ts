@@ -17,7 +17,7 @@ import {
   pendingObservation,
   pendingPeerFindings,
   type PendingObservation,
-  runtimeFinding,
+  runtimeFindingOf,
   runtimeFolder,
   signatureCoverageFinding,
   signatureExpiryFinding,
@@ -86,7 +86,7 @@ export async function detectRuntime(lock: Lock, env: DetectorEnv): Promise<Drift
   const out: DriftFinding[] = [];
   // (a) the vendored runtime is copy-do-not-change, so any difference is a block.
   for (const [file, expected] of Object.entries(lock.runtime.files)) {
-    const finding = runtimeFinding(file, expected, await observeLocal(env, file));
+    const finding = await runtimeFindingOf(file, expected, await observeLocal(env, file));
     if (finding) out.push(finding);
   }
   // (a2) and so is a file added beside the locked ones: list the locked runtime folder for what the lock does not hold.

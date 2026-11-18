@@ -32,7 +32,7 @@ import {
   pendingPeerFindings,
   type PendingObservation,
   refusedPeerFinding,
-  runtimeFinding,
+  runtimeFindingOf,
   type Lock,
   type Observed,
 } from "./decide.js";
@@ -137,7 +137,7 @@ async function runtimeOf(lock: Lock, base: string, ctx: Ctx): Promise<DriftFindi
   for (const [file, expected] of Object.entries(lock.runtime.files)) {
     const url = publishedUrl(file, base);
     const seen = url === null ? OUTSIDE : await observePublished(ctx.fetcher, url, { fetchOptions: { ...ctx.fetchOptions, ceiling: "runtime" }, why: ctx.why });
-    const finding = runtimeFinding(file, expected, seen);
+    const finding = await runtimeFindingOf(file, expected, seen);
     if (finding) out.push(finding);
   }
   return out;

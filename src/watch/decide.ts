@@ -27,6 +27,7 @@ import {
   type PendingPeer,
   type LockState,
 } from "../core/types.js";
+import { sha256Hex } from "../core/canonical.js";
 import { isBlockedAddress, parseIPv4 } from "../net/address.js";
 import { describeOutlineDiff, diffOutlines, isPeerOutline, outlineUnchanged, type PeerOutline } from "./outline.js";
 import { isExternalRecord } from "./external.js";
@@ -139,18 +140,73 @@ export type SourceRole = "network" | "agent" | "page";
 /** The remedy once a change has been reviewed. */
 const RELOCK = "review the change, then re-lock (watch --relock)";
 
+// ---- line endings (UAT-13, DEV-L2-1): explained, never ignored ----
+
+/**
+ * How a file differs from its locked copy when the ONLY difference is line endings: `crlf` when it now ends its lines
+ * with CRLF where the locked copy had LF, `lf` for the reverse; null when anything else differs too (or nothing does).
+ * The lock still hashes exact bytes (guardrail 11): this only words the finding, it never makes it go away.
+ */
+export type LineEndingChange = "crlf" | "lf";
+
+export async function lineEndingChange(bytes: Uint8Array, expected: string): Promise<LineEndingChange | null> {
+  let crlf = 0;
+  let loneLf = 0;
+  for (let i = 0; i < bytes.length; i += 1) {
+    if (bytes[i] !== 10) continue;
+    if (i > 0 && bytes[i - 1] === 13) crlf += 1;
+    else loneLf += 1;
+  }
+  if (crlf > 0) {
+    const lf = new Uint8Array(bytes.length - crlf);
+    let j = 0;
+    for (let i = 0; i < bytes.length; i += 1) if (!(bytes[i] === 13 && bytes[i + 1] === 10)) lf[j++] = bytes[i]!;
+    if ((await sha256Hex(lf)) === expected) return "crlf";
+  }
+  if (loneLf > 0) {
+    const out = new Uint8Array(bytes.length + loneLf);
+    let j = 0;
+    for (let i = 0; i < bytes.length; i += 1) {
+      if (bytes[i] === 10 && !(i > 0 && bytes[i - 1] === 13)) out[j++] = 13;
+      out[j++] = bytes[i]!;
+    }
+    if ((await sha256Hex(out)) === expected) return "lf";
+  }
+  return null;
+}
+
+/** The line-ending half of a finding's sentence, and the remedy for the usual cause. */
+function lineEndingWords(change: LineEndingChange): string {
+  const [now, was] = change === "crlf" ? ["CRLF", "LF"] : ["LF", "CRLF"];
+  return (
+    `in line endings only: it now ends its lines with ${now} where the locked copy had ${was}, and no other byte differs. ` +
+    "The lock hashes exact bytes, so this still reads as a change. If the lock or this copy was written in a checkout that converts line endings (Git for Windows sets core.autocrlf=true), " +
+    "pin LF with the line `* text=auto eol=lf` in .gitattributes at the repository root, check the files out again and re-lock; if the file really changed its line endings, review it, then re-lock (watch --relock)."
+  );
+}
+
 /**
  * The finding for one grounding source. The severity is `warn` whatever the anchors say: a count is a reading aid, never
  * a reason to soften or harden it. Each changed-page sentence says which of three things the facts show (UAT-1): a fact
  * the network still states is gone from the page (the stale fact); none of the watched facts changed; or the network no
  * longer states the gone fact either (both sides changed: re-lock).
  */
-export function groundingFinding(source: { ref: string; sha256: string }, seen: Observed, anchors?: AnchorCheck, role?: SourceRole): DriftFinding | null {
+export function groundingFinding(
+  source: { ref: string; sha256: string },
+  seen: Observed,
+  anchors?: AnchorCheck,
+  role?: SourceRole,
+  lineEndings?: LineEndingChange,
+): DriftFinding | null {
   if (!seen.ok) {
     return { kind: "grounding", severity: "warn", ref: source.ref, expected: source.sha256, summary: `A grounding source could not be checked: it ${seen.sentence}.` };
   }
   if (seen.sha256 === source.sha256) return null;
   const changed = "A grounding source changed since the lock was written";
+  // UAT-13: a difference in line endings only is said as that, never as different facts; the severity is unchanged
+  if (lineEndings !== undefined) {
+    return { kind: "grounding", severity: "warn", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary: `${changed}, ${lineEndingWords(lineEndings)}` };
+  }
   const facts = (n: number) => `${n} fact${n === 1 ? "" : "s"}`;
   let summary: string;
   if (anchors === undefined || anchors.total === 0) {
@@ -192,7 +248,7 @@ export function groundingFinding(source: { ref: string; sha256: string }, seen: 
   return { kind: "grounding", severity: "warn", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary };
 }
 
-export function runtimeFinding(file: string, expected: string, seen: Observed): DriftFinding | null {
+export function runtimeFinding(file: string, expected: string, seen: Observed, lineEndings?: LineEndingChange): DriftFinding | null {
   if (!seen.ok) {
     return {
       kind: "runtime",
@@ -211,8 +267,17 @@ export function runtimeFinding(file: string, expected: string, seen: Observed): 
     ref: file,
     expected,
     actual: seen.sha256,
-    summary: "A vendored runtime file differs from the locked copy; the runtime is copy-do-not-change.",
+    summary:
+      lineEndings !== undefined
+        ? `A vendored runtime file differs from the locked copy ${lineEndingWords(lineEndings)}`
+        : "A vendored runtime file differs from the locked copy; the runtime is copy-do-not-change.",
   };
+}
+
+/** runtimeFinding, with a changed file's bytes checked for a difference in line endings only (UAT-13). */
+export async function runtimeFindingOf(file: string, expected: string, seen: Observed): Promise<DriftFinding | null> {
+  const lineEndings = seen.ok && seen.sha256 !== expected && seen.bytes !== undefined ? await lineEndingChange(seen.bytes, expected) : null;
+  return runtimeFinding(file, expected, seen, lineEndings ?? undefined);
 }
 
 /**

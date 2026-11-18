@@ -15,7 +15,9 @@
 // Anything else that cannot be captured is NOT written to the lock and comes back as a finding, so a lock with a gap
 // is never mistaken for a complete one.
 
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { FORMAT_VERSION, LINKS_FILE, MANIFEST_FILE, type DriftFinding, type GroundingSource } from "../core/types.js";
 import { sha256Hex } from "../core/canonical.js";
 import { anchorPlace, anchorPlaces, describeKinds, networkClauses, networkLiterals, pageFacts, pageLiteralHashes, pagePlacesNow, statedElsewhere, type FactCoverage } from "./anchors.js";
@@ -43,6 +45,66 @@ export function runtimeProvenance(texts: string[]): { commit?: string; via?: Run
     }
   }
   return { ...(commit !== undefined ? { commit } : {}), ...(via !== undefined ? { via } : {}) };
+}
+
+/** The .gitattributes line that pins LF for every text file, as the docs and the warning name it. */
+export const LF_PIN_LINE = "* text=auto eol=lf";
+
+/**
+ * Whether a .gitattributes from the site root up to its repository root (the folder holding .git) pins LF for every
+ * file: a `*` line with `eol=lf`, or `* -text` (no conversion at all). Read only, never written.
+ */
+export async function lfPinned(root: string): Promise<boolean> {
+  let dir = resolve(root);
+  for (;;) {
+    try {
+      const text = await readFile(join(dir, ".gitattributes"), "utf8");
+      if (/^\*\s+(?:\S+\s+)*(?:eol=lf|-text)(?:\s|$)/m.test(text)) return true;
+    } catch {
+      // no .gitattributes here
+    }
+    if (existsSync(join(dir, ".git"))) return false;
+    const up = dirname(dir);
+    if (up === dir) return false;
+    dir = up;
+  }
+}
+
+/**
+ * The capture-time warning for files locked with CRLF line endings (UAT-13, DEV-L2-1), or null when none has any. The
+ * lock hashes the bytes as they are here, so a checkout that converted them (Git for Windows sets core.autocrlf=true)
+ * makes every watch elsewhere, where they are LF, report them changed. The finding names the .gitattributes line, a few
+ * of the publisher's own files (their names, in their own terminal) and the count.
+ */
+export async function lineEndingWarning(root: string, refs: readonly string[]): Promise<DriftFinding | null> {
+  const withCrlf: string[] = [];
+  for (const ref of refs) {
+    let bytes: Uint8Array;
+    try {
+      bytes = await readUnderRoot(root, ref);
+    } catch {
+      continue;
+    }
+    for (let i = 1; i < bytes.length; i += 1) {
+      if (bytes[i] === 10 && bytes[i - 1] === 13) {
+        withCrlf.push(ref);
+        break;
+      }
+    }
+  }
+  if (withCrlf.length === 0) return null;
+  const shown = withCrlf.slice(0, 3).map((r) => r.replace(/[\u0000-\u001f\u007f]/g, "?")).join(", ");
+  const files = `${withCrlf.length} of the ${refs.length} files this lock hashes end their lines with CRLF (${shown}${withCrlf.length > 3 ? ", ..." : ""})`;
+  const why = "A checkout that converts line endings (Git for Windows sets core.autocrlf=true) writes CRLF here while CI and the served site read LF, so every watch there would report these files changed (in line endings only).";
+  const ifReal = "If the site really serves these files with CRLF, the lock is right as it is.";
+  return {
+    kind: "grounding",
+    severity: "warn",
+    ref: ".gitattributes",
+    summary: (await lfPinned(root))
+      ? `${files}, although .gitattributes pins LF: they were checked out before the pin. ${why} Check the files out again so the pin applies, then run this again. ${ifReal}`
+      : `${files}, and no .gitattributes pins LF. ${why} Add the line "${LF_PIN_LINE}" to .gitattributes at the repository root, commit it, check the files out again, then run this again. ${ifReal}`,
+  };
 }
 
 export async function captureLock(
@@ -215,6 +277,10 @@ export async function captureLock(
   if (refs.length === 0) {
     findings.push({ kind: "grounding", severity: "info", ref: ".", summary: "No grounding sources were found at the root; pass --source to lock some." });
   }
+
+  // UAT-13 (DEV-L2-1): bytes locked with CRLF in a checkout that converts line endings read as changed everywhere else
+  const crlf = await lineEndingWarning(root, [...Object.keys(files), ...sources.map((s) => s.ref).filter((r) => !/^https?:\/\//i.test(r))]);
+  if (crlf !== null) findings.push(crlf);
 
   // peers
   const peers: Lock["peers"] = {};

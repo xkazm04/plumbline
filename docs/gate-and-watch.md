@@ -165,7 +165,17 @@ re-serialising a JSON file (key order, spacing) is drift. That is deliberate: th
 with its own HOCON parser, which merges duplicate keys that `JSON.parse` collapses, so "the same JSON" is not "the same
 program". Line endings do not cause false drift because repositories pin LF (`.gitattributes`: `* text=auto eol=lf`, as
 this one does) and web servers serve bytes as stored; a site repository that does not pin LF will see drift when it is
-checked out with CRLF, and should add that line. Locks written before 2026-11-17 hashed JSON canonically, so their
+checked out with CRLF, and should add that line. Two things say so where it happens (UAT-13). `init`, `watch --init` and
+`--relock` read the local files they lock, and when any ends its lines with CRLF they add a `warn` finding (ref
+`.gitattributes`, so `init` exits 1): "N of the M files this lock hashes end their lines with CRLF (<up to three of
+them>), and no .gitattributes pins LF. ... Add the line "* text=auto eol=lf" to .gitattributes at the repository root,
+commit it, check the files out again, then run this again." (or, when a `.gitattributes` between the site and its
+repository root already pins LF, "although .gitattributes pins LF: they were checked out before the pin"). And a file
+whose bytes differ from the locked hash **in line endings only** (the file with CRLF made LF, or LF made CRLF, hashes to
+the locked value) keeps its finding and its severity (`warn` for grounding, `block` for runtime) but says "in line
+endings only: it now ends its lines with CRLF where the locked copy had LF, and no other byte differs", with the
+.gitattributes remedy, never "the agent now answers from different facts". The CLI's watch, `watch --url` and the Desk
+say the same. Locks written before 2026-11-17 hashed JSON canonically, so their
 JSON hashes no longer match: write a fresh lock (below). The signer check compares the kid only; verifying a signature
 needs a trust store and is `src/core`'s job.
 

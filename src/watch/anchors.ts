@@ -19,7 +19,7 @@
 import { sha256Hex } from "../core/canonical.js";
 import { LINKS_FILE, MANIFEST_FILE, type DriftFinding, type GroundingSource } from "../core/types.js";
 import { MAX_BODY_BYTES } from "../net/fetch-types.js";
-import { groundingFinding, type AnchorCheck, type Observed, type SourceRole } from "./decide.js";
+import { groundingFinding, lineEndingChange, type AnchorCheck, type Observed, type SourceRole } from "./decide.js";
 
 export type { AnchorCheck };
 
@@ -721,7 +721,10 @@ export async function groundingFindingsWithAnchors(sources: readonly GroundingSo
     const s = observed[i]!;
     const anchors = source.anchors ?? [];
     let finding: DriftFinding | null;
+    const lineEndings = s.ok && s.sha256 !== source.sha256 && s.bytes !== undefined ? await lineEndingChange(s.bytes, source.sha256) : null;
     if (!s.ok || s.sha256 === source.sha256) finding = groundingFinding(source, s);
+    // UAT-13: line endings only, said as that (no facts to count: every other byte is the locked one)
+    else if (lineEndings !== null) finding = groundingFinding(source, s, undefined, undefined, lineEndings);
     else if (anchors.length === 0 || s.bytes === undefined) finding = groundingFinding(source, s, undefined, sourceRole(source, s.bytes));
     else {
       const now = await pageHashes(s.bytes);
