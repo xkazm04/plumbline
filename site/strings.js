@@ -43,7 +43,7 @@ export const STRINGS = {
     keygen: "plumbline keygen --out ~/plumbline-keys",
     lock: "plumbline watch --root ./site --init",
     sign: "plumbline sign --root ./site --key ~/plumbline-keys/plumbline.private.json --origin https://your.site",
-    publishFiles: "Publish plumbline.signature.json, .well-known/plumbline-key.json and plumbline.lock.json next to agent-manifest.json. Serve them with Access-Control-Allow-Origin: * like the other public agent files, or no browser on another site, this Desk included, can read them.",
+    publishFiles: "Publish plumbline.signature.json, .well-known/plumbline-key.json and plumbline.lock.json next to agent-manifest.json. Serve them, every file the signature covers and plumbline-revocation.json (its 404 too) with Access-Control-Allow-Origin: * like the other public agent files, or no browser on another site, this Desk included, can read them, and the site is unverifiable there.",
     lockEncouraged: "Sites are encouraged to publish their lock: it lets anyone, here or in their own CI, see drift since the publisher last looked.",
     tellKid: "Tell your visitors your key id through a channel that is not the site itself, so they can trust it on first contact.",
     tools: "The plumbline CLI and the GitHub Action that runs the gate and the watch in CI are in the Plumbline repository:",
@@ -138,6 +138,7 @@ export const STRINGS = {
     sigNotJson: "The signature file is not valid JSON.",
     refusedUnsafe: "Not verified: {why}. The runtime would load that file from somewhere no signature can pin.",
     coverageUnknown: "The signed files match, but this site's {files} could not be read (the browser was refused, or the site answered with an error), so the Desk cannot tell whether the signature covers everything the runtime loads. Not verified.",
+    unread: "This site's {files} could not be read (the browser was refused, or the site answered with an error other than 404), so the Desk cannot tell whether every signed file is intact, whether the signature covers everything the runtime loads, or whether its key has been revoked. Not verified, and not tampered either: a file that could not be read is not a file that changed.",
     originMismatch: "The signature names a different origin than the one these files were fetched from, so no trusted publisher can vouch for them here.",
     reasons: {
       "bad-signature": "the signature does not check out under the key you trust",
@@ -212,6 +213,7 @@ export const STRINGS = {
     downloadPrivate: "Download plumbline.private.json (keep it secret)",
     downloadPublic: "Download plumbline-key.json (publish at .well-known/plumbline-key.json)",
     discarded: "Discarded. The downloads are gone from this page.",
+    privateReleased: "plumbline.private.json was downloaded, and the page has let go of it: its download link is freed and the page keeps no copy. Keep the file safe; for another key, generate a new one.",
     keepUndownloaded: "Not made: a key made on this page has not been downloaded yet, and making another would throw it away. Download plumbline.private.json from the page, or discard the key there, first.",
     custodyHeading: "Key custody",
     sealBlank: "No key yet: the die is blank.",
@@ -414,3 +416,10 @@ export function t(key, vars = {}) {
   if (typeof value !== "string") throw new Error(`String ${key} is not text`);
   return value.replace(/\{(\w+)\}/g, (all, name) => (Object.hasOwn(vars, name) ? String(vars[name]) : all));
 }
+
+/**
+ * Registers nothing. agent-manifest.json lists this module in actions.modules so that the Desk's signature covers it
+ * (core's signedPathsOf signs every module named there), and the runtime imports each listed module and requires this
+ * export (runtime/action-transport.js loadActionModule). The Desk's actions are registered by site-actions.js only.
+ */
+export function registerActions() {}

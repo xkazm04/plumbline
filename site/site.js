@@ -39,11 +39,14 @@ export class AssistantMount {
     },
   };
 
+  /** Loads the vendored runtime. Tests replace it with one that fails, to check that the page keeps working. */
+  static loadRuntime = () => import("./runtime/index.js");
+
   static async start() {
     const status = document.querySelector("#assistant-status");
     const siteBase = new URL("./", import.meta.url).href;
     try {
-      const { boot } = await import("./runtime/index.js");
+      const { boot } = await AssistantMount.loadRuntime();
       const booted = await boot("#agent-app", {
         originUrl: siteBase,
         sandboxWorkerUrl: new URL("runtime/sandbox-worker.js", siteBase).href,

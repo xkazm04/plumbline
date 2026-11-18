@@ -39,3 +39,30 @@
   Access-Control-Allow-Origin: *
 /.well-known/*
   Access-Control-Allow-Origin: *
+
+# A verifier reads EVERY file the signature covers, so each signed code file allows cross-origin reads too: the action
+# module, the modules it imports that agent-manifest.json lists under actions.modules, and the bridge. The host answers
+# /bridge/action-bridge.html with a redirect to the extensionless path, so both forms carry the header (the bridge stays
+# framable: other agentic sites frame it). A file a browser on another origin cannot read is
+# "unverifiable" there, never "verified". The revocation path is listed even while the Desk publishes none: a verifier
+# that cannot read the 404 cannot tell "no revocation" from "refused", so the Desk could never be verified from there.
+/site-actions.js
+  Access-Control-Allow-Origin: *
+/desk.js
+  Access-Control-Allow-Origin: *
+/drift.js
+  Access-Control-Allow-Origin: *
+/examples.js
+  Access-Control-Allow-Origin: *
+/fetcher.js
+  Access-Control-Allow-Origin: *
+/review-dialog.js
+  Access-Control-Allow-Origin: *
+/strings.js
+  Access-Control-Allow-Origin: *
+/bridge/action-bridge.html
+  Access-Control-Allow-Origin: *
+/bridge/action-bridge
+  Access-Control-Allow-Origin: *
+/plumbline-revocation.json
+  Access-Control-Allow-Origin: *

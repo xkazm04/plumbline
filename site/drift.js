@@ -6,8 +6,12 @@
 //     browser can only read what the site publishes. A lock written from a different root than the published folder
 //     shows its files as missing; the summary says so.
 //   - the lock is a stranger's document, so its peer addresses are destinations a stranger chose: one that is not
-//     https, carries credentials, a query or a fragment, or names localhost, a single-label host or a private or
-//     loopback IP literal is never contacted (decide.ts peerAddressProblem) and is a warn that does not quote it.
+//     https, carries credentials, a query or a fragment, or names localhost, a single-label host or an IP literal in a
+//     range safeFetch refuses (net/address.js, the one table) is never contacted (decide.ts peerAddressProblem) and is
+//     a warn that does not quote it. The same rule, less the query, holds the lock's absolute grounding refs and the
+//     network file a peer's own manifest names (decide.ts destinationProblem).
+//   - what is read of a published file or a peer, and in what order, is watch/observe.js, the code the CLI's watch
+//     runs; only the fetcher, the error sentence (why) and the address guard are the browser's.
 //   - the upstream runtime check, the coverage check (it lists the site's root) and the signature-expiry check are the
 //     CLI's; the page says so.
 // Every hash is SHA-256 of the exact bytes fetched (hashBytes), as the CLI's watch does.
@@ -17,20 +21,20 @@
 // "unreadable" for another answer or a timeout, "unusable" for one that is not JSON or not the lock's shape. Each comes
 // with lockSummary, the sentence that says why no drift was checked.
 
-import { LOCK_FILE, PEER_LINKS_ABSENT, SIGNATURE_FILE } from "./lib/plumbline/core/index.js";
-import { hashBytes } from "./lib/plumbline/net/canonical.js";
+import { LOCK_FILE } from "./lib/plumbline/core/index.js";
 import { describeFetchError } from "./lib/plumbline/net/fetch-types.js";
-import { locatePeerFile, locateTarget } from "./lib/plumbline/net/locate.js";
+import { locateTarget } from "./lib/plumbline/net/locate.js";
 import {
+  destinationProblem,
   groundingFinding,
   lockProblem,
   peerAddressProblem,
   peerFindings,
   pendingPeerFindings,
-  readSignatureKid,
   refusedPeerFinding,
   runtimeFinding,
 } from "./lib/plumbline/watch/decide.js";
+import { observePeer, observePublished } from "./lib/plumbline/watch/observe.js";
 
 export { lockProblem };
 
@@ -66,26 +70,24 @@ function why(error) {
   return describeFetchError(error, "it could not be read");
 }
 
-/** One published file, hashed: decide.ts's Observed shape. */
-async function observePublished(fetcher, url, options) {
-  let response;
-  try {
-    response = await fetcher(url, options);
-  } catch (error) {
-    return { ok: false, missing: false, sentence: `could not be fetched (${why(error)})` };
-  }
-  if (response.status === 404 || response.status === 410) return { ok: false, missing: true, sentence: `is not published (HTTP ${response.status})` };
-  if (!response.ok) return { ok: false, missing: false, sentence: `could not be fetched (HTTP ${response.status})` };
-  return { ok: true, sha256: await hashBytes(response.bytes) };
-}
-
 const OUTSIDE = { ok: false, missing: false, sentence: "is outside the published site, so a browser cannot check it" };
+
+/** An absolute grounding ref the address rule refuses: never fetched, and the sentence does not quote it. */
+const refusedRef = (problem) => ({ ok: false, missing: false, sentence: `was not fetched, because ${problem}, which a published lock may not point a browser at` });
 
 async function detectGrounding(lock, base, fetcher, options) {
   const out = [];
   for (const source of lock.grounding.sources) {
-    const url = /^https:\/\//i.test(source.ref) ? source.ref : publishedUrl(source.ref, base);
-    const finding = groundingFinding(source, url === null ? OUTSIDE : await observePublished(fetcher, url, options));
+    let seen;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(source.ref)) {
+      // an absolute ref is a destination a stranger chose: held to the rule a lock's peers are (decide.ts)
+      const problem = destinationProblem(source.ref);
+      seen = problem === null ? await observePublished(fetcher, source.ref, { fetchOptions: options, why }) : refusedRef(problem);
+    } else {
+      const url = publishedUrl(source.ref, base);
+      seen = url === null ? OUTSIDE : await observePublished(fetcher, url, { fetchOptions: options, why });
+    }
+    const finding = groundingFinding(source, seen);
     if (finding) out.push(finding);
   }
   return out;
@@ -95,51 +97,22 @@ async function detectRuntime(lock, base, fetcher, options) {
   const out = [];
   for (const [file, expected] of Object.entries(lock.runtime.files)) {
     const url = publishedUrl(file, base);
-    const finding = runtimeFinding(file, expected, url === null ? OUTSIDE : await observePublished(fetcher, url, { ...options, ceiling: "runtime" }));
+    const finding = runtimeFinding(file, expected, url === null ? OUTSIDE : await observePublished(fetcher, url, { fetchOptions: { ...options, ceiling: "runtime" }, why }));
     if (finding) out.push(finding);
   }
   return out;
 }
 
-/** What the browser sees of one locked peer, in decide.ts's PeerObservation shape. */
-async function observePeer(url, record, fetcher, options) {
-  let located;
-  let response;
-  try {
-    located = await locatePeerFile(url, fetcher, options);
-    response = await fetcher(located.fileUrl, options);
-  } catch (error) {
-    return { definition: { ok: false, reason: why(error) }, signature: { none: true } };
-  }
-  if (!response.ok) return { definition: { ok: false, status: response.status }, signature: { none: true } };
-  const seen = { definition: { ok: true, sha256: await hashBytes(response.bytes) }, signature: { none: true } };
-  if (record.links !== undefined) {
-    try {
-      const answer = await fetcher(`${located.base}links.json`, options);
-      if (answer.status === 404 || answer.status === 410) seen.links = { state: PEER_LINKS_ABSENT };
-      else if (answer.ok) seen.links = { state: await hashBytes(answer.bytes) };
-      else seen.links = { problem: `answered HTTP ${answer.status}` };
-    } catch (error) {
-      seen.links = { problem: `could not be fetched (${why(error)})` };
-    }
-  }
-  try {
-    const sig = await fetcher(`${located.base}${SIGNATURE_FILE}`, options);
-    seen.signature = readSignatureKid({ status: sig.status, text: sig.ok ? sig.text() : "" });
-  } catch (error) {
-    seen.signature = readSignatureKid({ error: why(error) });
-  }
-  return seen;
-}
-
 async function checkPeer(url, record, fetcher, options) {
   const problem = peerAddressProblem(url);
   if (problem !== null) return [refusedPeerFinding(url, problem)];
-  const seen = await observePeer(url, record, fetcher, options);
+  // the reads the CLI's watch makes (watch/observe.js), with the network file the peer's manifest names held to the
+  // address rule before it is fetched
+  const seen = await observePeer(url, fetcher, { fetchOptions: options, why, links: record.links !== undefined, guard: destinationProblem });
   const findings = peerFindings(url, record, seen);
   // An unreachable peer is also listed in unreachablePeers, for the page's wording. A symbol key, so it never reaches
-  // JSON (the wire shape stays exact).
-  if (!seen.definition.ok) for (const f of findings) f[UNREACHABLE] = true;
+  // JSON (the wire shape stays exact). A refused network file is not unreachable: the Desk chose not to ask.
+  if (!seen.definition.ok && seen.definition.refused === undefined) for (const f of findings) f[UNREACHABLE] = true;
   return findings;
 }
 
@@ -193,3 +166,11 @@ export async function readDrift(target, fetcher, options = {}) {
   const unreachablePeers = peers.filter((f) => f[UNREACHABLE] === true).map((f) => f.ref);
   return { target, base, lockUrl, lockFound: true, lockState: "found", unreachablePeers, findings: [...grounding, ...runtime, ...peers] };
 }
+
+/**
+ * The runtime imports every module the manifest lists in actions.modules and requires this export
+ * (runtime/action-transport.js). drift.js registers no action of its own: it is listed so the Desk's signature covers
+ * the code its website tools run.
+ */
+export function registerActions() {}
+

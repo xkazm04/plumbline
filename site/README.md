@@ -82,7 +82,7 @@ of `npm run test:site`.
 | `run_gate` | read | `src/gate/run.ts` with the browser's `fetch`: the validator port, Agent Atlas, Agent Customs |
 | `read_drift` | read | verifies the target's signature first (the trust store as it is, nothing written), then `drift.js` reads the same `plumbline.lock.json` bytes and re-checks runtime files, grounding sources and peers. A lock no verified signature covers is labelled "unsigned lock: the host can rewrite it" |
 | `verify_site` | read | core's `verifySignature` against the visitor's trust store (localStorage, this origin only), over the exact bytes of every file core's `signedPathsOf` names: the manifest, its networks at their `hocon` paths, its action module, bridge and coded-tools bundle, and `links.json` and the lock whenever the site serves them |
-| `generate_key` | write (undo: Discard) | core's `generateKey`; offers `plumbline.private.json` (the CLI's format) and `.well-known/plumbline-key.json` as downloads; returns the key id only. Refused while a key made earlier has not been downloaded, so the assistant never throws one away |
+| `generate_key` | write (undo: Discard) | core's `generateKey`; offers `plumbline.private.json` (the CLI's format) and `.well-known/plumbline-key.json` as downloads; returns the key id only. A second after the visitor uses the private key's download link, the page revokes its object URL, drops the Blob and shows a sentence in its place, so the key stays in page memory only as long as its download needs. Refused while a key made earlier has not been downloaded, so the assistant never throws one away |
 | `sign_files` | irreversible (asks first) | core's `signSubjects` over the exact bytes of the files the visitor picked on the page, with the key file they picked there; offers `plumbline.signature.json` as a download |
 
 **What the assistant may reach.** `run_gate`, `read_drift` and `verify_site` fetch only a host the visitor typed or
@@ -137,10 +137,12 @@ the key. The page's own Sign button opens the same dialog.
   read is unreadable here, and the result says so: a gate checker becomes `unavailable` (never `pass`), a signature that
   cannot be read is `unverifiable`, a lock that cannot be read is one drift finding. There is no SSRF guard in the browser
   and none is needed: the page can reach only what the visitor's browser can.
-- Publishers: serve `plumbline.signature.json`, `.well-known/plumbline-key.json` and `plumbline.lock.json` with
-  `Access-Control-Allow-Origin: *`, like the other public agent files, or no browser on another site can read them.
-  `serve_site.mjs` does not add that header for these three files, so a Desk on another origin cannot verify a site
-  served by it.
+- Publishers: serve `plumbline.signature.json`, `.well-known/plumbline-key.json`, `plumbline.lock.json`,
+  `plumbline-revocation.json` (its 404 too) and every file the signature covers (the action module and its listed
+  modules, the bridge) with `Access-Control-Allow-Origin: *`, like the other public agent files, or no browser on another
+  site can read them, and the site is `unverifiable` there. The Desk's own `_headers` does this, the bridge's
+  extensionless path included (the host redirects to it). `serve_site.mjs` does not add that header for these files, so
+  a Desk on another origin cannot verify a site served by it.
 - The drift reader resolves lock paths against the lock's own URL. A lock written from a different folder than the one
   published shows its files as missing. The upstream nsdeploy commit check is left to the CLI's `watch`.
 - Drift says "no lock" only when the site answers 404 or 410. A lock the browser is refused (no CORS header, offline)
@@ -152,6 +154,14 @@ the key. The page's own Sign button opens the same dialog.
 - Verify passes `links.json` and the lock to core whenever the site answers 2xx for them and leaves them out on 404 or
   410. When the browser cannot read one of them (refused, or another HTTP answer), the Desk cannot tell whether the
   signature covers everything the runtime loads, so it does not claim `verified`: the verdict is `unverifiable`.
+- A file the browser could not read is never a verdict, as with `plumbline verify --url`. A signed file that answers
+  404 or 410 is missing (`invalid tampered`), but one the browser is refused (no CORS header, offline, a timeout) or
+  that answers another HTTP error is unread: a `verified` result is withdrawn, and a `tampered` one is too when it could
+  rest on the unread file (no signed file is gone and every signed file that was read has its signed digest). A
+  `plumbline-revocation.json` that cannot be read (anything but 2xx, 404 or 410) withdraws `verified` as well, since it
+  might revoke this very key. The verdict is `unverifiable`, naming what was unread. One difference from the CLI: the
+  CLI also withdraws a `tampered` verdict that rests on a file it did read when something else was unread; the Desk
+  keeps that one `tampered`, because the changed bytes are in hand.
 
 ## Content-Security-Policy
 
@@ -256,12 +266,46 @@ key, with none of its own site tools, so it cannot run its own checks from here,
 token estimate. Agent Customs' own network may ask its test-range sites (`agent-customs-range.github.io`); each gets its
 own card.
 
+## What the Desk's own signature covers, and the release order
+
+The Desk signs itself with `plumbline sign` like any site, so its signature covers what core's `signedPathsOf` names in
+`agent-manifest.json`: the manifest, the network, the action module `site-actions.js`, the bridge, `links.json` and the
+lock, and every module listed under `actions.modules`. A signed module that does `import "./x.js"` pins the import
+statement, not `x.js` (`docs/signature-format.md`), and every website tool in `site-actions.js` is a one-line call into
+`desk.js`, so the Desk lists the own modules its tools run under `actions.modules`: `desk.js`, `examples.js`,
+`fetcher.js`, `review-dialog.js` and `strings.js`. The runtime imports each listed module and refuses one that does not
+export `registerActions` (`runtime/action-transport.js`, `loadActionModule`), so each of them exports one that registers
+nothing; only `site-actions.js` registers actions. A test walks the imports of `site-actions.js` and fails when an own
+module it reaches is not listed.
+
+Not listed, and why:
+
+- `drift.js`, the drift reader behind `read_drift`, is not listed yet: it needs the same no-op `registerActions` export
+  first, or the runtime would refuse every action module. The test above turns red the moment it has one, so it is
+  listed then.
+- `lib/plumbline/**` (core, the gate, `net/` and `watch/`, compiled from `src/` by `npm run build:site`) is not listed.
+  Each listed module must export `registerActions`, and these are the compiled core and gate, whose exports are the CLI's
+  contract; a hand-kept list of generated paths would also miss, silently, any module a later build adds. A signed-paths
+  rule in core that follows static imports would cover them without either cost; until then the HTTPS origin covers them.
+- The page's own scripts (`index.html`, `shell.js`, `site.js`, `art.js`) and `runtime/` (the lock pins its files), as
+  `docs/signature-format.md` says.
+
+**Release order.** Every one of those files is signed, `desk.js` and `strings.js` included, so any edit to one after
+signing makes the Desk `invalid tampered` until it is signed again. From the repository root:
+
+1. `node <agentic-web>/skills/agentify-website/scripts/build_network.mjs site/plumbline_desk.hocon --manifest site/agent-manifest.json`
+   (the generated network, bridge and discovery files);
+2. `npm run build:site` (`site/lib/plumbline/`, which the deploy needs, and which a signature covers once it is listed);
+3. `plumbline watch --root ./site --init`, or `--relock` after drift you accept (the lock is a signed file);
+4. `plumbline sign --root ./site --key <plumbline.private.json> --origin https://plumbline.xkazm04.workers.dev`;
+5. deploy (`npx wrangler deploy`: `wrangler.jsonc` serves `site/`), then verify the Desk from the Desk.
+
 ## Files
 
 | Path | What |
 | --- | --- |
 | `index.html` | the page: structure only (the overview, one section per view, the assistant panel), and the Content-Security-Policy; every visible string is in `strings.js` |
-| `_headers` | response headers for hosts that read it: `frame-ancestors`, the sandbox worker's policy, and cross-origin reads (`Access-Control-Allow-Origin: *`, no credentials) on the public agent artifacts |
+| `_headers` | response headers for hosts that read it: `frame-ancestors`, the sandbox worker's policy, and cross-origin reads (`Access-Control-Allow-Origin: *`, no credentials) on the public agent artifacts, every signed file and the revocation path |
 | `strings.js` | every visible string |
 | `fix.css` | the page's look: "The Fix" (contest B/3), ported from the winner's stylesheet |
 | `assistant.css` | the assistant panel, the skill's assistant CSS (`--ns-*` colours) and the confirmation dialog |

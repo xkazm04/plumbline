@@ -117,7 +117,8 @@ test("_headers forbids framing the Desk and gives the sandbox worker the policy 
   for (const [p, lines] of rules) {
     if (p === "/*" || p.startsWith("/bridge")) assert.ok(!lines.some((l) => /frame-ancestors|x-frame-options/i.test(l)), "bridge/action-bridge.html must stay framable");
   }
-  assert.ok(![...rules.keys()].some((p) => p.startsWith("/bridge")), "bridge/action-bridge.html must stay framable");
+  // The bridge's own rules (p-bb6d18) only open it to cross-origin reads, so verifiers elsewhere can read a signed file.
+  for (const [p, lines] of rules) if (p.startsWith("/bridge")) assert.deepEqual(lines, ["Access-Control-Allow-Origin: *"], `${p} must only allow cross-origin reads`);
   assert.deepEqual(rules.get("/*"), ["X-Content-Type-Options: nosniff", "Referrer-Policy: no-referrer"]);
   const worker = await read("runtime/sandbox-worker.js");
   const asked = worker.match(/Serve runtime\/sandbox-worker\.js with: ([^.]+)\./);

@@ -75,6 +75,14 @@
   "actions": {
     "version": 1,
     "module": "./site-actions.js",
+    "modules": [
+      "./desk.js",
+      "./drift.js",
+      "./examples.js",
+      "./fetcher.js",
+      "./review-dialog.js",
+      "./strings.js"
+    ],
     "bridge": "./bridge/action-bridge.html",
     "agentTools": [
       "get_desk_state",

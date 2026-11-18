@@ -20,12 +20,13 @@ import {
   KEY_TYPE,
   REVOCATION_FILE,
   SIGNATURE_FILE,
-  applyRevocation,
+  applyRevocationText,
   derivePublicKey,
   LOCK_FILE,
   generateKey,
   isAcceptableOrigin,
   isKid,
+  isPrivateKeyFile,
   isPublicKey,
   isSafeSubjectPath,
   keyId,
@@ -49,6 +50,10 @@ const TRUST_STORAGE_KEY = "plumbline-desk.trust.v1";
 /** The CLI's trust file (docs/signature-format.md, "plumbline.trust.json (CLI format)"); core names no constant for it. */
 export const TRUST_FILE = "plumbline.trust.json";
 const MAX_DAYS = 3650;
+// How long the private key's object URL outlives the click on its download link. The browser reads a blob: URL when
+// the download starts, right after the click's event handlers return; revoking it inside the handler can cancel the
+// download, and a second is far longer than that start takes. Not a measured ceiling: a margin over "after the click".
+const RELEASE_AFTER_MS = 1000;
 const DAY_MS = 86_400_000;
 
 export const PARTNERS = [
@@ -268,7 +273,7 @@ export class TrustBook {
     return TrustBook.#entry(e);
   }
 
-  /** Replaces the whole store with the entries a VERIFIED revocation returned (applyRevocation's result.entries). */
+  /** Replaces the whole store with the entries a VERIFIED revocation returned (applyRevocationText's outcome.entries). */
   replaceEntries(entries) {
     this.entries = entries.filter(storedEntryOk).map(TrustBook.#entry);
     this.#spread();
@@ -380,6 +385,28 @@ async function readFileBytes(file) {
   throw new Error("not a file");
 }
 
+/**
+ * True when every signed subject the Desk read has its signed digest: a tampered verdict then rests only on files that
+ * could not be read. Only safe paths are in `have`, so a listed path outside the pattern is never looked up.
+ */
+async function readSubjectsMatch(listed, have) {
+  for (const subject of listed) {
+    if (!subject || !isSafeSubjectPath(subject.path) || !have.has(subject.path)) continue;
+    if ((await subjectDigest(have.get(subject.path))) !== subject.sha256) return false;
+  }
+  return true;
+}
+
+/**
+ * The files a verdict names, sorted, joined as words: "a", "a and b", "a, b and c"; past five, the first five and how
+ * many more. Every name is a fixed file name or a path that passed core's subject-path pattern.
+ */
+function fileList(names) {
+  const sorted = [...names].sort();
+  const shown = sorted.length > 5 ? [...sorted.slice(0, 5), `${sorted.length - 5} more`] : sorted;
+  return shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`;
+}
+
 /** One optional site file (links.json, the lock): present (2xx), absent (404/410), or unknown (anything else). */
 async function fetchOptional(fetcher, url) {
   try {
@@ -424,15 +451,18 @@ export class DeskPage {
     this.trustImport = null;
     this.trustExport = null;
     this.revocation = null;
+    // Runs a step a moment later: after a click on a download link, once the browser has started the download.
+    this.later = deps.later || ((fn) => setTimeout(fn, RELEASE_AFTER_MS));
   }
 
-  /** Test and embedding hook: replace the fetcher, the clock, the storage, the frame test or the Ed25519 probe. */
+  /** Test and embedding hook: replace the fetcher, the clock, the storage, the frame test, the Ed25519 probe or later. */
   configure(deps = {}) {
     if (deps.fetch) this.fetch = deps.fetch;
     if (deps.ownOrigin) this.ownOrigin = deps.ownOrigin;
     if (deps.now) this.now = deps.now;
     if (deps.storage !== undefined) this.trust = new TrustBook(deps.storage);
     if (deps.framed !== undefined) this.framed = deps.framed;
+    if (deps.later) this.later = deps.later;
     if (deps.probe) {
       this.probe = deps.probe;
       this.ed25519 = null;
@@ -478,7 +508,7 @@ export class DeskPage {
         ? { target: this.drift.target, lockFound: this.drift.lockFound, findings: this.drift.findings.length, blocking: this.drift.findings.filter((f) => f.severity === "block").length }
         : null,
       lastVerification: this.verification ? (this.verification.refused ? { refused: this.verification.refused.reason } : this.verification.result) : null,
-      generatedKey: this.key ? { kid: this.key.kid, offeredOnPage: this.key.offers.map((o) => o.path), downloaded: this.key.downloaded } : null,
+      generatedKey: this.key ? { kid: this.key.kid, offeredOnPage: this.key.offers.filter((o) => !o.released).map((o) => o.path), downloaded: this.key.downloaded } : null,
       signing: {
         version: s.version,
         origin: s.origin,
@@ -691,15 +721,25 @@ export class DeskPage {
     const listed = isRecord(signature) && Array.isArray(signature.subjects) ? signature.subjects : [];
     const wanted = new Set(required);
     for (const subject of listed) if (subject && isSafeSubjectPath(subject.path)) wanted.add(subject.path);
+    // A file the site says is gone (404 or 410, or a path that leaves the site) is missing: core calls a missing signed
+    // file tampered. A file the browser could not read (refused, offline, a timeout or another HTTP answer) is unread:
+    // it may be intact, so it can make the verdict neither tampered nor verified.
+    const unreadFiles = [];
+    let gone = false;
     for (const rel of wanted) {
       if (have.has(rel)) continue;
       const url = publishedUrl(rel, base);
-      if (url === null) continue; // a path that leaves the site is simply not a present file: tampered
+      if (url === null) {
+        gone = true;
+        continue;
+      }
       try {
         const response = await this.fetch(url);
         if (response.ok) have.set(rel, response.bytes);
+        else if (response.status === 404 || response.status === 410) gone = true;
+        else unreadFiles.push(rel);
       } catch {
-        // not present: core reports a signed file that is missing as tampered
+        unreadFiles.push(rel);
       }
     }
     const files = [...have].map(([path, content]) => ({ path, content }));
@@ -710,8 +750,18 @@ export class DeskPage {
     // links.json or the lock could not be read (refused, or an HTTP error): the Desk cannot tell whether the signature
     // covers everything the runtime loads, so a verified result is not claimed.
     const unknown = [[links, LINKS_FILE], [lock, LOCK_FILE]].filter(([x]) => x.state === "unknown").map(([, name]) => name);
-    if (result.verdict === "verified" && unknown.length) {
+    const revocationUnread = revocation.state === "unavailable";
+    if (result.verdict === "verified" && unknown.length && !unreadFiles.length && !revocationUnread) {
       result = { verdict: "unverifiable", kid: result.kid, origin: result.origin, detail: t("verify.coverageUnknown", { files: unknown.join(" and ") }) };
+    } else if (unreadFiles.length || revocationUnread || unknown.length) {
+      // Like `plumbline verify --url`: a verified result is not claimed over a file that could not be read, the
+      // revocation included (it might revoke this very key). A tampered result is withdrawn only when it may rest on an
+      // unread signed file: no signed file is gone, and every signed file that was read has its signed digest.
+      const tamperedByUnread = result.reason === "tampered" && unreadFiles.length > 0 && !gone && (await readSubjectsMatch(listed, have));
+      if (result.verdict === "verified" || tamperedByUnread) {
+        const names = [...new Set([...(revocationUnread ? [REVOCATION_FILE] : []), ...unreadFiles, ...unknown])];
+        result = { verdict: "unverifiable", ...(result.kid ? { kid: result.kid } : {}), ...(result.origin ? { origin: result.origin } : {}), detail: t("verify.unread", { files: fileList(names) }) };
+      }
     }
     const signedKid = isRecord(signature) && isKid(signature.kid) ? signature.kid : null;
     // D5: a key this browser holds as revoked (an entry for another origin, or a tombstone the visitor kept by
@@ -721,7 +771,8 @@ export class DeskPage {
     const originMismatch = isRecord(signature) && typeof signature.origin === "string" && signature.origin !== fetchedFrom;
     // A site that publishes a revocation of the very key it signs with gets no first-contact offer: a revocation only
     // ever takes trust away, so it is honoured here even when this browser never trusted the key.
-    const keyRevokedBySite = signedKid !== null && revocation.kid === signedKid;
+    // a revocation file may list several keys (core: kids); the site revokes its own signing key if any of them is it
+    const keyRevokedBySite = signedKid !== null && (Array.isArray(revocation.kids) ? revocation.kids.includes(signedKid) : revocation.kid === signedKid);
     const firstContact =
       result.verdict === "unverifiable" && !originMismatch && !keyRevokedBySite && !knownRevoked && publishedKey && isKid(publishedKey.kid) && publishedKey.kid === signedKid && isPublicKey(publishedKey.publicKey)
         ? { kid: publishedKey.kid, publicKey: publishedKey.publicKey }
@@ -739,11 +790,11 @@ export class DeskPage {
   }
 
   /**
-   * Reads plumbline-revocation.json from the site base and applies it with core's applyRevocation(statement, entry,
-   * allEntries) to every trust entry for its kid (a revocation names no origin). Only a VERIFIED revocation changes
-   * anything, and only by taking trust away: the store becomes result.entries, the revocation spread to every origin
-   * and down every adoptedVia chain. Absent (404/410) is normal and changes nothing; a file that cannot be read is
-   * reported as unavailable, never as "no revocation".
+   * Reads plumbline-revocation.json from the site base and applies its text with core's applyRevocationText(text,
+   * entries), the one rule the CLI shares: it checks the revocation against every trust entry for its kid (a revocation
+   * names no origin). Only a VERIFIED revocation changes anything, and only by taking trust away: the store becomes the
+   * outcome's entries, the revocation spread to every origin and down every adoptedVia chain. Absent (404/410) is normal
+   * and changes nothing; a file that cannot be read is reported as unavailable, never as "no revocation".
    *
    * :param persist: write an accepted revocation to the trust store (verify_site), or keep it in memory (drift).
    * :return: {report, kid?, state, store?}: report is the part the verdict carries (no key material); store is the
@@ -760,38 +811,9 @@ export class DeskPage {
     }
     if (response.status === 404 || response.status === 410) return { state: "absent", report: { file, state: "absent" } };
     if (!response.ok) return unavailable(t("verify.revocation.httpStatus", { status: response.status }));
-    let statement;
-    try {
-      statement = JSON.parse(response.text());
-    } catch {
-      statement = undefined;
-    }
-    // A kid outside its pattern is never quoted: core reports such a statement as malformed.
-    const kid = isRecord(statement) && isKid(statement.kid) ? statement.kid : undefined;
-    const results = [];
-    let working = this.trust.entries;
-    let applied = false;
-    if (statement === undefined) {
-      results.push({ verdict: "invalid", reason: "malformed", detail: "The revocation file is not valid JSON." });
-    } else {
-      const entries = kid === undefined ? [] : this.trust.forKid(kid);
-      if (entries.length === 0) {
-        const { entry: _none, entries: _all, ...result } = await applyRevocation(statement, undefined);
-        void _none;
-        void _all;
-        results.push(result);
-      }
-      for (const entry of entries) {
-        const current = working.find((e) => e.kid === entry.kid && e.origin === entry.origin) || entry;
-        const { entry: _one, entries: next, ...result } = await applyRevocation(statement, current, working);
-        void _one;
-        results.push(result);
-        if (result.verdict === "verified" && Array.isArray(next)) {
-          working = next;
-          applied = true;
-        }
-      }
-    }
+    // core parses the text and quotes a kid only when it holds its pattern; whatever file format core accepts, the
+    // Desk accepts with no code of its own.
+    const { applied, kid, results, entries: working } = await applyRevocationText(response.text(), this.trust.entries);
     let persisted = false;
     if (applied && persist) {
       this.trust.replaceEntries(working);
@@ -939,9 +961,26 @@ export class DeskPage {
     };
   }
 
-  /** The visitor used the private key file's download link. */
+  /**
+   * The visitor used the private key file's download link. The download starts from the click; a moment later
+   * (this.later) the page lets go of the file: its object URL is revoked, its Blob dropped and the link replaced by a
+   * sentence, so the private key stays in page memory only as long as its download needs.
+   */
   markKeyDownloaded() {
-    if (this.key) this.key.downloaded = true;
+    const key = this.key;
+    if (!key) return { ok: true };
+    key.downloaded = true;
+    const file = key.offers.find((o) => o.path === PRIVATE_KEY_FILE);
+    if (file && !file.releasing) {
+      file.releasing = true;
+      this.later(() => {
+        revoke(file);
+        file.url = null;
+        file.blob = null;
+        file.released = true;
+        if (this.key === key) this.render("key");
+      });
+    }
     return { ok: true };
   }
 
@@ -977,7 +1016,8 @@ export class DeskPage {
     } catch {
       parsed = null;
     }
-    const shaped = isRecord(parsed) && parsed.type === PRIVATE_KEY_TYPE && parsed.version === FORMAT_VERSION && parsed.alg === ALG && isKid(parsed.kid) && typeof parsed.privateKey === "string";
+    // core's shape test, shared with the CLI; a revocation also quotes the kid, so it must hold its pattern.
+    const shaped = isPrivateKeyFile(parsed) && isKid(parsed.kid);
     let publicKey = null;
     if (shaped) {
       try {
@@ -1045,13 +1085,8 @@ export class DeskPage {
       } catch {
         parsed = null;
       }
-      const ok =
-        parsed &&
-        parsed.type === PRIVATE_KEY_TYPE &&
-        parsed.version === FORMAT_VERSION &&
-        parsed.alg === ALG &&
-        typeof parsed.kid === "string" &&
-        typeof parsed.privateKey === "string";
+      // core's shape test, shared with the CLI; the kid must then belong to the key (keyIdOfPrivate below).
+      const ok = isPrivateKeyFile(parsed);
       let derived = null;
       if (ok) {
         try {
@@ -1579,6 +1614,11 @@ function renderKey(page) {
     made.append(el("span", `${t("key.made")} `), el("code", page.key.kid, "kid"));
     const list = el("ul", null, "downloads");
     for (const o of page.key.offers) {
+      // A private key file already downloaded is no longer on the page: a sentence takes its link's place.
+      if (o.released) {
+        list.append(el("li", t("key.privateReleased"), "note"));
+        continue;
+      }
       const li = el("li");
       const link = downloadLink(o, o.label);
       // D4: once the visitor has used the private key's download, the assistant may make another key.
@@ -1772,7 +1812,7 @@ async function signFromPage() {
   const page = App.page;
   const check = page.checkSign();
   if (!check.ok) return check;
-  const content = page.signDialogContent(check, `sign_files on ${location.origin} (irreversible)\n${JSON.stringify({ expectedVersion: check.version }, null, 2)}`);
+  const content = page.signDialogContent(check, `sign_files on ${page.ownOrigin} (irreversible)\n${JSON.stringify({ expectedVersion: check.version }, null, 2)}`);
   const confirmed = await new Promise((resolve) => openReviewDialog(content, resolve));
   if (!confirmed) {
     page.notices.sign = t("sign.declined");
@@ -1844,3 +1884,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined" && typeof d
   for (const part of Object.keys(VIEWS)) page.render(part);
   void showLimits(page);
 }
+
+/**
+ * Registers nothing. agent-manifest.json lists this module in actions.modules so that the Desk's signature covers it
+ * (core's signedPathsOf signs every module named there), and the runtime imports each listed module and requires this
+ * export (runtime/action-transport.js loadActionModule). The Desk's actions are registered by site-actions.js only.
+ */
+export function registerActions() {}

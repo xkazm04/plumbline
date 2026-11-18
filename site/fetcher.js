@@ -127,3 +127,10 @@ export function makeBrowserFetcher(fetchImpl = (...args) => globalThis.fetch(...
     }
   };
 }
+
+/**
+ * Registers nothing. agent-manifest.json lists this module in actions.modules so that the Desk's signature covers it
+ * (core's signedPathsOf signs every module named there), and the runtime imports each listed module and requires this
+ * export (runtime/action-transport.js loadActionModule). The Desk's actions are registered by site-actions.js only.
+ */
+export function registerActions() {}

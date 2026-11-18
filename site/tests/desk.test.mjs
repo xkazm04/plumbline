@@ -11,6 +11,7 @@ import { ActionRegistry } from "../runtime/actions.js";
 import { AgentNetwork, validateNetwork } from "../runtime/kernel.js";
 import { buildToolTable, dispatchToolCall, runAgent } from "../runtime/runner.js";
 import { TraceBus } from "../runtime/trace.js";
+import { StubDialog } from "./stub_dialog.mjs";
 import { StubDocument } from "./stub_document.mjs";
 import { StubElement } from "./stub_element.mjs";
 import { StubOption } from "./stub_option.mjs";
@@ -106,7 +107,8 @@ async function deskSiteFiles(options = {}) {
 
 /**
  * A scripted site at `origin` serving the Desk's agent files, a signature made by `signer` for `signedFor` (default:
- * the same origin) and the signer's public key record. Nothing for plumbline-revocation.json unless the test sets it.
+ * the same origin) and the signer's public key record. plumbline-revocation.json answers 404 (no revocation) unless the
+ * test sets it; a test that deletes the route makes it one the browser cannot read.
  * Every subject is the file's exact text (its UTF-8 bytes), never a parse of it. Options as deskSiteFiles; without
  * links.json the site answers 404 for it.
  */
@@ -125,6 +127,7 @@ async function signedSite(origin, signer, signedFor = origin, options = {}) {
   });
   site.set(`${origin}/plumbline.signature.json`, JSON.stringify(signature));
   site.set(`${origin}/.well-known/plumbline-key.json`, JSON.stringify(signer.key));
+  site.set(`${origin}/${REVOCATION_PATH}`, "not found", 404);
   return { site, signature, files };
 }
 
@@ -248,7 +251,7 @@ class DeskTest {
   /** The Desk's own files as the file picker gives them: every file core's signedPathsOf names, the lock included. */
   static async siteFiles() {
     const files = [];
-    for (const path of ["agent-manifest.json", `${NETWORK_NAME}.network.json`, "site-actions.js", "bridge/action-bridge.html", "links.json", "plumbline.lock.json"]) {
+    for (const path of signedPathsOf(JSON.parse(await siteFile("agent-manifest.json")), { links: true, lock: true })) {
       files.push(new File([await siteBytes(path)], path.split("/").at(-1)));
     }
     return files;
@@ -512,14 +515,21 @@ class DeskTest {
     assert.ok(values.includes(before.signing.kid));
     const files = values.find((v) => typeof v === "string" && v.includes("agent-manifest.json"));
     for (const f of before.signing.files) assert.ok(files.includes(`${f.path}  sha256 ${f.sha256}`), `The dialog leaves out ${f.path}.`);
-    // Every file core's signedPathsOf names: the network at its hocon path, the action module, the bridge, links and lock.
+    // Every file core's signedPathsOf names: the network at its hocon path, the action module and the modules it
+    // imports (actions.modules), the bridge, links and lock.
     assert.deepEqual(before.signing.files.map((f) => f.path), [
       "agent-manifest.json",
       "bridge/action-bridge.html",
+      "desk.js",
+      "drift.js",
+      "examples.js",
+      "fetcher.js",
       "links.json",
       "plumbline.lock.json",
       "plumbline_desk.network.json",
+      "review-dialog.js",
       "site-actions.js",
+      "strings.js",
     ]);
     assert.ok(!JSON.stringify(content).includes(JSON.parse(DeskTest.privateText).privateKey), "The dialog shows the private key.");
     assert.deepEqual(await DeskTest.readState(registry), before);
@@ -758,6 +768,7 @@ class DeskTest {
     for (const path of receipt.result.files) site.set(`${SITE}/${path}`, await siteFile(path));
     site.set(`${SITE}/plumbline.signature.json`, signatureText);
     site.set(`${SITE}/.well-known/plumbline-key.json`, DeskTest.publicText);
+    site.set(`${SITE}/plumbline-revocation.json`, "not found", 404);
     App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
     try {
       const stranger = await App.page.verifySite({ target: `${SITE}/` });
@@ -1158,8 +1169,13 @@ test("verify fetches every file signedPathsOf names, as bytes, and a links.json 
       assert.ok(site.calls.includes(`${SITE}/${path}`), `${path} was not fetched`);
     }
     assert.ok(!site.calls.includes(`${SITE}/./plumbline_desk.network.json`));
-    // links.json is signed here, so a refused read of it is a missing signed file: tampered, never verified.
+    // links.json is signed here, so a refused read of it is a signed file that could not be read: never verified, and
+    // not tampered either (p-1aaf28; a 404 would be a missing signed file, tampered).
     site.routes.delete(`${SITE}/links.json`);
+    const refusedLinks = await App.page.verifySite({ target: `${SITE}/` });
+    assert.deepEqual([refusedLinks.verdict, refusedLinks.reason], ["unverifiable", undefined]);
+    assert.equal(refusedLinks.detail, STRINGS.verify.unread.replace("{files}", "links.json"));
+    site.set(`${SITE}/links.json`, "gone", 404);
     assert.equal((await App.page.verifySite({ target: `${SITE}/` })).reason, "tampered");
     // On a site that signs no links.json, a links.json the browser cannot read leaves coverage unknown: unverifiable.
     const bare = await signedSite(SITE, signer, SITE, { links: false });
@@ -2112,4 +2128,419 @@ test("p-adecb8: the Desk's untested refusal paths each refuse in words and chang
     App.page.clearSigning();
     restore();
   }
+});
+
+// ---- wave 2 (2026-11-18): the Desk's own signature, unread files, the key download, and the untested paths ----
+
+/** The Desk's own modules the action module imports, directly or through each other (not lib/ or runtime/). */
+async function ownActionModules() {
+  const own = new Set();
+  const queue = ["site-actions.js"];
+  while (queue.length) {
+    const file = queue.shift();
+    const text = await siteFile(file);
+    for (const match of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["']\.\/([^"']+)["']/g)) {
+      const path = match[1];
+      if (path.startsWith("lib/") || path.startsWith("runtime/") || own.has(path)) continue;
+      own.add(path);
+      queue.push(path);
+    }
+  }
+  return [...own].sort();
+}
+
+/**
+ * drift.js is builder B2's file this wave: listing it needs a no-op `registerActions` export there first, because the
+ * runtime refuses an action module without one (runtime/action-transport.js loadActionModule). Until it has one it is
+ * left out, and this tripwire turns red the moment it gains the export, so it is listed then.
+ */
+const AWAITING_EXPORT = new Set();
+
+test("p-e1e3da: every own module the website tools run is in actions.modules, exports registerActions and registers nothing; an edited desk.js is tampered", async () => {
+  const manifest = JSON.parse(await siteFile("agent-manifest.json"));
+  const listed = (manifest.actions.modules || []).map((p) => p.replace(/^\.\//, ""));
+  const own = await ownActionModules();
+  assert.ok(own.includes("desk.js") && own.includes("fetcher.js"), own.join(", "));
+  for (const path of own) {
+    if (AWAITING_EXPORT.has(path)) {
+      const mod = await import(`../${path}`);
+      assert.equal(typeof mod.registerActions, "undefined", `${path} exports registerActions now: list it in actions.modules and drop it from AWAITING_EXPORT`);
+      assert.ok(!listed.includes(path), `${path} is listed without a registerActions export, so the runtime would refuse every action module`);
+      continue;
+    }
+    assert.ok(listed.includes(path), `${path} runs behind the website tools but the signature does not cover it`);
+  }
+  // Every listed module is one the runtime can load: it exports registerActions, and only site-actions.js registers.
+  for (const path of listed) {
+    const mod = await import(`../${path}`);
+    assert.equal(typeof mod.registerActions, "function", `${path} has no registerActions`);
+    const registered = [];
+    await mod.registerActions({ register: (definition) => registered.push(definition.name) });
+    assert.deepEqual(registered, [], `${path} registered ${registered.join(", ")}`);
+  }
+  // The generated lib/ is not listed: each listed module must export registerActions, and lib/ is tsc's output of src/.
+  assert.ok(!listed.some((p) => p.startsWith("lib/")));
+  // An edited desk.js (what sign_files and verify_site run) turns the Desk's own verdict to invalid tampered.
+  const SITE = "https://desk-code.example";
+  const signer = await generateKey(NOW);
+  const { site, signature } = await signedSite(SITE, signer);
+  site.set(`${SITE}/${REVOCATION_PATH}`, "not found", 404);
+  App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+  try {
+    assert.ok(signature.subjects.some((x) => x.path === "desk.js"), "desk.js is not a signed subject");
+    App.page.trust.add({ kid: signer.key.kid, origin: SITE, publicKey: signer.key.publicKey });
+    assert.equal((await App.page.verifySite({ target: `${SITE}/` })).verdict, "verified");
+    const edited = (await siteFile("desk.js")).replace("async signFiles(args = {}) {", 'async signFiles(args = {}) {\n    fetch("https://evil.example/");');
+    site.set(`${SITE}/desk.js`, edited);
+    const result = await App.page.verifySite({ target: `${SITE}/` });
+    assert.deepEqual([result.verdict, result.reason], ["invalid", "tampered"]);
+  } finally {
+    restore();
+  }
+});
+
+test("p-1aaf28: a signed file or the revocation the browser could not read is unverifiable, never tampered or verified", async () => {
+  const SITE = "https://unread.example";
+  const signer = await generateKey(NOW);
+  const { site } = await signedSite(SITE, signer);
+  site.set(`${SITE}/${REVOCATION_PATH}`, "not found", 404);
+  App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+  const unread = (files) => STRINGS.verify.unread.replace("{files}", files);
+  const actions = await siteFile("site-actions.js");
+  const bridge = await siteFile("bridge/action-bridge.html");
+  try {
+    App.page.trust.add({ kid: signer.key.kid, origin: SITE, publicKey: signer.key.publicKey });
+    assert.equal((await App.page.verifySite({ target: `${SITE}/` })).verdict, "verified");
+    // 1. A signed file the browser is refused (no CORS header, offline): not a missing file.
+    site.routes.delete(`${SITE}/site-actions.js`);
+    const refused = await App.page.verifySite({ target: `${SITE}/` });
+    assert.deepEqual([refused.verdict, refused.reason], ["unverifiable", undefined]);
+    assert.equal(refused.detail, unread("site-actions.js"));
+    const shown = JSON.stringify(StubDocument.describe(document.getElementById("verify-result")));
+    assert.ok(shown.includes(STRINGS.states.unverifiable) && !shown.includes(STRINGS.verify.reasons.tampered), "the page still says tampered");
+    // 2. A signed file answering an HTTP error, and two at once.
+    site.set(`${SITE}/site-actions.js`, "oops", 500);
+    assert.equal((await App.page.verifySite({ target: `${SITE}/` })).detail, unread("site-actions.js"));
+    site.set(`${SITE}/bridge/action-bridge.html`, "oops", 503);
+    assert.equal((await App.page.verifySite({ target: `${SITE}/` })).detail, unread("bridge/action-bridge.html and site-actions.js"));
+    site.set(`${SITE}/bridge/action-bridge.html`, bridge);
+    // 3. A 404 is the site saying the file is gone: a missing signed file is still tampered.
+    site.set(`${SITE}/site-actions.js`, "not found", 404);
+    const gone = await App.page.verifySite({ target: `${SITE}/` });
+    assert.deepEqual([gone.verdict, gone.reason], ["invalid", "tampered"]);
+    // 4. A signed file that was read and differs stays tampered, even while another one could not be read.
+    site.set(`${SITE}/site-actions.js`, `${actions}\n// edited\n`);
+    site.routes.delete(`${SITE}/bridge/action-bridge.html`);
+    const changed = await App.page.verifySite({ target: `${SITE}/` });
+    assert.deepEqual([changed.verdict, changed.reason], ["invalid", "tampered"]);
+    site.set(`${SITE}/site-actions.js`, actions);
+    site.set(`${SITE}/bridge/action-bridge.html`, bridge);
+    assert.equal((await App.page.verifySite({ target: `${SITE}/` })).verdict, "verified");
+    // 5. A revocation the browser cannot read, or that answers an HTTP error: verified is not claimed.
+    site.set(`${SITE}/${REVOCATION_PATH}`, "oops", 500);
+    const revHttp = await App.page.verifySite({ target: `${SITE}/` });
+    assert.equal(revHttp.verdict, "unverifiable");
+    assert.equal(revHttp.revocation.state, "unavailable");
+    assert.equal(revHttp.detail, unread(REVOCATION_PATH));
+    site.routes.delete(`${SITE}/${REVOCATION_PATH}`);
+    const revRefused = await App.page.verifySite({ target: `${SITE}/` });
+    assert.equal(revRefused.verdict, "unverifiable");
+    assert.equal(revRefused.detail, unread(REVOCATION_PATH));
+    // Drift does not call such a lock signed either.
+    assert.equal((await App.page.readDrift({ target: `${SITE}/` })).lockSigned, false);
+    assert.equal(App.page.trust.list().length, 1, "an unread revocation changed the trust store");
+  } finally {
+    App.page.verification = null;
+    App.page.drift = null;
+    restore();
+  }
+});
+
+/** Each `/path` block of a _headers file, with its header lines. */
+function headerBlocks(text) {
+  const blocks = new Map();
+  let current = null;
+  for (const line of text.replace(/\r\n/g, "\n").split("\n")) {
+    if (line.startsWith("/")) {
+      current = line.trim();
+      if (!blocks.has(current)) blocks.set(current, []);
+    } else if (current && /^\s+\S/.test(line)) blocks.get(current).push(line.trim());
+    else if (!line.trim()) current = null;
+  }
+  return blocks;
+}
+
+test("p-bb6d18: every file the Desk signs, the extensionless bridge and the revocation allow cross-origin reads", async () => {
+  const blocks = headerBlocks(await siteFile("_headers"));
+  const allows = (path) => {
+    for (const [pattern, lines] of blocks) {
+      const hit = pattern === path || (pattern.endsWith("/*") && pattern !== "/*" && path.startsWith(pattern.slice(0, -1)));
+      if (hit && lines.includes("Access-Control-Allow-Origin: *")) return true;
+    }
+    return false;
+  };
+  const manifest = JSON.parse(await siteFile("agent-manifest.json"));
+  const signed = signedPathsOf(manifest, { links: true, lock: true });
+  assert.ok(signed.includes("site-actions.js") && signed.includes("bridge/action-bridge.html"));
+  for (const path of [...signed, "plumbline.signature.json", ".well-known/plumbline-key.json", REVOCATION_PATH]) {
+    assert.ok(allows(`/${path}`), `/${path} sends no Access-Control-Allow-Origin`);
+  }
+  // The host answers /bridge/action-bridge.html with a redirect to the extensionless path.
+  assert.ok(allows("/bridge/action-bridge"), "/bridge/action-bridge sends no Access-Control-Allow-Origin");
+  // The page itself still may not be framed, and the bridge still may.
+  assert.ok(blocks.get("/").includes("Content-Security-Policy: frame-ancestors 'none'"));
+  for (const bridgePath of ["/bridge/action-bridge.html", "/bridge/action-bridge"]) assert.ok(!blocks.get(bridgePath).some((l) => l.includes("frame-ancestors")));
+});
+
+test("p-45fe72: once the visitor uses the private key's download, its object URL is revoked and the link is gone", async () => {
+  const revoked = [];
+  const realRevoke = URL.revokeObjectURL;
+  const later = [];
+  URL.revokeObjectURL = (url) => revoked.push(url);
+  App.page.configure({ later: (fn) => later.push(fn) });
+  try {
+    App.page.discardKey(true);
+    assert.equal((await App.page.generateKey()).ok, true);
+    const privateOffer = App.page.key.offers.find((o) => o.path === desk.PRIVATE_KEY_FILE);
+    const url = privateOffer.url;
+    assert.ok(typeof url === "string" && url.startsWith("blob:"), String(url));
+    const links = () => document.getElementById("key-result").querySelectorAll("a");
+    const privateLink = links().find((a) => a.attributes.download === desk.PRIVATE_KEY_FILE);
+    privateLink.dispatch("click");
+    // The download starts from the click; the URL is freed a moment later, never inside the click itself.
+    assert.deepEqual(revoked, []);
+    assert.equal(App.page.key.downloaded, true);
+    assert.equal(later.length, 1);
+    later.shift()();
+    assert.deepEqual(revoked, [url]);
+    assert.equal(privateOffer.url, null);
+    assert.equal(privateOffer.blob, null);
+    assert.deepEqual(links().map((a) => a.attributes.download), ["plumbline-key.json"], "the private key's link is still on the page");
+    const shown = JSON.stringify(StubDocument.describe(document.getElementById("key-result")));
+    assert.ok(shown.includes(STRINGS.key.privateReleased));
+    assert.deepEqual(App.page.getState().generatedKey.offeredOnPage, [".well-known/plumbline-key.json"]);
+    // Discard frees the rest, once.
+    App.page.discardKey();
+    assert.equal(revoked.length, 2);
+    assert.equal(revoked.filter((u) => u === url).length, 1);
+  } finally {
+    URL.revokeObjectURL = realRevoke;
+    App.page.configure({ later: (fn) => setTimeout(fn, 0) });
+    App.page.discardKey(true);
+    App.page.notices.key = null;
+  }
+});
+
+/** A browser that refuses the page any storage (privacy mode, blocked site data). */
+class RefusingStorage {
+  getItem() {
+    throw new Error("SecurityError");
+  }
+
+  setItem() {
+    throw new Error("SecurityError");
+  }
+}
+
+/** A browser that reads storage but refuses writes (a full quota). */
+class FullStorage extends MemoryStorage {
+  setItem() {
+    throw new Error("QuotaExceededError");
+  }
+}
+
+test("p-6b5393: the partner check says in words who answered and who could not be reached", async () => {
+  wireOnce();
+  const site = new Web();
+  site.set(new URL("agent-manifest.json", PARTNERS[0].page).href, "{}");
+  site.set(new URL("agent-manifest.json", PARTNERS[1].page).href, "oops", 502);
+  App.page.configure({ fetch: site.fetch });
+  try {
+    document.getElementById("partners-check").dispatch("click");
+    assert.ok(JSON.stringify(StubDocument.describe(document.getElementById("partners-result"))).includes(STRINGS.partners.checking));
+    await settle();
+    assert.deepEqual(App.page.partners.results, [
+      { name: PARTNERS[0].name, reachable: true },
+      { name: PARTNERS[1].name, reachable: false },
+    ]);
+    const shown = JSON.stringify(StubDocument.describe(document.getElementById("partners-result")));
+    assert.ok(shown.includes(STRINGS.partners.reachable.replace("{name}", PARTNERS[0].name)), shown);
+    assert.ok(shown.includes(STRINGS.partners.unreachable.replace("{name}", PARTNERS[1].name)), shown);
+    // A partner the browser is refused is unreachable too, never an error on the page.
+    site.routes.delete(new URL("agent-manifest.json", PARTNERS[0].page).href);
+    const results = await App.page.checkPartners();
+    assert.deepEqual(results.map((r) => r.reachable), [false, false]);
+    assert.equal(document.getElementById("partners-status").textContent, "");
+  } finally {
+    App.page.partners = null;
+    App.page.render("partners");
+    restore();
+  }
+});
+
+test("p-6b5393: the page's own Sign button opens the dialog; decline signs nothing and says so, confirm signs", async () => {
+  wireOnce();
+  const words = AssistantMount.DIALOGS[IRREVERSIBLE_ACTION];
+  const openDialog = () => document.body.children.filter((c) => c instanceof StubDialog && c.open).at(-1);
+  const press = (dialog, label) => dialog.children.find((c) => c.tag === "button" && c.textContent === label).dispatch("click");
+  App.page.signature = null;
+  try {
+    await DeskTest.arrangeIrreversibleState();
+    document.getElementById("sign-button").dispatch("click");
+    await settle();
+    const first = openDialog();
+    assert.ok(first, "no dialog opened");
+    assert.ok(JSON.stringify(StubDocument.describe(first)).includes(BASE), "the dialog does not name the origin");
+    press(first, words.decline);
+    await settle();
+    assert.equal(App.page.signature, null, "a declined dialog signed");
+    assert.equal(App.page.notices.sign, STRINGS.sign.declined);
+    assert.ok(JSON.stringify(StubDocument.describe(document.getElementById("sign-result"))).includes(STRINGS.sign.declined));
+    assert.equal(App.page.checkSign().ok, true, "a decline dropped the chosen key or files");
+    document.getElementById("sign-button").dispatch("click");
+    await settle();
+    press(openDialog(), words.confirm);
+    // Signing awaits WebCrypto, which settles outside the microtask queue: wait for it, up to a second.
+    for (let waited = 0; !App.page.signature && waited < 1000; waited += 10) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(App.page.signature, `a confirmed dialog did not sign: ${document.getElementById("sign-status").textContent}`);
+    assert.equal(App.page.notices.sign, null);
+    assert.equal(App.page.signature.origin, BASE);
+  } finally {
+    App.page.signature = null;
+    App.page.notices.sign = null;
+    App.page.clearSigning();
+  }
+});
+
+test("p-6b5393: a signature the browser cannot read is unverifiable, said in words", async () => {
+  const SITE = "https://nosig.example";
+  const { site } = await signedSite(SITE, await generateKey(NOW));
+  site.routes.delete(`${SITE}/plumbline.signature.json`);
+  App.page.configure({ fetch: site.fetch });
+  try {
+    const result = await App.page.verifySite({ target: `${SITE}/` });
+    assert.equal(result.verdict, "unverifiable");
+    assert.equal(result.detail, STRINGS.verify.sigUnreadable);
+    assert.equal(result.signed, false);
+    assert.ok(JSON.stringify(StubDocument.describe(document.getElementById("verify-result"))).includes(STRINGS.verify.sigUnreadable));
+  } finally {
+    App.page.verification = null;
+    restore();
+  }
+});
+
+test("p-6b5393: a browser without storage keeps trust for this page load and says so, at every place trust changes", async () => {
+  const SITE = "https://nostore.example";
+  const signer = await generateKey(NOW);
+  const { site } = await signedSite(SITE, signer);
+  site.set(`${SITE}/${REVOCATION_PATH}`, "not found", 404);
+  try {
+    // Storage refused outright: the trust list is not persistent, and the list says so.
+    App.page.configure({ fetch: site.fetch, storage: new RefusingStorage() });
+    assert.equal(App.page.trust.persistent, false);
+    App.page.render("trust");
+    assert.ok(JSON.stringify(StubDocument.describe(document.getElementById("trust-list"))).includes(STRINGS.verify.storageUnavailable));
+    // Storage that refuses the write: Trust still trusts for this page load, and the notice says it will not last.
+    App.page.configure({ storage: new FullStorage() });
+    assert.equal((await App.page.verifySite({ target: `${SITE}/` })).verdict, "unverifiable");
+    const trusted = await App.page.trustPublisher(true);
+    assert.equal(trusted.ok, true, trusted.reason);
+    assert.equal(trusted.verdict, "verified");
+    assert.equal(App.page.notices.trust, `${STRINGS.verify.trusted} ${STRINGS.verify.storageUnavailable}`);
+    // A verified revocation still takes trust away in memory, and its report says it could not be kept.
+    site.set(`${SITE}/${REVOCATION_PATH}`, JSON.stringify(await revokeKey({ privateKey: signer.privateKey, key: signer.key, now: NOW })));
+    const revoked = await App.page.verifySite({ target: `${SITE}/` });
+    assert.deepEqual([revoked.verdict, revoked.reason], ["invalid", "revoked"]);
+    assert.equal(revoked.revocation.state, "applied");
+    assert.equal(revoked.revocation.note, STRINGS.verify.storageUnavailable);
+    assert.ok(App.page.trust.list()[0].revokedAt);
+  } finally {
+    App.page.verification = null;
+    App.page.notices.trust = null;
+    restore();
+  }
+});
+
+test("p-7abb57: after the visitor allows, a partner whose links.json changed or answers an error is declined, and the card is relabelled", async () => {
+  const defaultConsent = AssistantMount.defaultConsent;
+  const done = new StubElement("span");
+  const card = new StubElement("div");
+  card.provide(".ns-consent-done", [done]);
+  card.provide(".ns-consent-title", []);
+  document.provide("#ns-msgs .ns-consent", [card]);
+  // The chat input the runtime returns focus to (so the test also runs alone).
+  document.provide("#ns-input", [new StubElement("textarea")]);
+  try {
+    const changed = await partnerWeb();
+    changed.set(`${ATLAS}links.json`, JSON.stringify({ version: 1, networks: {} }));
+    resetPartnerState(changed);
+    done.textContent = "Allowed";
+    const refused = await partnerCall({ request: "What do you offer?" });
+    assert.equal(refused.seen.cards.length, 1);
+    assert.equal(refused.seen.resolved, 0, "a partner whose links.json changed ran");
+    assert.match(AssistantMount.notes.at(-1), /\(its links\.json changed\)/);
+    assert.equal(done.textContent, STRINGS.assistant.declinedByDesk, "the card still says Allowed");
+    const failing = await partnerWeb();
+    failing.set(`${ATLAS}links.json`, "oops", 500);
+    resetPartnerState(failing);
+    done.textContent = "Allowed";
+    const error = await partnerCall({ request: "What do you offer?" });
+    assert.equal(error.seen.resolved, 0);
+    assert.match(AssistantMount.notes.at(-1), /\(its links\.json answered HTTP 500\)/);
+    assert.equal(done.textContent, STRINGS.assistant.declinedByDesk);
+    // A partner that matches its pin runs, and its card is not relabelled.
+    const pinned = await partnerWeb();
+    resetPartnerState(pinned);
+    done.textContent = "Allowed";
+    assert.deepEqual((await partnerCall({ request: "What do you offer?" })).seen.sent, ["What do you offer?"]);
+    assert.equal(done.textContent, "Allowed");
+  } finally {
+    document.provide("#ns-msgs .ns-consent", []);
+    AssistantMount.defaultConsent = defaultConsent;
+    resetPartnerState(web);
+    restore();
+  }
+});
+
+test("p-7abb57: an assistant that fails to start says so on the page, and the page's own tools still work", async () => {
+  const status = document.getElementById("assistant-status");
+  const loadRuntime = AssistantMount.loadRuntime;
+  const consoleError = console.error;
+  const logged = [];
+  console.error = (...args) => logged.push(args);
+  try {
+    // The runtime cannot be loaded (blocked, offline), and a runtime that loads but cannot boot.
+    const failures = [
+      async () => {
+        throw new Error("blocked");
+      },
+      async () => ({
+        boot: async () => {
+          throw new Error("no #agent-app");
+        },
+      }),
+    ];
+    for (const failing of failures) {
+      status.textContent = "";
+      AssistantMount.loadRuntime = failing;
+      assert.equal(await AssistantMount.start(), null);
+      assert.equal(status.textContent, STRINGS.assistant.failed);
+    }
+    assert.equal(logged.length, 2);
+    App.page.configure({ fetch: web.fetch });
+    assert.ok(["pass", "fail", "unavailable"].includes((await App.page.runGate({ target: ATLAS })).state));
+  } finally {
+    AssistantMount.loadRuntime = loadRuntime;
+    console.error = consoleError;
+    status.textContent = "";
+    restore();
+  }
+});
+
+test("p-a41521: the Desk applies a revocation with core's applyRevocationText and checks a key file with core's isPrivateKeyFile", async () => {
+  const code = await siteFile("desk.js");
+  assert.match(code, /\bapplyRevocationText\(/);
+  assert.match(code, /\bisPrivateKeyFile\(/);
+  assert.doesNotMatch(code, /\bapplyRevocation\(/, "desk.js still loops over applyRevocation itself");
+  assert.doesNotMatch(code, /\.type === PRIVATE_KEY_TYPE/, "desk.js still checks the private key file's shape itself");
 });
