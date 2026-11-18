@@ -39,7 +39,7 @@ jobs:
       # The Action builds plumbline from its own checkout: pinning it by commit SHA pins the code that runs.
       - name: Renew the signature when it is due
         id: watch
-        uses: xkazm04/plumbline/action@68c35d2f53f0caa05aa49c2f63a50afcd9cf5fcc
+        uses: xkazm04/plumbline/action@96268322d673a0bbd663be3d09ccc051ec5e29d1
         with:
           command: watch
           root: "."

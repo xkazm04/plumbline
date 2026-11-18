@@ -40,7 +40,7 @@ jobs:
       # `issues: true` it also opens, edits (with a comment when the findings change) or closes the drift issue.
       - name: Run plumbline watch
         id: watch
-        uses: xkazm04/plumbline/action@68c35d2f53f0caa05aa49c2f63a50afcd9cf5fcc
+        uses: xkazm04/plumbline/action@96268322d673a0bbd663be3d09ccc051ec5e29d1
         with:
           command: watch
           root: "."
