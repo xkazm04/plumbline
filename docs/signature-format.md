@@ -46,7 +46,9 @@ be told. A key that is not one of the source's anchors, or an empty list, makes 
 carry `external` (since 2026-11-18): agent definitions
 from outside the agentic-web spec, keyed by address, each `{ kind, sha256, parts?, signatures?, checkedAt }` (`ExternalRecord`,
 `EXTERNAL_KINDS`: `a2a-card`, and `mcp-tools`, reserved and not read by this build); `parts` maps SHA-256 of a part's id
-to SHA-256 of its canonical JSON, and `signatures` (since 2026-11-18, UAT-17) is how many JWS signatures a card read as
+to SHA-256 of its canonical JSON (since 2026-11-18, UAT-36: an id the card repeats is keyed by its occurrence, the
+second `quote` as SHA-256 of `quote`, a NUL character and `2`, the next free number if that key is taken, so no skill
+hides behind another; a card whose ids are unique is keyed as before), and `signatures` (since 2026-11-18, UAT-17) is how many JWS signatures a card read as
 one carried when locked, a non-negative integer, counted and never verified; omitted when it could not be read as a
 card and in every lock written before. A malformed `signatures` makes the lock `unusable`.
 

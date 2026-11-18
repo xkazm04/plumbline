@@ -40,7 +40,8 @@ export interface CardOutline {
 
 /**
  * An A2A card in outline, or null when the bytes are not one (not JSON, not an object, a repeated key, a value canonical
- * JSON refuses). A skill without a string `id` is keyed by its position. Signatures are counted, never verified here.
+ * JSON refuses). A skill without a string `id` is keyed by its position; an id the card repeats by its occurrence (UAT-36).
+ * Signatures are counted, never verified here.
  */
 export async function cardOutline(bytes: Uint8Array): Promise<CardOutline | null> {
   let value: unknown;
@@ -55,10 +56,21 @@ export async function cardOutline(bytes: Uint8Array): Promise<CardOutline | null
   if (!isObject(value)) return null;
   const parts: Record<string, string> = {};
   const skills = Array.isArray(value.skills) ? value.skills : [];
+  // UAT-36: a skill id the card repeats is keyed by its occurrence (the second "quote" is "quote" NUL "2"), so no skill
+  // is hidden behind another with the same id; a card whose ids are unique keys each by its id alone, as before
+  const seenIds = new Map<string, number>();
   try {
     for (const [index, skill] of skills.entries()) {
       const id = isObject(skill) && typeof skill.id === "string" ? skill.id : `#${index}`;
-      parts[await sha256Hex(id)] = await sha256Hex(canonicalJson(skill));
+      // the next occurrence number whose key is free (an id that itself ends in NUL and a number cannot take a key)
+      let n = seenIds.get(id) ?? 0;
+      let key: string;
+      do {
+        n += 1;
+        key = await sha256Hex(n === 1 ? id : `${id}\u0000${n}`);
+      } while (Object.hasOwn(parts, key));
+      seenIds.set(id, n);
+      parts[key] = await sha256Hex(canonicalJson(skill));
     }
   } catch {
     return null;
