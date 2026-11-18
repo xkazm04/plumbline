@@ -6,7 +6,7 @@
 // scan trusts no key (first contact is a person's decision, docs/signature-format.md): it says so, and a site that
 // publishes no signature is "not signed", never a failure.
 
-import { GATE_STATES, LOCK_STATES, type DriftReport, type GateReport, type GateState, type LockState } from "../core/types.js";
+import { GATE_STATES, LOCK_STATES, VERDICTS, type DriftReport, type GateReport, type GateState, type LockState, type Verdict, type VerifyResult } from "../core/types.js";
 import { gateSentence, siteUnreachable } from "../gate/context.js";
 
 export const SCAN_SCHEMA = "plumbline-ecosystem-scan" as const;
@@ -43,10 +43,14 @@ export interface SiteResult {
   signature: PublishedFile;
   keyRecord: PublishedFile;
   /**
-   * The signature's verdict here: `unverifiable` when one is published (this scan trusts no key), absent otherwise.
-   * Never `verified` and never `invalid`: nothing was verified.
+   * The signature's verdict here. Without a trust file: `unverifiable` when one is published (this scan trusts no key),
+   * absent otherwise; never `verified` and never `invalid`, because nothing was verified. With the operator's trust file
+   * (`--trust`, UAT-20): the verdict `plumbline verify --url` gives against it, for every site (one that publishes no
+   * signature is `unverifiable`), and `signatureCheck` carries the whole result.
    */
-  verdict?: "unverifiable";
+  verdict?: Verdict;
+  /** UAT-20: with `--trust`, verify's result for the site (`{ verdict, reason?, kid?, origin?, detail? }`). */
+  signatureCheck?: VerifyResult;
   /** How long the site took, and whether its deadline passed (then whatever was not read is unknown or unavailable). */
   elapsedMs: number;
   deadlinePassed: boolean;
@@ -63,6 +67,8 @@ export interface ScanSummary {
   /** UAT-19: the key record's presence over every site, and the sites per attention word. */
   keyRecord?: Record<PublishedFile["state"], number>;
   attention?: Record<Attention, number>;
+  /** UAT-20: with `--trust`, the sites per signature verdict against the operator's trust file. */
+  verdict?: Record<Verdict, number>;
 }
 
 export interface ScanReport {
@@ -72,8 +78,12 @@ export interface ScanReport {
   tool: { name: "plumbline"; version: string };
   /** What the scan sent where, in fixed sentences, before any result. */
   disclosure: string[];
-  /** `adapters`: the checkers asked, present when `--adapters` named them (absent: all three, the default). */
-  settings: { siteDeadlineMs: number; delayMs: number; adapters?: string[] };
+  /**
+   * `adapters`: the checkers asked, present when `--adapters` named them (absent: all three, the default). `trust`: true
+   * when the operator's trust file checked every signature (UAT-20); its path is not recorded. `allowLocal`: true when
+   * http and loopback addresses were allowed for a site on this machine (UAT-21).
+   */
+  settings: { siteDeadlineMs: number; delayMs: number; adapters?: string[]; trust?: true; allowLocal?: true };
   summary: ScanSummary;
   sites: SiteResult[];
 }
@@ -93,13 +103,30 @@ export const DISCLOSURE = [
   "A published signature is unverifiable here: this scan trusts no key. A site that publishes no signature is not signed, which is the publisher's choice, not a failure.",
 ] as const;
 
+const NO_TRUST = DISCLOSURE[4];
+/** UAT-20: the sentence that replaces "this scan trusts no key" when the operator gives a trust file. */
+export const TRUST_GIVEN =
+  "Each site's signature is checked as plumbline verify --url checks it, against the operator's trust file: verified, invalid (with its reason) or unverifiable (a key the file does not hold for the site, or no signature). A revocation the site publishes that verifies under a key the file holds is recorded in it, as verify does.";
+/** UAT-21: the sentence added when the operator allowed http and loopback addresses for a site on this machine. */
+export const ALLOW_LOCAL_GIVEN =
+  "--allow-local: http and loopback addresses were allowed for this scan, for sites on this machine; private ranges stay refused, and a lock's peer addresses are still held to the address rule.";
+
 /**
  * The disclosure for the checkers a scan asks (UAT-11, `--adapters`): the default's sentences, with the Atlas and the
- * Customs sentence each replaced by "was not asked" when the list leaves that checker out.
+ * Customs sentence each replaced by "was not asked" when the list leaves that checker out; with a trust file (UAT-20)
+ * the signature sentence says what was checked against it, and with --allow-local (UAT-21) a sentence says so.
  */
-export function disclosureFor(adapters: readonly string[] | undefined): string[] {
-  if (adapters === undefined) return [...DISCLOSURE];
-  return DISCLOSURE.map((line) => (line === ATLAS_SENT && !adapters.includes("atlas") ? ATLAS_LEFT_OUT : line === CUSTOMS_READ && !adapters.includes("customs") ? CUSTOMS_LEFT_OUT : line));
+export function disclosureFor(adapters: readonly string[] | undefined, options: { trust?: boolean; allowLocal?: boolean } = {}): string[] {
+  const lines = DISCLOSURE.map((line) =>
+    adapters !== undefined && line === ATLAS_SENT && !adapters.includes("atlas")
+      ? ATLAS_LEFT_OUT
+      : adapters !== undefined && line === CUSTOMS_READ && !adapters.includes("customs")
+        ? CUSTOMS_LEFT_OUT
+        : options.trust === true && line === NO_TRUST
+          ? TRUST_GIVEN
+          : line,
+  );
+  return options.allowLocal === true ? [...lines, ALLOW_LOCAL_GIVEN] : lines;
 }
 
 const zero = <K extends string>(keys: readonly K[]): Record<K, number> => Object.fromEntries(keys.map((k) => [k, 0])) as Record<K, number>;
@@ -146,6 +173,11 @@ export function summarise(sites: SiteResult[]): ScanSummary {
     const key = site.keyRecord?.state;
     if (summary.keyRecord !== undefined && key !== undefined && Object.hasOwn(summary.keyRecord, key)) summary.keyRecord[key] += 1;
     if (summary.attention !== undefined) summary.attention[site.attention ?? attentionOf(site)] += 1;
+  }
+  // UAT-20: counted only when every site was checked against a trust file
+  if (sites.length > 0 && sites.every((x) => x.signatureCheck !== undefined)) {
+    summary.verdict = zero(VERDICTS);
+    for (const site of sites) if (site.verdict !== undefined && Object.hasOwn(summary.verdict, site.verdict)) summary.verdict[site.verdict] += 1;
   }
   return summary;
 }
@@ -205,7 +237,11 @@ function gateCell(gate: GateReport): string {
 }
 
 function cell(state: string, extra = "", label = ""): string {
-  const word = WORDS[state] ?? state;
+  return cellWord(state, WORDS[state] ?? state, extra, label);
+}
+
+/** A cell coloured by `state` and saying `word` (escaped), then `extra` (already markup). */
+function cellWord(state: string, word: string, extra = "", label = ""): string {
   return `<td class="s-${escapeHtml(state)}"${label === "" ? "" : ` data-label="${escapeHtml(label)}"`}>${escapeHtml(word)}${extra}</td>`;
 }
 
@@ -245,11 +281,19 @@ export function renderHtml(report: ScanReport): string {
     .map(({ site, i, attention }) => {
       const lock = site.watch.lockState ?? "found";
       const kid = site.signature.kid !== undefined ? ` <code>${e(site.signature.kid)}</code>` : "";
-      const verdict = site.verdict !== undefined ? ` (${e(site.verdict)} here)` : "";
+      // UAT-20: against the operator's trust file the cell carries the verdict (an invalid one with its reason)
+      const check = site.signatureCheck;
+      const verdict =
+        check !== undefined
+          ? `: <strong>${e(check.verdict === "invalid" && check.reason !== undefined ? `invalid ${check.reason}` : check.verdict)}</strong> against your trust file`
+          : site.verdict !== undefined
+            ? ` (${e(site.verdict)} here)`
+            : "";
+      const signatureState = check?.verdict === "invalid" ? "fail" : check?.verdict === "verified" ? "pass" : site.signature.state;
       return (
         `<tr><td class="a-${e(attention)}" data-label="Attention">${e(ATTENTION_WORDS[attention])}</td>` +
         `<th scope="row" data-label="Address"><a href="#site-${i}">${e(site.address)}</a></th>${gateCell(site.gate)}` +
-        `<td class="s-${e(lock)}" data-label="Lock">${e(LOCK_WORDS[lock] ?? lock)}</td>${cell(site.drift, "", "Drift")}${cell(site.signature.state, kid + verdict, "Signature")}${keyCell(site)}</tr>`
+        `<td class="s-${e(lock)}" data-label="Lock">${e(LOCK_WORDS[lock] ?? lock)}</td>${cell(site.drift, "", "Drift")}${cellWord(signatureState, WORDS[site.signature.state] ?? site.signature.state, kid + verdict, "Signature")}${keyCell(site)}</tr>`
       );
     })
     .join("\n");
@@ -262,7 +306,12 @@ export function renderHtml(report: ScanReport): string {
         .map((f) => `<li><strong>${e(f.severity)}</strong> ${e(f.kind)} <code>${e(f.ref)}</code>: ${e(f.summary)}</li>`)
         .join("");
       const deadline = site.deadlinePassed ? "<p>The site's deadline passed; what was not read by then is unavailable or could not be read.</p>" : "";
-      return `<section id="site-${i}"><h3>${e(site.address)}</h3><p>Attention: ${e(ATTENTION_WORDS[attention])}.</p>${deadline}<h4>Gate: ${e(site.gate.state)}: ${e(gateSentence(site.gate))}</h4><ul>${gate}</ul><h4>Drift: ${e(WORDS[site.drift] ?? site.drift)}</h4>${lockLine}<ul>${drift}</ul></section>`;
+      const check = site.signatureCheck;
+      const signatureLine =
+        check === undefined
+          ? ""
+          : `<h4>Signature against your trust file: ${e(check.verdict === "invalid" && check.reason !== undefined ? `invalid ${check.reason}` : check.verdict)}</h4>${check.detail !== undefined ? `<p>${e(check.detail)}</p>` : ""}`;
+      return `<section id="site-${i}"><h3>${e(site.address)}</h3><p>Attention: ${e(ATTENTION_WORDS[attention])}.</p>${deadline}<h4>Gate: ${e(site.gate.state)}: ${e(gateSentence(site.gate))}</h4><ul>${gate}</ul><h4>Drift: ${e(WORDS[site.drift] ?? site.drift)}</h4>${lockLine}<ul>${drift}</ul>${signatureLine}</section>`;
     })
     .join("\n");
   return `<!doctype html>
@@ -297,7 +346,7 @@ td.a-not-checked { color: #424242; } td.a-ok { color: #1b5e20; }
 <h2>What this scan sent where</h2>
 <ul>${report.disclosure.map((d) => `<li>${e(d)}</li>`).join("")}</ul>
 <h2>Summary</h2>
-<ul>${counts("Attention", s.attention, ATTENTION_WORDS)}${counts("Gate", s.gate)}${counts("Lock", s.lock, LOCK_WORDS, ["refused"])}${counts("Drift", s.drift)}${counts("Signature", s.signature)}${counts("Key record", s.keyRecord)}</ul>
+<ul>${counts("Attention", s.attention, ATTENTION_WORDS)}${counts("Gate", s.gate)}${counts("Lock", s.lock, LOCK_WORDS, ["refused"])}${counts("Drift", s.drift)}${counts("Signature", s.signature)}${counts("Signature against your trust file", s.verdict)}${counts("Key record", s.keyRecord)}</ul>
 <p>A gate that is unavailable is never a pass: some or all of its checkers had no verdict, and its cell says which ("checked by 1 of 3 ...", or "nothing was checked"); a site that could not be reached is marked in red. A lock that was not found means no drift was checked. A clean watch means the locked things match the lock; a gate pass is not a security review.</p>
 <h2>Sites</h2>
 <p>Worst first: a site that could not be read, then a failed checker, an invalid signature, block, warn, not checked, and ok.</p>${caveat === undefined ? "" : `

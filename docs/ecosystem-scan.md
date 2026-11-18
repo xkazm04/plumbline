@@ -34,6 +34,15 @@ sentence then reads "Agent Atlas was not asked (--adapters left it out), so no a
 sentence "Agent Customs was not asked ..." when it is left out too), and `settings.adapters` records the list. An unknown
 checker is refused (exit 2) before anything is read.
 
+`--trust <trust file>` (UAT-20) is for an operator who holds her clients' public keys (`plumbline trust`, `plumbline
+adopt`): each site's signature is then checked as `plumbline verify --url` checks it against that file, so a tampered
+signed site reads `invalid tampered`, an expired one `invalid expired`, a healthy one `verified`, and a site whose key
+the file does not hold, or that publishes no signature, `unverifiable`. The disclosure's signature sentence says so in
+place of "this scan trusts no key", a revocation the site publishes that verifies under a key the file holds is
+recorded in it (as `verify` does), `settings.trust` is `true` (the path is not recorded), and the summary counts
+`verdict`. A trust file that cannot be used is refused (exit 2) before anything is read. Without `--trust` nothing
+changes: the scan trusts no key, and a stranger's list stays `unverifiable`.
+
 ## The list
 
 `ecosystem/sites.txt`: one https address per line, `#` starts a comment, blank lines are skipped, each address counts
@@ -49,7 +58,7 @@ Desk, Agent Atlas and Agent Customs. The owner extends it.
 | lock | `found`, `absent`, `unreadable`, `unusable` | the published lock's state (`refused` exists only in a browser) |
 | drift | `clean`, `info`, `warn`, `block`, `not-checked` | the worst severity of a found lock; `info` alone is clean; a lock that was not found is `not-checked`, never clean |
 | signature | `published`, `absent`, `unknown` | `plumbline.signature.json` at the site base answered 2xx, 404 or 410, or anything else |
-| verdict | `unverifiable` or omitted | present when a signature is published: this scan trusts no key, so a signature is `unverifiable` here, whatever its math. A verifier who has met the publisher may verify it with `plumbline verify --url`. A site that publishes no signature is "not signed", which is the publisher's choice, not a failure |
+| verdict | `verified`, `invalid`, `unverifiable` or omitted | without `--trust`: present when a signature is published, and always `unverifiable`, because this scan trusts no key, whatever its math (a verifier who has met the publisher may verify it with `plumbline verify --url`). With `--trust` (UAT-20): the verdict against that file for every site, with `signatureCheck` (`{ verdict, reason?, kid?, origin?, detail? }`, verify's result). A site that publishes no signature is "not signed", which is the publisher's choice, not a failure |
 
 | attention | `unreachable`, `fail`, `invalid`, `block`, `warn`, `not-checked`, `ok` | since 2026-11-18 (UAT-19): how soon a person looks at the site, worst first, the first that applies: the site did not answer the gate or its lock could not be read (down or too slow); a checker failed it; its signature is `invalid` against `--trust` (UAT-20); its drift is `block`, then `warn`; no lock was found or no checker answered; otherwise `ok` (a gate some checkers passed while others had no verdict is `ok`, and its cell still says which answered). The page lists the sites in this order, then in list order |
 

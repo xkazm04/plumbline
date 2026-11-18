@@ -4,7 +4,7 @@
 // site goes through a fetcher that gives it at most the time left, and refuses one asked after the deadline.
 // Every fetch is safeFetch's (or a test's injected fetcher). The report's shape and the HTML are ./report.ts.
 
-import { KEY_FILE, SIGNATURE_FILE, KID_PATTERN } from "../core/types.js";
+import { KEY_FILE, SIGNATURE_FILE, KID_PATTERN, type VerifyResult } from "../core/types.js";
 import { runGate, type GateOptions } from "../gate/index.js";
 import type { Fetcher } from "../net/locate.js";
 import { DEFAULT_TIMEOUT_MS, SafeFetchError, safeFetch, type SafeFetchOptions } from "../net/safe-fetch.js";
@@ -101,6 +101,14 @@ export interface ScanDeps {
   adapters?: GateOptions["adapters"];
   /** Called after each site, for progress on stderr. */
   onSite?: (result: SiteResult, index: number, total: number) => void;
+  /**
+   * UAT-20 (PRI-L1-05): the operator's own signature check, for an operator who holds her clients' keys in a trust file:
+   * the script passes `plumbline verify --url` against that file (cli/gate-command.ts checkSignature). Absent, the scan
+   * trusts no key and a published signature is `unverifiable` here, as before.
+   */
+  verifySignature?: (address: string) => Promise<VerifyResult>;
+  /** UAT-21: http and loopback allowed for a site on this machine (recorded in the report's settings and disclosure). */
+  allowLocal?: boolean;
 }
 
 /** One site: the gate, the published lock's drift, the signature and key record's presence. Never throws. */
@@ -109,7 +117,7 @@ export async function scanSite(address: string, deps: ScanDeps = {}): Promise<Si
   const started = clock();
   const deadline = started + (deps.siteDeadlineMs ?? SITE_DEADLINE_MS);
   const base = deps.fetch ?? safeFetch;
-  const extra = deps.fetchOptions ?? {};
+  const extra = { ...(deps.allowLocal === true ? { allowLocal: true } : {}), ...(deps.fetchOptions ?? {}) };
   const fetch = deadlineFetcher((url, options) => base(url, { ...options, ...extra }), deadline, clock);
   const now = deps.now ?? (() => new Date());
   const gate = await runGate({ target: address, ...(deps.adapters !== undefined ? { adapters: deps.adapters } : {}) }, { fetch, now });
@@ -119,7 +127,9 @@ export async function scanSite(address: string, deps: ScanDeps = {}): Promise<Si
   const keyRecord = await publishedFile(fetch, `${siteRoot}${KEY_FILE}`);
   const elapsedMs = clock() - started;
   const drift = driftStateOf(watch);
-  const verdict = signature.state === "published" ? { verdict: "unverifiable" as const } : {};
+  // UAT-20: the operator's trust file decides the verdict when one was given; without it nothing is verified
+  const checked = deps.verifySignature !== undefined ? await deps.verifySignature(address) : undefined;
+  const verdict = checked !== undefined ? { verdict: checked.verdict, signatureCheck: checked } : signature.state === "published" ? { verdict: "unverifiable" as const } : {};
   return {
     address,
     gate,
@@ -131,7 +141,7 @@ export async function scanSite(address: string, deps: ScanDeps = {}): Promise<Si
     elapsedMs,
     deadlinePassed: clock() >= deadline,
     // UAT-19: how soon a person looks at it, so the report lists the sites worst first
-    attention: attentionOf({ gate, watch, drift, ...verdict }),
+    attention: attentionOf({ gate, watch, drift, ...(verdict.verdict !== undefined ? { verdict: verdict.verdict } : {}) }),
   };
 }
 
@@ -153,8 +163,14 @@ export async function scanList(addresses: string[], version: string, deps: ScanD
     version: SCAN_VERSION,
     scannedAt,
     tool: { name: "plumbline", version },
-    disclosure: disclosureFor(deps.adapters),
-    settings: { siteDeadlineMs: deps.siteDeadlineMs ?? SITE_DEADLINE_MS, delayMs, ...(deps.adapters !== undefined ? { adapters: [...deps.adapters] } : {}) },
+    disclosure: disclosureFor(deps.adapters, { trust: deps.verifySignature !== undefined, allowLocal: deps.allowLocal === true }),
+    settings: {
+      siteDeadlineMs: deps.siteDeadlineMs ?? SITE_DEADLINE_MS,
+      delayMs,
+      ...(deps.adapters !== undefined ? { adapters: [...deps.adapters] } : {}),
+      ...(deps.verifySignature !== undefined ? { trust: true as const } : {}),
+      ...(deps.allowLocal === true ? { allowLocal: true as const } : {}),
+    },
     summary: summarise(sites),
     sites,
   };

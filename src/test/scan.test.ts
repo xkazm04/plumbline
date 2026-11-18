@@ -415,3 +415,64 @@ test("UAT-19 (PRI-L1-03, PRI-L1-10, PRI-L1-15, PRI-L2-5): worst first, the key r
   assert.match(html, /td, th, li, p, h3 \{ overflow-wrap: anywhere; \}/);
   assert.ok(!/<script/i.test(html));
 });
+
+test("UAT-20 (PRI-L1-05): with the operator's trust file each site's signature is verified, invalid with its reason, or unverifiable; without it, as before", async () => {
+  const { TRUST_GIVEN } = await import("../scan/report.js");
+  const SITE = "https://client.example/";
+  const routes = {
+    [`${SITE}agent-manifest.json`]: { status: 404 },
+    [`${SITE}${LOCK_FILE}`]: { status: 404 },
+    [`${SITE}plumbline.signature.json`]: { body: { kid: "0123456789abcdef", expiresAt: "2027-01-30T00:00:00.000Z" } },
+    [`${SITE}.well-known/plumbline-key.json`]: { body: { kid: "0123456789abcdef" } },
+  };
+  const verdicts: Record<string, import("../core/types.js").VerifyResult> = {
+    "https://glenrock.example/": { verdict: "invalid", reason: "tampered", kid: "0123456789abcdef", detail: "A signed file differs from the version that was signed: x.network.json." },
+    "https://fernhill.example/": { verdict: "invalid", reason: "expired", detail: "The signature expired on 2026-10-01." },
+    "https://alder.example/": { verdict: "verified", kid: "0123456789abcdef" },
+    "https://stranger.example/": { verdict: "unverifiable", detail: "The signer is unknown." },
+  };
+  const all = Object.fromEntries(Object.keys(verdicts).flatMap((site) => Object.entries(routes).map(([k, v]) => [k.replace(SITE, site), v])));
+  const asked: string[] = [];
+  const report = await scanList(Object.keys(verdicts), "0.1.0", {
+    fetch: scripted(all).fetch,
+    now: () => NOW,
+    adapters: ["validator"],
+    sleep: async () => undefined,
+    verifySignature: async (address) => {
+      asked.push(address);
+      return verdicts[address] as import("../core/types.js").VerifyResult;
+    },
+  });
+  assert.deepEqual(asked, Object.keys(verdicts));
+  assert.deepEqual(report.sites.map((x) => [x.verdict, x.signatureCheck?.reason]), [["invalid", "tampered"], ["invalid", "expired"], ["verified", undefined], ["unverifiable", undefined]]);
+  // these sites fail the validator (no manifest), which comes first; an invalid signature on a passing site is next
+  assert.deepEqual(report.sites.map((x) => x.attention), ["fail", "fail", "fail", "fail"]);
+  const { attentionOf } = await import("../scan/report.js");
+  const healthy = { gate: gate("pass", "pass"), watch: { lockState: "found" as const, findings: [] }, drift: "clean" as const };
+  assert.deepEqual([attentionOf({ ...healthy, verdict: "invalid" }), attentionOf({ ...healthy, verdict: "verified" }), attentionOf(healthy)], ["invalid", "ok", "ok"]);
+  assert.deepEqual(report.summary.verdict, { verified: 1, invalid: 2, unverifiable: 1 });
+  assert.equal(report.settings.trust, true);
+  assert.ok(report.disclosure.includes(TRUST_GIVEN) && !report.disclosure.includes(DISCLOSURE[4]));
+  const html = renderHtml(report);
+  assert.match(html, /data-label="Signature">published <code>0123456789abcdef<\/code>: <strong>invalid tampered<\/strong> against your trust file<\/td>/);
+  assert.match(html, /<td class="s-pass" data-label="Signature">published <code>0123456789abcdef<\/code>: <strong>verified<\/strong> against your trust file<\/td>/);
+  assert.match(html, /<h4>Signature against your trust file: invalid expired<\/h4><p>The signature expired on 2026-10-01\.<\/p>/);
+  assert.match(html, /<li>Signature against your trust file: verified 1, invalid 2, unverifiable 1<\/li>/);
+  // without a trust file: a stranger's list stays unverifiable, nothing is verified
+  const plain = await scanList(["https://glenrock.example/"], "0.1.0", { fetch: scripted(all).fetch, now: () => NOW, adapters: ["validator"], sleep: async () => undefined });
+  assert.equal(plain.sites[0]?.verdict, "unverifiable");
+  assert.equal(plain.sites[0]?.signatureCheck, undefined);
+  assert.equal(plain.summary.verdict, undefined);
+  assert.equal(plain.settings.trust, undefined);
+  assert.deepEqual(plain.disclosure, disclosureFor(["validator"]));
+});
+
+test("UAT-20: the scan script refuses a trust file it cannot use, before anything is read", () => {
+  const script = fileURLToPath(new URL("../../scripts/scan-ecosystem.mjs", import.meta.url));
+  const list = path.join(tmp, "list-trust.txt");
+  writeFileSync(list, "https://site.example/\n");
+  const bad = spawnSync(process.execPath, [script, list, "--out", path.join(tmp, "out-trust"), "--trust", path.join(tmp, "no-such.trust.json")], { encoding: "utf8" });
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /^--trust: /m);
+  assert.match(bad.stderr, /\[--trust <trust file>\]/);
+});
