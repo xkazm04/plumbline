@@ -58,10 +58,16 @@ and so does a report that cannot be read, so a broken run is never taken for a c
 **The drift issue** (`issues: true`, watch only). The Action keeps ONE open issue titled `Plumbline drift` with the
 job's token (input `token`, default `github.token`), so the job needs `permissions: issues: write` (and `contents: read`
 for the checkout); it never pushes or opens a pull request. On `warn` or `block` findings it opens the issue, or edits
-the open one. Editing a body notifies nobody, so when the findings themselves change (a severity, kind or ref, not a
-summary's wording) it also comments, naming what is new and what is no longer reported, and a new `block` comes first.
-The body carries the findings in a hidden `<!-- plumbline:digest ... -->` marker, which is how the next run tells what
-is new. An unchanged run writes nothing. The next clean run closes the issue with a comment linking that run and saying
+the open one. Editing a body notifies nobody, so when the findings themselves change it also comments, naming what is
+new (each with its sentence, which says what changed in counts) and what is no longer reported, and a new `block` comes
+first. A finding changes when its severity, kind or ref does, or when its evidence does: the hash of what it found
+changed (`actual`), so a partner that changed again (a second agent, a links.json, a fee change that keeps every
+outline count) or a page whose price changed after a wording edit is news on an issue already open. A summary's
+wording alone is not, and an unreachable peer carries no evidence, so one that is still unreachable after 12 s instead
+of 10 s notifies nobody. The body carries the findings, with their evidence, in a hidden `<!-- plumbline:digest ... -->`
+marker, which is how the next run tells what is new (an issue written before the evidence was carried is read as
+before, so an upgrade is not news). The relock pull request carries the same marker, so new evidence edits it and
+pushes the branch's lock with the new hash. An unchanged run writes nothing. The next clean run closes the issue with a comment linking that run and saying
 what clean covers: the locked files, peers and runtime match the lock, and the site's signature, if it has one, still
 covers its files (the watch reports a signature that does not as `block`, so a merged unsigned relock never closes the
 issue as clean). Output

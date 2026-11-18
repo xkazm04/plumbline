@@ -5,7 +5,7 @@
 //   node report.mjs gate  <report.json>                  the gate state and the job summary
 //   node report.mjs watch <report.json> <issue-body.md>  the warn-or-block count and the drift issue's body
 //   node report.mjs title                                print the drift issue's title
-//   node report.mjs issue <findings> <issue-body.md> <open-issues.json> <comment.md>
+//   node report.mjs issue <findings> <issue-body.md> <open-issues.json> <comment.md> [<report.json>]
 //                                                        what to do with the drift issue: create, edit, close or none
 //   node report.mjs pr-branch <relock|renew>             print the branch of a mode's one pull request
 //   node report.mjs renew-needed <report.json>           print true when the site's signature is near or past expiry
@@ -75,14 +75,17 @@ export function openFindings(report) {
 }
 
 /**
- * The digest of the open findings: severity, kind and ref, block first, without duplicates. The summary is left out, so
- * a peer that is still unreachable after 12 s instead of 10 s stays the same finding and nobody is notified again.
+ * The digest of the open findings: severity, kind and ref, and the finding's evidence when it has one (`actual`: the
+ * hash of what changed, a peer's new links.json, a signer's kid), block first, without duplicates. New evidence for the
+ * same ref is news (UAT-6: a partner that changed again, a page whose price changed after a wording edit, a fee change
+ * that keeps every outline count). The summary is left out, and a finding with no evidence (an unreachable peer) has
+ * none, so a peer that is still unreachable after 12 s instead of 10 s stays the same finding and nobody is notified.
  */
 export function digestOf(report) {
   const seen = new Set();
   const rows = [];
   for (const f of openFindings(report)) {
-    const row = [String(f.severity), String(f.kind ?? ""), String(f.ref ?? "")];
+    const row = [String(f.severity), String(f.kind ?? ""), String(f.ref ?? ""), ...evidenceOf(f)];
     const key = JSON.stringify(row);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -90,6 +93,12 @@ export function digestOf(report) {
   }
   const rank = (row) => SEVERITY_RANK[row[0]] ?? 2;
   return rows.sort((a, b) => rank(a) - rank(b) || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]));
+}
+
+/** A finding's evidence for the digest: its `actual` (a hash, a kid, a date) in a safe form, or nothing. */
+function evidenceOf(f) {
+  const actual = typeof f?.actual === "string" ? f.actual : "";
+  return /^[0-9A-Za-z._:-]{1,128}$/.test(actual) ? [actual] : [];
 }
 
 /** The hidden marker that carries the digest in the issue body. `<` and `>` are JSON-escaped, so it never ends early. */
@@ -104,7 +113,8 @@ export function readDigest(body) {
   if (!match) return null;
   try {
     const digest = JSON.parse(match[1]);
-    const row = (r) => Array.isArray(r) && r.length === 3 && r.every((v) => typeof v === "string");
+    // three strings (a body written before UAT-6, or a finding with no evidence) or four (with its evidence)
+    const row = (r) => Array.isArray(r) && (r.length === 3 || r.length === 4) && r.every((v) => typeof v === "string");
     return Array.isArray(digest) && digest.every(row) ? digest : null;
   } catch {
     return null;
@@ -163,32 +173,41 @@ export function watchOutputs(report) {
   return { findings: openFindings(report).length, body: issueBody(report) };
 }
 
-const bullet = ([severity, kind, ref]) => `- **${severity}** ${kind} \`${ref.replace(/`/g, "'").replace(/[\r\n]+/g, " ")}\``;
+const bullet = ([severity, kind, ref], summary) =>
+  `- **${severity}** ${kind} \`${ref.replace(/`/g, "'").replace(/[\r\n]+/g, " ")}\`${typeof summary === "string" && summary ? `: ${cell(summary)}` : ""}`;
 
 /**
  * The comment that says what changed between the digest the open issue carries (`before`, null when it has none) and the
  * one this run found (`now`). A new block is said first, because it is the finding that must not wait. Null when the
- * findings did not change.
+ * findings did not change. A row is the same finding when severity, kind and ref match and so does its evidence, or one
+ * side has none (a digest written before evidence was carried: the first run after an upgrade is not news). A row with
+ * new evidence for a ref the issue already holds is new (the partner changed again); the row it replaces is not listed
+ * as gone. `findings` (this run's open findings, when the caller has the report) gives each new row its summary, which
+ * says what is new in counts and named units.
  */
-export function changeComment(before, now, runUrl) {
-  const key = (row) => JSON.stringify(row);
-  const had = new Set((before ?? []).map(key));
-  const has = new Set(now.map(key));
-  const added = now.filter((row) => !had.has(key(row)));
-  const gone = (before ?? []).filter((row) => !has.has(key(row)));
+export function changeComment(before, now, runUrl, findings = []) {
+  const key3 = (row) => JSON.stringify(row.slice(0, 3));
+  const same = (a, b) => key3(a) === key3(b) && (a.length < 4 || b.length < 4 || a[3] === b[3]);
+  const added = now.filter((row) => !(before ?? []).some((old) => same(old, row)));
+  const nowRefs = new Set(now.map(key3));
+  const gone = (before ?? []).filter((old) => !now.some((row) => same(old, row)) && !nowRefs.has(key3(old)));
   if (before !== null && added.length === 0 && gone.length === 0) return null;
+  const summaryOf = (row) => {
+    const f = findings.find((x) => x && same([String(x.severity), String(x.kind ?? ""), String(x.ref ?? ""), ...evidenceOf(x)], row) && (row.length < 4 || evidenceOf(x)[0] === row[3]));
+    return f?.summary;
+  };
   const lines = [];
   if (added.some((row) => row[0] === "block")) lines.push("**A new `block` finding.** Look before the next release.", "");
   if (before === null) {
     lines.push(
       `Plumbline watch updated this issue as of ${runUrl}. The issue held no record of its earlier findings, so all of them are listed:`,
       "",
-      ...now.map(bullet),
+      ...now.map((row) => bullet(row, summaryOf(row))),
     );
   } else {
     lines.push(`Plumbline watch's findings changed as of ${runUrl}. The table in the issue body is up to date.`);
-    if (added.length > 0) lines.push("", "New:", "", ...added.map(bullet));
-    if (gone.length > 0) lines.push("", "No longer reported:", "", ...gone.map(bullet));
+    if (added.length > 0) lines.push("", "New:", "", ...added.map((row) => bullet(row, summaryOf(row))));
+    if (gone.length > 0) lines.push("", "No longer reported:", "", ...gone.map((row) => bullet(row)));
   }
   return lines.join("\n") + "\n";
 }
@@ -203,7 +222,7 @@ export function changeComment(before, now, runUrl) {
  * - `none` when the body is unchanged, or the run is clean and no issue is open.
  * A count that is not a number throws: it means no report was read, and that is never clean.
  */
-export function issuePlan({ findings, body, open, runUrl }) {
+export function issuePlan({ findings, body, open, runUrl, report }) {
   if (!Number.isInteger(findings) || findings < 0) throw new Error("the findings count is not a number");
   const issue = (Array.isArray(open) ? open : []).find((i) => i && i.title === ISSUE_TITLE && Number.isInteger(i.number));
   if (findings > 0) {
@@ -213,7 +232,7 @@ export function issuePlan({ findings, body, open, runUrl }) {
     if (same(issue.body) === same(body)) return { action: "none", number: issue.number };
     const now = readDigest(body);
     if (now === null) throw new Error("this run's issue body carries no digest");
-    const comment = changeComment(readDigest(issue.body), now, runUrl);
+    const comment = changeComment(readDigest(issue.body), now, runUrl, report ? openFindings(report) : []);
     return comment === null ? { action: "edit", number: issue.number } : { action: "edit", number: issue.number, comment };
   }
   if (!issue) return { action: "none" };
@@ -286,6 +305,9 @@ export function prBody({ mode, report, relock, kid, runUrl }) {
     "",
     "Nothing is accepted until a person merges this. A clean watch closes it.",
   );
+  // the findings' evidence (UAT-6): a peer that changed again keeps every sentence and count but not its hash, so the
+  // body differs, the plan edits, and the branch's lock is pushed again with the new hash
+  if (mode === "relock") lines.push("", digestMarker(digestOf(report)));
   return lines.join("\n") + "\n";
 }
 
@@ -377,13 +399,14 @@ function main(argv) {
     process.stdout.write(`${ISSUE_TITLE}\n`);
     return 0;
   }
-  if (command === "issue" && argv.length === 5) {
-    const [, count, bodyPath, openFile, commentFile] = argv;
+  if (command === "issue" && (argv.length === 5 || argv.length === 6)) {
+    const [, count, bodyPath, openFile, commentFile, reportFile] = argv;
     const runUrl = `${env.GITHUB_SERVER_URL ?? "https://github.com"}/${env.GITHUB_REPOSITORY ?? ""}/actions/runs/${env.GITHUB_RUN_ID ?? ""}`;
     let plan;
     try {
       const findings = /^[0-9]+$/.test(count) ? Number(count) : Number.NaN;
-      plan = issuePlan({ findings, body: readFileSync(bodyPath, "utf8"), open: JSON.parse(readFileSync(openFile, "utf8")), runUrl });
+      const report = reportFile === undefined ? undefined : readReport(reportFile);
+      plan = issuePlan({ findings, body: readFileSync(bodyPath, "utf8"), open: JSON.parse(readFileSync(openFile, "utf8")), runUrl, ...(report !== undefined ? { report } : {}) });
     } catch (error) {
       process.stderr.write(`::error::cannot decide on the drift issue: ${error.message}\n`);
       return 2;

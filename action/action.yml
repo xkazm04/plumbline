@@ -151,11 +151,13 @@ runs:
         GH_REPO: ${{ github.repository }}
         FINDINGS: ${{ steps.run.outputs.findings }}
         BODY: ${{ steps.run.outputs.issue-body }}
+        REPORT: ${{ steps.run.outputs.report }}
       run: |
         title=$(node "$GITHUB_ACTION_PATH/report.mjs" title)
         open="$RUNNER_TEMP/plumbline-open-issues.json"
         gh issue list --state open --search "\"$title\" in:title" --json number,title,body --limit 50 > "$open"
-        node "$GITHUB_ACTION_PATH/report.mjs" issue "$FINDINGS" "$BODY" "$open" "$RUNNER_TEMP/plumbline-issue-comment.md"
+        # the report, when there is one, gives each new finding in the comment its sentence
+        node "$GITHUB_ACTION_PATH/report.mjs" issue "$FINDINGS" "$BODY" "$open" "$RUNNER_TEMP/plumbline-issue-comment.md" ${REPORT:+"$REPORT"}
 
     - name: Open, edit or close the drift issue
       if: inputs.issues == 'true'

@@ -453,10 +453,48 @@ test("UAT-2: the relock body says what the relock does not accept (a stale fact,
   const notSection = body.slice(body.indexOf("**What this relock does not accept"), body.indexOf("**The findings this accepts"));
   assert.match(notSection, /\| warn \| grounding \| rooms\.html \| Not accepted: the network still states 1 fact this page no longer states \(1 price\)/);
   assert.doesNotMatch(notSection, /info stays out/);
-  const accepts = body.slice(body.indexOf("**The findings this accepts"));
+  const accepts = body.slice(body.indexOf("**The findings this accepts"), body.indexOf("**Not signed"));
   assert.doesNotMatch(accepts, /rooms\.html/, "a ref the relock kept is not listed as accepted");
   assert.match(accepts, /peer\.example/);
   assert.doesNotMatch(prBody({ mode: "relock", report: { findings: [peerChange] }, relock: relockOut, kid: null, runUrl }), /does not accept/);
+});
+
+test("UAT-6: new evidence for a finding already on the open issue is news: a comment naming the ref and its sentence", () => {
+  const changed = (actual, summary = peerChange.summary) => ({ ...peerChange, expected: "e".repeat(64), actual, summary });
+  const first = { findings: [changed("a".repeat(64))] };
+  // the partner changed again with the same counts (a fee change): only the hash moved
+  const again = { findings: [changed("b".repeat(64))] };
+  const plan = issuePlan({ findings: 1, body: issueBody(again), open: [issueOf(first, 3)], runUrl, report: again });
+  assert.equal(plan.action, "edit");
+  assert.match(plan.comment, /^\*\*A new `block` finding\.\*\*/);
+  assert.match(plan.comment, /New:\n\n- \*\*block\*\* peer `https:\/\/peer\.example\/a`: A peer's network definition changed since the lock was written; .*In outline: agents: 1 added/);
+  assert.doesNotMatch(plan.comment, /No longer reported/, "the earlier evidence is replaced, not gone");
+  // a links.json that appears beside a changed definition: a second block row for the same peer
+  const links = { kind: "peer", severity: "block", ref: peerChange.ref, expected: "absent", actual: "c".repeat(64), summary: "A peer now publishes a links.json it did not have when locked; the runtime lays it over the peer's links, so this is changed code." };
+  const withLinks = { findings: [changed("a".repeat(64)), links] };
+  const linksPlan = issuePlan({ findings: 2, body: issueBody(withLinks), open: [issueOf(first, 3)], runUrl, report: withLinks });
+  assert.match(linksPlan.comment, /New:\n\n- \*\*block\*\* peer `https:\/\/peer\.example\/a`: A peer now publishes a links\.json/);
+  // a page that changed again (a price after a wording edit): warn, new evidence, a comment
+  const page = (actual, summary) => ({ findings: [{ kind: "grounding", severity: "warn", ref: "rooms.html", expected: "e".repeat(64), actual, summary }] });
+  const cosmetic = page("1".repeat(64), "all 7 facts ... are still on it");
+  const raised = page("2".repeat(64), "1 of 7 facts ... is no longer on it, and the network still states it (1 price)");
+  const pagePlan = issuePlan({ findings: 1, body: issueBody(raised), open: [issueOf(cosmetic, 3)], runUrl, report: raised });
+  assert.match(pagePlan.comment, /New:\n\n- \*\*warn\*\* grounding `rooms\.html`: 1 of 7 facts/);
+  // an unreachable peer is still unreachable after 12 s instead of 10 s: no evidence, no news
+  const slow = (summary) => ({ findings: [{ ...warn, summary }] });
+  assert.equal(issuePlan({ findings: 1, body: issueBody(slow("unreachable after 12 s")), open: [issueOf(slow("unreachable after 10 s"), 3)], runUrl }).comment, undefined);
+  // an issue written before evidence was carried: the first run after the upgrade is not news
+  const oldBody = issueBody(first).replace(/<!-- plumbline:digest .* -->/, digestMarker([["block", "peer", peerChange.ref]]));
+  assert.equal(issuePlan({ findings: 1, body: issueBody(first), open: [{ number: 3, title: ISSUE_TITLE, body: oldBody }], runUrl }).comment, undefined);
+});
+
+test("UAT-6: the relock body carries the findings' evidence, so a partner that changed again with the same counts edits the pull request", () => {
+  const at = (actual) => ({ findings: [{ ...peerChange, actual }] });
+  const body1 = prBody({ mode: "relock", report: at("a".repeat(64)), relock: relockOut, kid: null, runUrl });
+  const body2 = prBody({ mode: "relock", report: at("b".repeat(64)), relock: relockOut, kid: null, runUrl: "https://github.com/o/r/actions/runs/8" });
+  assert.equal(prPlan({ mode: "relock", wanted: true, body: body2, signed: false, open: [{ number: 3, body: body1, isDraft: true }], runUrl }).action, "edit");
+  const body3 = prBody({ mode: "relock", report: at("a".repeat(64)), relock: relockOut, kid: null, runUrl: "https://github.com/o/r/actions/runs/9" });
+  assert.equal(prPlan({ mode: "relock", wanted: true, body: body3, signed: false, open: [{ number: 3, body: body1, isDraft: true }], runUrl }).action, "none", "the same evidence from a later run is no news");
 });
 
 test("UAT-2: the close comment says what clean covers, the site's own signature included", () => {
