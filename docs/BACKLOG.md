@@ -182,16 +182,44 @@ may run in parallel, because it adds no claim.
 
 - Serves: Tomasz (and, through REC-8, Dev and Marta).
 - Closes: TOM-L1-01, TOM-L2-02, TOM-L1-02 (the watch part), REC-8, REC-11.
-- Done when: kiln-row `seller-rotates` + `seller-signer-swapped`; after `adopt --yes` for the rotated seller, accepting
-  it does not change the swapped seller's pin; the watch says "rotation from a key the lock recorded" differently from
-  "a different key, no rotation"; a relock that would pin a signer the trust file does not back says so and needs a flag
-  that names it; `--drop <peer>` either drops the peer with a line or refuses with what `--drop` takes, never "was not in
-  the lock".
+- Done when (updated 2026-11-18 to the owner's decided design, "Owner decisions"): kiln-row `seller-rotates` +
+  `seller-signer-swapped`; a plain relock refuses (exit 1, nothing written, each peer named) while a signer change is
+  pending; `--accept-signer <peer>` for one seller leaves the other refused, and with `--accept <peer>` accepting the
+  rotated seller does not change the swapped seller's pin; without `--trust` the watch says "a rotation statement from
+  the locked key is published (not verified here)" differently from "a different key, with no rotation published"
+  (both `block`); with `--trust` a verifying rotation reads "it rotated from the key the lock recorded, verified against
+  your trust file" and `--accept-signer` says whether the trust file backs the new signer (an unbacked one is accepted
+  when named, said in the change list); the lock pins no public key; the Action's one pull request does not relock with
+  a signer change pending and says so (or the issue, with none open), CI never passing `--accept-signer`; `--drop
+  <peer>` either drops the peer with a line or refuses with what `--drop` takes, never "was not in the lock".
 - Root cause: **verified** (`src/watch/index.ts:98-121`, `:117-118`; `src/watch/decide.ts:283-286`); the accept design is a
   hypothesis.
 - standard: `signed-artifacts/import-verification-flow`.
 - Size: M.
 - Must not break: guardrails 3 and 10; UAT-3 first.
+- State: fixed (commits ee685bd, 5558352, harness and gh stub b6bc524, pin 7cb65c9), awaiting recertify. Built to the
+  decided design. Live on kiln-row (Tomasz trusted both sellers' first keys with the real CLI; the harness relock pinned
+  the four sellers; then `seller-rotates` and `seller-signer-swapped`): harness watch without `--trust`: ashgrove "... a
+  rotation statement from the locked key is published (not verified here). A relock refuses it until a person decides:
+  watch --relock --accept-signer <this peer>." and brackenfold "... a different key, with no rotation published. ...";
+  with `--trust`: ashgrove "... it rotated from the key the lock recorded, verified against your trust file. ...". A
+  plain relock: "relock refused: ... Nothing was written." naming both peers with both kids, the command, exit 1, both
+  pins unchanged. After the real CLI's `adopt --yes` for ashgrove, `--accept-signer <ashgrove>` alone is still refused
+  naming brackenfold; `--accept <ashgrove> --accept-signer <ashgrove> --trust` writes "changed peer ...ashgrove_studio"
+  and "signer  peer ...ashgrove_studio: ae21... -> 4251... (it rotated from the key the lock recorded, verified against
+  your trust file; backed by your trust file)", brackenfold's pin unchanged and still `block` at the next watch; then
+  `--accept-signer <brackenfold> --trust`: "... (a different key, with no rotation published; not backed by your trust
+  file)", accepted. Real CLI `--relock --drop <brackenfold>`: exit 2, "--drop takes a grounding ref or an external
+  definition the lock holds; ... is a peer, which leaves the lock when no network names it ...". Point 2 through
+  `run-action.mjs --harness --relock-pr true`: after `seller-back-changed` the run opened issue #1 and draft PR #2; after
+  `seller-signer-swapped` the next run planned `describe`: PR #2's body says "**the relock was refused**", names
+  brackenfold with both kids, gives the `--accept-signer` command, a comment notifies, and the branch did not move
+  (nothing pushed); the issue body carries the refusal and the command. Deviations: `--drop <peer>` refuses rather than
+  drops (a peer the site names would come back at the next relock); the refusal is an error the library throws
+  (`RelockRefused`), exit 1 for a signer, 2 for `--drop <peer>`. Ceiling: "signer change" means a recorded kid replaced by
+  another kid (a signature that disappears is recorded unsigned with a warn, UAT-3, not refused); the Desk's published
+  reader words the change without `--trust` (it never verifies a rotation there); the stub cannot show GitHub's own
+  rendering of the describe comment.
 
 ### UAT-5. The relock PR survives its second run
 
