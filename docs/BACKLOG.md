@@ -840,6 +840,21 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: M. Signed Desk files; nothing in `site/runtime/` (DC-4).
 - Must not break: guardrail 9.
+- State: fixed (commit 6b31dc1), awaiting recertify; the Desk must be relocked and re-signed by the owner (changed:
+  `site/desk.js`, `site/strings.js`, `site/index.html`; test `site/tests/desk.test.mjs`). In the drift port, below the
+  reading, "A site's own partners": the visitor gives a site's address, the page reads the lock it publishes and runs
+  `checkPeerBeforeLoad` over each pinned peer (at most 24, `MAX_SITE_PEERS`, derivation beside it) against the
+  visitor's trust list and that lock, and shows per peer the signature verdict in words, "Its network matches the pin in
+  that site's lock." or "It differs from the pin in that site's lock:" with one line per part from `lockFindings`
+  ("network definition: ...", "links.json: ...", "signer: ...", Plumbline's own sentences), "A runtime that enforces
+  this check would not load it." for a refused one, and the pending peers counted, never fetched; a site with no lock,
+  a refused or unusable lock, each in words. Test: "UAT-26 ..." in `site/tests/desk.test.mjs` (one partner matches;
+  one with a changed network, a links.json that appeared and another signer reads differs with the three parts, no
+  partner words shown). Live in Chromium on kiln-row's Desk (port 4599, `#/drift`, `http://127.0.0.1:4500/` after a
+  real-CLI `--relock --allow-local`): "4 partners checked.", each seller "It was not contacted: it is not an https
+  address." (the Desk never contacts http; the matches/differs path is the unit test's, as the run's L2 noted:
+  sellers on https are needed for it live). Decided here: the form sits in the drift port rather than the overview's
+  partner aside, whose fixed stage clipped a form below the viewport at 1280 px.
 
 ### UAT-27. The Desk's revoke adds to an existing revocation list
 
