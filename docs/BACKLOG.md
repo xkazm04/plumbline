@@ -73,7 +73,8 @@ even if its own acceptance check passes.
 ## Order
 
 Correctness of what the product says comes first (UAT-1 to UAT-16), completeness second (UAT-17 to UAT-27), friendliness
-third (UAT-28 to UAT-32), review hypotheses last (UAT-33 to UAT-36). The reason is Marta's L2 verdict: her decisive stop
+third (UAT-28 to UAT-32), review hypotheses last (UAT-33 to UAT-36). The recertify findings (UAT-37 to UAT-44) were
+drained after UAT-1 to UAT-9, before the rest. The reason is Marta's L2 verdict: her decisive stop
 is a detection failure, and a plain-language or guided layer built on today's sentences would translate "all 5 facts
 are still on it" faithfully into "your assistant is fine". UAT-28 (help, roles, README) is the one friendlier item that
 may run in parallel, because it adds no claim.
@@ -219,7 +220,8 @@ may run in parallel, because it adds no claim.
   (`RelockRefused`), exit 1 for a signer, 2 for `--drop <peer>`. Ceiling: "signer change" means a recorded kid replaced by
   another kid (a signature that disappears is recorded unsigned with a warn, UAT-3, not refused); the Desk's published
   reader words the change without `--trust` (it never verifies a rotation there); the stub cannot show GitHub's own
-  rendering of the describe comment.
+  rendering of the describe comment. Superseded in part (recertify 2026-11-18, TOM-RC-1): a signature that disappears is
+  now a signer change, refused like another key (UAT-37), and the refusal gives one command per peer (UAT-39).
 
 ### UAT-5. The relock PR survives its second run
 
@@ -670,6 +672,165 @@ No Character reached these; each cites the code review of 2026-11-18.
 | UAT-34 | With a signing key, CI signs a relock before a person reviews it | `action/action.yml` "Decide on the pull request" | the signed lock is produced only after review (a separate apply job, or signing on merge) | M | `ci-execution-trust/measure-apply-split` |
 | UAT-35 | Renewal decides on the English word "expire" in a summary | `action/report.mjs:239` | renewal reads a code or structured field (UAT-17), not prose | S | none |
 | UAT-36 | Duplicate skill ids in an Agent Card miscount | `src/watch/external.ts:59-60` (parts keyed by the id's hash; a repeated id overwrites) | a card with a repeated skill id is counted correctly or reported | S | none |
+
+## Build items: recertify findings (2026-11-18)
+
+Opened by the recertification of J1 and J5 (`uat/runs/2026-11-18-first-five/recertify-j1.md`, `recertify-j5.md`, the
+"New findings for the next drain" sections). Each is fixed to the decided design in "Owner decisions" (UAT-4) and waits
+for `/uat recertify`.
+
+### UAT-37. A recorded signer moves only when a person names the peer
+
+- Serves: Tomasz (and Dev, through the Action).
+- Closes: TOM-RC-1 (major, security-relevant).
+- Done when: kiln-row, `seller-signer-swapped`, then brackenfold's `plumbline.signature.json` answers 404 during an
+  ordinary relock, then the swapped signature returns and another plain relock runs: the lock still holds
+  `94b090a84b42fb09` or the relock refuses, and the second relock refuses naming the seller; the Action opens no pull
+  request that removes or replaces the kid. Every transition of a recorded signer (unreachable, signature not fetchable,
+  404, another key, accepted as unsigned then another key, delisted then relisted) has a test.
+- Root cause: **verified**, as the recertifier's hypothesis said: `src/watch/capture.ts` wrote a record without `kid` when
+  a pinned peer answered 404 for its signature, and `src/watch/index.ts` skipped the signer comparison when either side
+  had no kid, so the later key read as a first signature (`info`).
+- standard: `signed-artifacts/import-verification-flow`.
+- Size: M.
+- Must not break: guardrails 1, 3 and 10; the watch still needs no trust store; the lock pins no public key.
+- State: fixed (commit 82f8990; harness 801fdea; Action ea281bb, pins 66b0564 and 0ecbaae), awaiting recertify. A peer
+  whose recorded signer's signature now answers 404 or 410 is a signer change: `block` at the watch, refused by a relock
+  (exit 1, nothing written) until `--accept-signer <peer>`. Accepted, the lock records the peer unsigned and keeps the
+  kid it had as `formerKid` (wire: `PeerRecord.formerKid`, documented in `docs/signature-format.md`); a later signature
+  by another key is `block` and refused, named from that kid; the same key again is `info` and a plain relock records
+  it. A signature that cannot be read (fetch error, 5xx, not JSON, no valid kid) keeps the recorded kid and says "its
+  signer was not checked". Tests: `src/test/watch-relock-signer.test.ts` (the TOM-RC-1 tests, one per transition).
+  Paths that remain, by design or by memory: a person running `--accept-signer` moves it (the decided design); a lock
+  written before this change that already recorded a peer unsigned after a 404 has no `formerKid`, so its next key reads
+  as a first signer (`info`, now with a signer line); a peer the site stops naming leaves the lock and is first seen when
+  named again (UAT-40). Not run here: the kiln-row world and `run-action.mjs` (MC-4, MC-5 on a world): this drain used
+  no world keys; unit and Action tests stand in.
+
+### UAT-38. The Action never files a signer change under "keeps reporting"
+
+- Serves: Tomasz, Dev.
+- Closes: TOM-RC-2 (major).
+- Done when: the Action's relock pull request says it removes or replaces a recorded signer outside the "does not
+  accept, or keeps as it was" table, or opens no such pull request; the issue does not close as clean while a signer
+  change is held.
+- Root cause: **verified**. A consequence of UAT-37's cause: the 404-window relock was not refused, so its "records it as
+  unsigned" warn landed in `action/report.mjs` prBody's kept table.
+- standard: `signed-artifacts/import-verification-flow`.
+- Size: S.
+- Must not break: guardrail 3 (CI never passes `--accept-signer`); UAT-5's push rules.
+- State: fixed (commit ea281bb, pins 66b0564 and 0ecbaae), awaiting recertify. The relock refuses a gone signer
+  (UAT-37), so the pull request is described, never relocked: it names the peer ("the lock recorded <kid>; it publishes
+  no signature now") and says nothing in it removes or replaces a recorded signer. The issue body counts a gone signer
+  as a held change and says the issue stays open until a person decides; the watch keeps it `block`, so the issue cannot
+  close clean. A pull request that a person's relock produced lists any named signer change in its own section. Tests:
+  `action/report.test.mjs` "TOM-RC-2: ...".
+
+### UAT-39. One command per refused peer
+
+- Serves: Tomasz.
+- Closes: TOM-RC-3 (minor).
+- Done when: no single printed command accepts both the rotated and the swapped seller.
+- Root cause: **verified**. `src/cli/watch-command.ts` printRefusal and `action/report.mjs` joined every peer into one
+  `--accept-signer` command.
+- standard: none.
+- Size: S.
+- Must not break: guardrail 3.
+- State: fixed (commits 82f8990, ea281bb), awaiting recertify. The CLI, the harness, the pull request and the issue give
+  one command per peer: `--accept-signer <peer>` for one; `--accept <peer> --accept-signer <peer>` each for several
+  (naming one still leaves the relock refused for the others); `--trust <your trust file>` added where a new key needs
+  backing and no trust file was given. `--json` carries `commands` (an array) in place of `command`. Tests:
+  "TOM-RC-3: ..." in `src/test/watch-relock-signer.test.ts` and `action/report.test.mjs`.
+
+### UAT-40. A first or relisted signer is said
+
+- Serves: Tomasz.
+- Closes: TOM-RC-4 (minor).
+- Done when: a first or relisted key prints a signer line with its backing; a relisted peer is compared with its last
+  kid, or the output and docs say plainly that a relisted peer is first seen.
+- Root cause: **verified**. The relock printed signer lines only for a changed kid.
+- standard: none.
+- Size: S.
+- Must not break: guardrail 10.
+- State: fixed (commits 82f8990, ea281bb), awaiting recertify. Decided: the lock keeps no record of a peer it no longer
+  holds (no memory was added for delisted peers), so a relisted peer is first seen, and the line says so. `init`,
+  `watch --init` and the relock print `signer  peer <url>: first seen, recorded <kid>; compared with no earlier key (the
+  lock keeps no record of a peer it no longer holds, so a peer named again is first seen too); <backing>`, or
+  `recorded <kid>, its first signer (the lock recorded it unsigned); <backing>`; `--json` `firstSigners`; the relock
+  pull request lists them. Tests: "TOM-RC-4: ..." and "TOM-RC-1/TOM-RC-4: delisted then relisted ...". Ceiling: a seller
+  delisted and relisted under a new key is pinned when a person relocks (named in a line, not refused).
+
+### UAT-41. One reason for one refusal, on peers and cards
+
+- Serves: Tomasz.
+- Closes: TOM-RC-5 (polish).
+- Done when: in one relock, a peer and a card refused by the address rule give the same reason words.
+- Root cause: **verified**. `src/watch/capture.ts` read the card's `reason`, not its `refused`.
+- standard: none.
+- Size: S.
+- Must not break: guardrail 1.
+- State: fixed (commit c1ee693), awaiting recertify. Test: "TOM-RC-5: ..." in `src/test/watch-relock-keep.test.ts`.
+
+### UAT-42. A grounding anchor is a value in its place
+
+- Serves: Marta (and her developer), Priya.
+- Closes: MAR-RC-1 (major, trust).
+- Done when: on the unchanged larch-house fixture, `evidence/marta-recert/mini.mjs` arms M1 (a twin room at the same
+  price), M2 (a struck-through old price) and M4 (an intro "Doubles from €89") no longer say "all 7 facts ... are still
+  on it", and a value whose place cannot be told is reported as not checked, never as still on it; the three arms join
+  MC-1.
+- Root cause: **verified**. An anchor was a value's presence anywhere on the page (`src/watch/anchors.ts` pageFacts and
+  checkAnchors).
+- standard: `quality-gates/vacuous-by-evaluation`.
+- Size: M.
+- Must not break: guardrail 2 (no literal in a finding; places are hashes), guardrail 11; the severity stays `warn`;
+  MAR-RC-4 (nothing accepts a stale fact).
+- State: fixed (commit b2a567f, pin 0ecbaae), awaiting recertify. Struck-through text (`<del>`, `<s>`, `<strike>`) is
+  dropped. The lock records, per anchor, where on the page the network's fact is (wire: `GroundingSource.places`, hashes
+  of "<literal>\n<place>", documented in `docs/signature-format.md`): a place is the nearest heading and, in a table row,
+  the row's first cell; the places kept are those whose label the network's own clause uses, else the value's only
+  place, else none. The watch says "still on it" only when every anchor is in a recorded place; a moved fact reads "is
+  no longer on it where the lock recorded it (it still appears elsewhere on the page ...)", stale while the network
+  still states it in a clause that names no place it is in now; one with no recorded place reads "whether it moved is
+  not checked". The relock does not accept a stale moved fact and accepts it once the network is corrected. init and
+  `--relock` name the facts whose place cannot be told. Live with the built CLI on fixture copies (mini.mjs): M1, M2, M4
+  now say the price is no longer where it was and the network still states it; M3 (15:00 -> 3pm) still reads "all 7
+  facts ... still on it"; MC-1 (raise-price vs cosmetic-edit, anchor-probe.mjs) unchanged. Tests: "MAR-RC-1 ..." in
+  `src/test/watch-anchors.test.ts`. Ceiling: a place is matched by the network's words containing the page's label, so
+  a label the network words differently ("Doubles" vs "double room") falls back to the value's only place, or to not
+  checked when it has several; a lock written before this change reads every anchor as not checked for its place until
+  it is relocked; M5 to M9 (forms not anchored) are UAT-1's ceiling, unchanged.
+
+### UAT-43. The right fix is not announced as an alarm
+
+- Serves: Marta.
+- Closes: MAR-RC-2 (minor, clarity), in part.
+- Done when: a corrected network before the re-sign is not announced as "**A new `block` finding.**" to the owner.
+- Root cause: **verified**. `action/report.mjs` led every new block with the general alarm.
+- standard: none.
+- Size: S.
+- Must not break: guardrail 6; UAT-2 (the signature-coverage block stays `block`).
+- State: fixed in the Action (commit ea281bb), awaiting recertify: when the only new `block` is the site's own signature
+  no longer covering its files, the comment leads "**The site's signature no longer covers its files.** If you or your
+  developer changed and relocked the site, sign it again ...". Not done: the Desk's "the host may have rewritten it" and
+  verify's "Do not treat these files as the publisher's" (`site/strings.js:95`), which belong with UAT-29's owner-facing
+  line and would touch a signed Desk file. Test: "MAR-RC-2: ..." in `action/report.test.mjs`.
+
+### UAT-44. An unchanged sentence is not news again
+
+- Serves: Marta, Dev.
+- Closes: MAR-RC-3 (minor, clarity).
+- Done when: while the issue is open, a later page edit that leaves the finding's sentence unchanged comments that the
+  sentence is unchanged, not "New:" with the same sentence.
+- Root cause: **verified**. `action/report.mjs` changeComment listed every row with new evidence under "New:" with its
+  summary (the price of UAT-6).
+- standard: none.
+- Size: S.
+- Must not break: UAT-6 (new evidence still comments, so it still notifies) and its no-renotify rule for timeouts.
+- State: fixed (commit ea281bb), awaiting recertify. A row back with new evidence whose sentence the issue's table
+  already holds is listed under "Changed again, and what the finding says is unchanged (its sentence is in the table)",
+  without the sentence; a `block` one leads "**A `block` finding changed again** (new evidence; what it says is
+  unchanged)". Tests: "MAR-RC-3: ..." and the updated "UAT-6: ..." in `action/report.test.mjs`.
 
 ## Method commitments
 
