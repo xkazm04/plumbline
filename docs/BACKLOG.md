@@ -227,6 +227,18 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: M.
 - Must not break: the no-renotify rule for timeouts (the reason the summary was left out).
+- State: fixed (commits 68c35d2, runner 46af076, pin 014377c), awaiting recertify. Cause confirmed (the digest also
+  deduplicated two block rows of one peer, which is why `partner-adds-links` was silent). Evidence chosen: each
+  finding's `actual`. Live on meridian-trips (run-action --harness --relock-pr true, issue #1 and PR #2 open):
+  `partner-adds-links`, `partner-changes-again` and `partner-changes-fee` each commented on the issue (notifies) with
+  "New: - **block** peer `http://127.0.0.1:4201/coinbridge_fx`: <its sentence>" and edited the PR, whose branch lock
+  then held the served definition's hash (54f0178d8759 after `again`, 3b8891bf0cb7 after `fee`, whose outline counts
+  are the same); `partner-down` run twice: the second run planned `none` for the issue and the PR. larch-house
+  `cosmetic-edit` then `raise-price`: each commented, the second with "1 of 7 facts ... the network still states it (1
+  price) ...". Ceiling: the 12 s vs 10 s case is proved by `action/report.test.mjs` (the world's slow site is in
+  tallow-finch, not meridian), and live by two identical `partner-down` runs; during an outage the relock keeps the
+  pin (UAT-3), so the open relock PR is closed ("no longer finds anything to accept") and is opened again when the
+  partner answers.
 
 ### UAT-7. One verdict vocabulary on the CLI and the Desk
 
