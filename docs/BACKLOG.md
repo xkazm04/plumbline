@@ -524,6 +524,27 @@ may run in parallel, because it adds no claim.
 - standard: `signed-artifacts/key-custody`.
 - Size: M.
 - Must not break: guardrails 3 and 4 (warnings add, they never auto-adopt or auto-trust).
+- State: fixed (commit d778b46), awaiting recertify. Live on northgate-clinic, real CLI, the wrong-order arm (pharmacy
+  trusted A by `trust --url --yes`; `rotate` A -> B; the pharmacy adopted B; `revoke` A; `sign` with B): `rotate`
+  printed "NOTE: rotate is for a planned change of key, not for a leak: after a leak, revoke the leaked key ..." (its
+  usage line says it too); `revoke` printed "WARNING: plumbline-rotation.json names <B> as the successor of <A>. A
+  verifier that adopted <B> through <A> revokes <B> with this revocation ... make another key with plumbline keygen.",
+  "This revocation is final: every verifier that reads it refuses <A> from then on, whatever the dates, and never
+  trusts it again; there is no un-revoke. Tell your verifiers directly as well ..." and a `next:` line that includes
+  "replace the site's _plumbline TXT record so it names the new kid alone (plumbline dns --key <the new key record>
+  --origin <origin>)"; `sign` with B printed "WARNING: this key (<B>) is named in plumbline-rotation.json as the
+  successor of <A>, and plumbline-revocation.json revokes <A>: ... refuses this signature (invalid revoked) ..." and
+  still signed; `export-jws` with A: exit 2, "this key (<A>) is revoked by the site's plumbline-revocation.json, so
+  verifiers refuse everything it signs, a JWS included ..."; after `forgery` and `attacker-rotates`, `adopt --root
+  <mirror> --origin <clinic> --yes` printed "WARNING: <trust file> already holds <B> as the successor of <A> ..., and
+  this rotation names a different successor, <C>. Two successors of one key is how a stolen key looks ...", exit 1, the
+  trust file unchanged. Decided: adopt refuses a fork with or without `--yes` (`refusedBy: "fork"`), rather than only
+  warning. `dns` says "After a revocation, publish the new key's record alone and remove the revoked kid's"; the
+  revocation steps in `docs/signature-format.md` gained the DNS step, and `docs/trust-bootstrap.md` says the same.
+  Tests: "UAT-15 ..." in `src/test/cli-lifecycle.test.ts`. Ceiling: `sign`'s warning checks the revocation under the
+  predecessor's public key only when the rotation chain or the root's key record carries it, otherwise it says the file
+  "holds a revocation of" that key, not checked; `revoke` still writes at once (no preview, no `--yes`), as before; the
+  Desk's own revoke and rotate are unchanged (UAT-27 is the Desk's revoke).
 
 ### UAT-16. `watch --url` strips control characters from a published lock
 
