@@ -250,6 +250,14 @@ export const STRINGS = {
     made: "Revocation made for key",
     download: "Download plumbline-revocation.json",
     next: "Publish it next to agent-manifest.json. Every verifier that reads it stops accepting anything this key signed, whatever the dates, and it cannot be taken back. Then make a new key and re-establish trust by first contact.",
+    // UAT-27 (INE-L1-17): a site keeps every revocation it made published
+    existingLabel: "Your site's current plumbline-revocation.json, if it publishes one (optional)",
+    badList: "The revocation list you picked is not a plumbline-revocation.json (a revocation, or a list of them). Pick the file your site publishes, or none.",
+    fullList: "The revocation list you picked already holds {max} statements, the most one file may hold.",
+    added: "The download holds your site's {count} revocations: the ones it publishes now, with this one added. Publish it in place of the current file.",
+    replaces: "This download holds this revocation alone. If your site already publishes a plumbline-revocation.json, pick it above and make the revocation again: publishing this file instead would unpublish the revocations it holds.",
+    alreadyFor: "No new revocation made: the list you picked already revokes key",
+    already: "The list you picked already holds a revocation of this key, made by it: nothing is added, and the download is your list as it is.",
   },
 
   sign: {

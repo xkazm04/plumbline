@@ -21,6 +21,8 @@ import {
   KEY_FILE,
   KEY_TYPE,
   REVOCATION_FILE,
+  REVOCATION_TYPE,
+  MAX_STATEMENTS_PER_FILE,
   ROTATION_FILE,
   SIGNATURE_FILE,
   applyRevocationText,
@@ -1066,10 +1068,16 @@ export class DeskPage {
    * a download. The private key is read here, used once and dropped: it is never stored, returned or shown, and the
    * assistant has no way to reach it. Publishing the file is the visitor's step.
    *
+   * UAT-27 (INE-L1-17): a site keeps every revocation it ever made published (the CLI appends; p-c30007), so the visitor
+   * may pick the site's current plumbline-revocation.json too: the download is then that list with the new statement
+   * added, or the list unchanged when it already holds a revocation of this key that verifies under it. Without one,
+   * the result warns that the download replaces whatever file the site publishes now.
+   *
    * :param file: The plumbline.private.json the visitor picked.
    * :param reason: An optional note for people, kept in the statement.
+   * :param existing: The site's current plumbline-revocation.json, when the visitor picked it.
    */
-  async revokeWithKeyFile(file, reason = "") {
+  async revokeWithKeyFile(file, reason = "", existing = undefined) {
     const blocked = await this.#refuseKeyWork();
     if (blocked) return this.#revocationRefused(blocked);
     if (!file) return this.#revocationRefused(refuse(t("revoke.noKey"), "key"));
@@ -1090,6 +1098,29 @@ export class DeskPage {
       }
     }
     if (publicKey === null) return this.#revocationRefused(refuse(t("sign.refusals.badKey"), "key"));
+    // the site's current list, held to the CLI's rule: a statement or a list of them, each a revocation with a kid
+    let list;
+    let listText;
+    if (existing) {
+      try {
+        listText = await readFileText(existing);
+        const listed = statementsOf(JSON.parse(listText));
+        const ok = !("problem" in listed) && listed.statements.every((s) => isRecord(s) && s.type === REVOCATION_TYPE && isKid(s.kid));
+        list = ok ? listed.statements : null;
+      } catch {
+        list = null;
+      }
+      if (list === null) return this.#revocationRefused(refuse(t("revoke.badList"), "existing"));
+      if (list.length >= MAX_STATEMENTS_PER_FILE) return this.#revocationRefused(refuse(t("revoke.fullList", { max: MAX_STATEMENTS_PER_FILE }), "existing"));
+      // already revoked by this key: the list is offered as it is, nothing added (the CLI writes nothing then)
+      const self = { kid: parsed.kid, origin: "", publicKey };
+      if ((await applyRevocationText(listText, [self])).applied) {
+        if (this.revocation && this.revocation.offer) revoke(this.revocation.offer);
+        this.revocation = { kid: parsed.kid, already: true, count: list.length, offer: offer(REVOCATION_FILE, listText.endsWith("\n") ? listText : `${listText}\n`) };
+        this.render("revoke");
+        return { ok: true, kid: parsed.kid, alreadyRevoked: true, revocations: list.length, offeredOnPage: REVOCATION_FILE };
+      }
+    }
     const note = typeof reason === "string" ? reason.trim().slice(0, 500) : "";
     const now = this.now();
     const statement = await revokeKey({
@@ -1099,9 +1130,11 @@ export class DeskPage {
       ...(note ? { reason: note } : {}),
     });
     if (this.revocation && this.revocation.offer) revoke(this.revocation.offer);
-    this.revocation = { kid: statement.kid, revokedAt: statement.revokedAt, offer: offer(REVOCATION_FILE, `${JSON.stringify(statement, null, 2)}\n`) };
+    const body = list === undefined || list.length === 0 ? statement : [...list, statement];
+    const count = list === undefined ? 1 : list.length + 1;
+    this.revocation = { kid: statement.kid, revokedAt: statement.revokedAt, count, replaces: list === undefined, offer: offer(REVOCATION_FILE, `${JSON.stringify(body, null, 2)}\n`) };
     this.render("revoke");
-    return { ok: true, kid: statement.kid, revokedAt: statement.revokedAt, offeredOnPage: REVOCATION_FILE };
+    return { ok: true, kid: statement.kid, revokedAt: statement.revokedAt, revocations: count, ...(list === undefined ? { replacesPublished: true } : {}), offeredOnPage: REVOCATION_FILE };
   }
 
   #revocationRefused(refusal) {
@@ -1850,16 +1883,21 @@ function renderRevoke(page) {
     out.replaceChildren();
     return;
   }
-  // The private key file has been used (or refused): the picker lets go of it.
+  // The private key file has been used (or refused): the picker lets go of it, and of the list picked beside it.
   byId("revoke-key").value = "";
+  byId("revoke-existing").value = "";
   if (r.problem) {
     // The refusal is said once, in the status line under the button (a live region).
     out.replaceChildren();
     return;
   }
   const made = el("p", null, "notice");
-  made.append(el("span", `${t("revoke.made")} `), el("code", r.kid, "kid"));
-  out.replaceChildren(made, downloadLink(r.offer, t("revoke.download")), el("p", t("revoke.next"), "note"));
+  if (r.already) made.append(el("span", `${t("revoke.alreadyFor")} `), el("code", r.kid, "kid"));
+  else made.append(el("span", `${t("revoke.made")} `), el("code", r.kid, "kid"));
+  // UAT-27: what the download holds beside what the site publishes now: the list with this one added, the list as it
+  // was (already revoked), or this one alone, which would replace a list the site publishes
+  const list = r.already ? t("revoke.already") : r.replaces ? t("revoke.replaces") : t("revoke.added", { count: r.count });
+  out.replaceChildren(made, el("p", list, r.replaces ? "notice" : "note"), downloadLink(r.offer, t("revoke.download")), el("p", t("revoke.next"), "note"));
 }
 
 function renderSitePeers(page) {
@@ -2093,7 +2131,8 @@ export function wirePage() {
   byId("key-discard").addEventListener("click", () => page.discardKey());
   byId("revoke-make").addEventListener("click", () => {
     const input = byId("revoke-key");
-    void handle("revoke-status", "", () => page.revokeWithKeyFile(input.files && input.files[0], byId("revoke-reason").value));
+    const listInput = byId("revoke-existing");
+    void handle("revoke-status", "", () => page.revokeWithKeyFile(input.files && input.files[0], byId("revoke-reason").value, listInput.files && listInput.files[0]));
   });
   byId("sign-origin").addEventListener("change", (event) => page.setSignOrigin(event.target.value));
   byId("sign-days").addEventListener("change", (event) => page.setSignDays(event.target.value));

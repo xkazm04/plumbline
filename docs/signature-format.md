@@ -450,6 +450,10 @@ After a leak, the publisher:
    dates, and never trusts it again; there is no un-revoke), and warns when the root's `plumbline-rotation.json` names
    a successor of the key: that successor is revoked with it wherever it was adopted, so it is not the key to re-sign
    with (`--json`: `successors`).
+   The Desk's `#/key` revoke follows the same rule (UAT-27): pick the site's current `plumbline-revocation.json`
+   beside the private key and the download is that list with the new statement added (or the list unchanged when it
+   already revokes the key under it); without one, the page warns that the download holds this revocation alone and
+   would unpublish any revocation the site already publishes.
 2. `plumbline keygen --out <new dir>` makes a **new** key, one no rotation names. Re-sign the site with it and publish
    its key record.
 3. Replace the site's `_plumbline` TXT record (`docs/trust-bootstrap.md`) so it names the new kid alone:

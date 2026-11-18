@@ -2753,3 +2753,44 @@ test("UAT-26 (TOM-L1-12): the Desk takes a site's address and checks that site's
     restore();
   }
 });
+
+test("UAT-27 (INE-L1-17): the Desk's revoke adds to the site's revocation list, or warns that the download replaces it", async () => {
+  const keyFile = await DeskTest.keyFile();
+  try {
+    // no list given: the download is this revocation alone, and the page warns it would replace a published list
+    const alone = await App.page.revokeWithKeyFile(keyFile);
+    assert.equal(alone.ok, true, alone.reason);
+    assert.equal(alone.replacesPublished, true);
+    let shown = JSON.stringify(StubDocument.describe(document.getElementById("revoke-result")));
+    assert.ok(shown.includes(STRINGS.revoke.replaces), shown);
+    const first = JSON.parse(await App.page.revocation.offer.blob.text());
+    assert.equal(Array.isArray(first), false, "a first revocation is one statement, as the CLI writes it");
+
+    // the site's list holds another key's revocation: the download is that list with this one added, oldest first
+    const other = await generateKey(NOW);
+    const earlier = await revokeKey({ privateKey: other.privateKey, key: other.key, now: NOW });
+    const listed = await App.page.revokeWithKeyFile(keyFile, "", new File([JSON.stringify(earlier, null, 2)], "plumbline-revocation.json"));
+    assert.equal(listed.ok, true, listed.reason);
+    assert.equal(listed.revocations, 2);
+    assert.equal(listed.replacesPublished, undefined);
+    const both = JSON.parse(await App.page.revocation.offer.blob.text());
+    assert.deepEqual(both.map((s) => s.kid), [other.key.kid, first.kid]);
+    shown = JSON.stringify(StubDocument.describe(document.getElementById("revoke-result")));
+    assert.ok(shown.includes(STRINGS.revoke.added.replace("{count}", "2")), shown);
+
+    // the list already revokes this key, by this key: nothing is added, the list is offered as it is
+    const text = JSON.stringify(both, null, 2);
+    const again = await App.page.revokeWithKeyFile(keyFile, "", new File([text], "plumbline-revocation.json"));
+    assert.deepEqual([again.ok, again.alreadyRevoked, again.revocations], [true, true, 2]);
+    assert.equal(await App.page.revocation.offer.blob.text(), `${text}\n`);
+    shown = JSON.stringify(StubDocument.describe(document.getElementById("revoke-result")));
+    assert.ok(shown.includes(STRINGS.revoke.already) && shown.includes(STRINGS.revoke.alreadyFor), shown);
+
+    // a file that is not a revocation list is refused in words, and nothing is offered
+    const bad = await App.page.revokeWithKeyFile(keyFile, "", new File(['{"type":"plumbline-rotation"}'], "x.json"));
+    assert.equal(bad.reason, STRINGS.revoke.badList);
+  } finally {
+    App.page.revocation = null;
+    App.page.render("revoke");
+  }
+});
