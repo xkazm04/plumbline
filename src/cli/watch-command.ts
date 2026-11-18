@@ -22,6 +22,7 @@ import { ArgsError, parseArgs, repeated } from "./args.js";
 import { parseExternalArg } from "../watch/external.js";
 import type { ExternalKind } from "../core/types.js";
 import { ALLOW_LOCAL_WARNING, isHttpUrl } from "./gate-command.js";
+import { printable } from "./diff-command.js";
 
 const USAGE =
   "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]... [--accept-signer <peer>]... [--accept <ref>]...] [--source <path-or-https-url>]... [--external a2a-card=<https url>]... [--trust <trust file>] [--timeout <ms>] [--json]\n" +
@@ -271,13 +272,18 @@ function printRefusal(refusal: RelockRefusal, rootArg: string, json: boolean, tr
 }
 
 /** Prints a watch report and returns its exit code: 1 for a lock that was not found or any warn or block, else 0. */
+/**
+ * The report in a terminal, or as one JSON document. UAT-16: a ref can come from a stranger's published lock (watch
+ * --url), so every text line has its control characters (C0, C1, DEL, the bidi controls) replaced, as `plumbline diff`
+ * does (printable); JSON escapes them itself.
+ */
 function printReport(report: WatchReport, json: boolean): 0 | 1 {
   const noLock = report.lockState !== undefined && report.lockState !== "found";
   if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   else {
-    if (noLock) process.stdout.write(`lock  ${report.lockState}: ${report.lockSummary ?? ""}\n`);
+    if (noLock) process.stdout.write(`lock  ${report.lockState}: ${printable(report.lockSummary ?? "")}\n`);
     else if (report.findings.length === 0) process.stdout.write("watch: no drift\n");
-    for (const f of report.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
+    for (const f of report.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${printable(f.ref)}: ${printable(f.summary)}\n`);
   }
   return exitOf(report);
 }

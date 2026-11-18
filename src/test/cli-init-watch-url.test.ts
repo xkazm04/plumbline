@@ -275,3 +275,36 @@ test("watch --url refuses a checkout's flags, a target that is not http(s), and 
     assert.equal(r.out, "");
   }
 });
+
+test("UAT-16: watch --url prints a published lock's refs with their control characters replaced, as plumbline diff does", async () => {
+  let lockText = "";
+  const server = await loopbackServer((req, res) => {
+    const p = new URL(req.url ?? "/", "http://x").pathname;
+    if (p === "/agent-manifest.json") res.end('{ "networks": [] }\n');
+    else if (p === `/${LOCK_FILE}`) res.end(lockText);
+    else res.writeHead(404).end("no");
+  });
+  try {
+    // a stranger's lock: an escape sequence that would clear the terminal and a right-to-left override
+    const hostileRef = "rooms\u001b[2J\u001b[31m.html";
+    const hostilePeer = "https://10.0.0.1/p‮evil\u0007";
+    lockText = JSON.stringify(
+      lockOf({
+        grounding: { sources: [{ ref: hostileRef, sha256: "a".repeat(64) }], builtAt: NOW.toISOString() },
+        peers: { [hostilePeer]: { sha256: "c".repeat(64), links: "absent", checkedAt: NOW.toISOString() } },
+      }),
+    );
+    const text = await cli(tmp, "watch", "--url", `${server.url}/`, "--allow-local", "--timeout", "3000");
+    assert.equal(text.code, 1, text.out + text.err);
+    assert.doesNotMatch(text.out, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f‪-‮]/, JSON.stringify(text.out));
+    assert.match(text.out, /grounding rooms\?\[2J\?\[31m\.html: /);
+    assert.match(text.out, /peer https:\/\/10\.0\.0\.1\/p\?evil\?: /);
+    // --json keeps the refs as the lock wrote them, escaped by JSON itself
+    const json = await cli(tmp, "watch", "--url", `${server.url}/`, "--allow-local", "--timeout", "3000", "--json");
+    const refs = (JSON.parse(json.out) as { findings: DriftFinding[] }).findings.map((f) => f.ref);
+    assert.ok(refs.includes(hostileRef) && refs.includes(hostilePeer), JSON.stringify(refs));
+    assert.doesNotMatch(json.out, /\u001b/);
+  } finally {
+    await server.close();
+  }
+});

@@ -87,14 +87,15 @@ const isLoopbackHttp = (url) => {
   }
 };
 
-/** Mirrors printReport in src/cli/watch-command.ts. */
+/** Mirrors printReport in src/cli/watch-command.ts, control characters replaced as there (UAT-16). */
+const printable = (text) => String(text).replace(/[\u0000-\u001f\u007f-\u009f؜‎‏‪-‮⁦-⁩]/g, "?");
 function printReport(report, json) {
   const noLock = report.lockState !== undefined && report.lockState !== "found";
   if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   else {
-    if (noLock) process.stdout.write(`lock  ${report.lockState}: ${report.lockSummary ?? ""}\n`);
+    if (noLock) process.stdout.write(`lock  ${report.lockState}: ${printable(report.lockSummary ?? "")}\n`);
     else if (report.findings.length === 0) process.stdout.write("watch: no drift\n");
-    for (const f of report.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
+    for (const f of report.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${printable(f.ref)}: ${printable(f.summary)}\n`);
   }
   return noLock || report.findings.some((f) => f.severity === "warn" || f.severity === "block") ? 1 : 0;
 }

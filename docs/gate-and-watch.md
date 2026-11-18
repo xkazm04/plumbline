@@ -218,7 +218,9 @@ references resolve against the lock's own URL; the lock is a stranger's document
 grounding refs are held to the address rule below ("The Desk's drift reader") before anything is fetched, with
 `--allow-local` too (it lets the CLI read a site on this machine, never send a stranger's lock there). The lock states
 and the exit rule are the watch's: anything but `found` is exit 1. A connection failure is `unreadable`; `refused` is the
-browser's alone.
+browser's alone. The refs in its findings are the stranger's own strings, so the text report replaces their control
+characters (C0, C1, DEL and the bidi controls) with `?`, as `plumbline diff` does (UAT-16); every text report of the
+watch does the same, and `--json` keeps the strings as the lock wrote them, escaped by JSON.
 
 What the CLI adds to the shared reader: the site's own signature expiry, read from the published
 `plumbline.signature.json` by the rule the watch applies to the file on disk; and, when a lock was found, one `info`
