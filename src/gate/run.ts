@@ -53,6 +53,8 @@ const ADAPTER_DEADLINE_FACTOR = 5;
 
 export async function runGateWith(options: GateOptions, deps: GateRunDeps): Promise<GateReport> {
   const timeoutMs = options.timeoutMs ?? deps.defaultTimeoutMs;
+  // UAT-10: the report says when the gate ran, so a badge drawn later is dated by the check, not by the drawing
+  const checkedAt = (deps.now ?? (() => new Date()))().toISOString();
   const wanted = [...new Set(options.adapters ?? ALL_ADAPTERS)].filter((a) => a in REGISTRY);
   const ctx = makeContext({
     target: options.target,
@@ -85,5 +87,5 @@ export async function runGateWith(options: GateOptions, deps: GateRunDeps): Prom
 
   // Nothing checked is not a pass.
   const state = findings.length === 0 ? "unavailable" : worst(findings.map((f) => f.state));
-  return { target: options.target, state, findings };
+  return { target: options.target, state, findings, checkedAt };
 }

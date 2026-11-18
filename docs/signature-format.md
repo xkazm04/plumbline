@@ -499,7 +499,14 @@ error (an unknown or missing option, an option without its value, a bad `--origi
 prints the message and then its own usage line; with `--json` the error object carries it as `usage`. An I/O error
 prints no usage line. The commands are `init`, `watch`, `gate`, `badge`, `keygen`, `sign`, `verify`, `rotate`, `revoke`,
 `trust`, `adopt`, `dns` and `export-jws`; anything else is an unknown command, exit 2. `badge` draws a gate report as a small SVG
-(`docs/ecosystem-scan.md`). `init` (since 2026-11-18) writes the watch's lock and, with
+(`docs/ecosystem-scan.md`); it reads no clock, so it refuses `--now`: its date is the report's `checkedAt`.
+
+**The gate report** (`GateReport` in `src/core/types.ts`, `plumbline gate --json`) is `{ target, state, findings,
+checkedAt?, signature? }`. Two members were added on 2026-11-18 (UAT-10), each omitted when absent, never `null`:
+`checkedAt`, the UTC ISO time the gate ran (every run since writes it; an older report has none), and `signature`, a
+`VerifyResult` (`{ verdict, reason?, kid?, origin?, detail? }`, the verdicts and reasons above) present only when the
+gate was given `--trust <file>` and checked the site's signature as `verify --url` does. A report without `signature`
+says nothing about the signature. Neither member changes `state`. `init` (since 2026-11-18) writes the watch's lock and, with
 `--workflow`, its daily workflow, and makes no key (`docs/gate-and-watch.md`).
 
 | Command | Does |

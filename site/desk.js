@@ -1455,7 +1455,8 @@ function renderGate(page) {
     item.append(el("p", f.summary, "summary"));
     list.append(item);
   }
-  out.replaceChildren(head, list, el("p", t("gate.corsNote"), "note"));
+  // UAT-10 (PRI-L1-14): a pass here says nothing about the signature, and the view says so where the result is read
+  out.replaceChildren(head, list, el("p", t("gate.signatureNote"), "note signature-note"), el("p", t("gate.corsNote"), "note"));
 }
 
 function renderDrift(page) {

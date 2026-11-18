@@ -66,6 +66,7 @@ export const STRINGS = {
     empty: "No gate run yet.",
     overall: "Overall",
     corsNote: "In a browser, \"the connection failed\" also covers a server that does not allow cross-origin reads (CORS). It is never counted as a pass.",
+    signatureNote: "The site's signature was not checked here: the three checkers do not read it. Verify a signature checks it.",
     adapters: {
       validator: "Validator port",
       atlas: "Agent Atlas",

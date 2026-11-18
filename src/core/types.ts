@@ -326,6 +326,17 @@ export interface GateReport {
   /** The worst adapter state: fail, then unavailable, then pass. */
   state: GateState;
   findings: GateFinding[];
+  /**
+   * When the gate ran: a UTC ISO timestamp taken as the run started (UAT-10). Every gate run writes it; a report written
+   * before 2026-11-18 has none. The badge's date is this one, never the day it is drawn.
+   */
+  checkedAt?: string;
+  /**
+   * The site's signature, checked as `plumbline verify --url` checks it, against the trust file the gate was given
+   * (`gate --trust <file>`). Absent when the gate was not asked to check it: then no surface may read the report as
+   * saying anything about the signature. It never changes `state` or the exit code (three states stay three).
+   */
+  signature?: VerifyResult;
 }
 
 export interface DriftFinding {

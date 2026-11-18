@@ -9,10 +9,10 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { LOCK_FILE, type DriftReport, type GateReport } from "../core/types.js";
 import { SafeFetchError } from "../net/fetch-types.js";
-import { badgeSvg, BADGE_COLOURS } from "../scan/badge.js";
+import { BADGE_COLOURS, BADGE_GATES, BADGE_SIGNATURES, badgeColour, badgeSvg, type BadgeFacts } from "../scan/badge.js";
 import { DISCLOSURE, driftStateOf, escapeHtml, renderHtml, summarise, type ScanReport, type SiteResult } from "../scan/report.js";
 import { MAX_SITES, deadlineFetcher, parseList, scanList, scanSite } from "../scan/run.js";
-import { badgeStateOf } from "../cli/badge-command.js";
+import { badgeFactsOf, badgeStateOf } from "../cli/badge-command.js";
 import { fixture, scripted } from "./net-helpers.js";
 import { NOW } from "./watch-helpers.js";
 
@@ -92,19 +92,31 @@ test("renderHtml: static, no script, no external resource, every string escaped;
   assert.equal(escapeHtml(`<>&"'`), "&lt;&gt;&amp;&quot;&#39;");
 });
 
-test("badgeSvg: three states, three colours and the word always written; a bad state or date is refused", () => {
-  for (const state of ["pass", "fail", "unavailable"] as const) {
-    const svg = badgeSvg(state, "2026-11-18");
-    assert.match(svg, new RegExp(`fill="${BADGE_COLOURS[state]}"`));
-    assert.match(svg, /<title>Plumbline gate: (pass|fail|not checked) on 2026-11-18<\/title>/);
-    assert.match(svg, /role="img" aria-label="Plumbline gate: /);
-    assert.doesNotMatch(svg, /<script|on[a-z]+=/i);
+const facts = (gate: BadgeFacts["gate"], signature: BadgeFacts["signature"]): BadgeFacts => ({ gate, signature, date: "2026-11-18" });
+
+test("badgeSvg: the gate part, the signature part and the date always written; four colours; anything outside its list refused", () => {
+  for (const g of BADGE_GATES) {
+    for (const signature of BADGE_SIGNATURES) {
+      const svg = badgeSvg(facts(g, signature));
+      const colour = badgeColour(facts(g, signature));
+      assert.match(svg, new RegExp(`fill="${BADGE_COLOURS[colour]}"`));
+      assert.match(svg, /<title>Plumbline gate: [a-z ()]+, signature [a-z ()]+, checked on 2026-11-18<\/title>/);
+      assert.match(svg, /role="img" aria-label="Plumbline gate: /);
+      assert.doesNotMatch(svg, /<script|on[a-z]+=/i);
+      // UAT-10: green only for a full pass with a verified signature; red for a failed checker or an invalid signature
+      assert.equal(colour === "green", g === "pass" && signature === "verified", `${g} ${signature}`);
+      if (g === "fail" || !["verified", "unverifiable", "not-checked"].includes(signature)) assert.equal(colour, "red", `${g} ${signature}`);
+    }
   }
-  assert.match(badgeSvg("unavailable", "2026-11-18"), />not checked 2026-11-18</, "unavailable says what it means");
-  assert.equal(new Set(Object.values(BADGE_COLOURS)).size, 3);
-  assert.throws(() => badgeSvg("warn" as never, "2026-11-18"));
-  assert.throws(() => badgeSvg("pass", "18.11.2026"));
-  assert.throws(() => badgeSvg("pass", '2026-11-18"><script>'));
+  assert.match(badgeSvg(facts("partly-checked", "not-checked")), />partly checked, signature not checked, 2026-11-18</);
+  assert.match(badgeSvg(facts("pass", "tampered")), />pass, signature invalid \(tampered\), 2026-11-18</);
+  assert.equal(badgeColour(facts("unreachable", "unverifiable")), "amber", "a site that did not answer has an alarm colour of its own");
+  assert.equal(badgeColour(facts("pass", "not-checked")), "grey", "a signature not checked is never green");
+  assert.equal(new Set(Object.values(BADGE_COLOURS)).size, 4);
+  assert.throws(() => badgeSvg({ ...facts("pass", "verified"), gate: "warn" as never }));
+  assert.throws(() => badgeSvg({ ...facts("pass", "verified"), signature: "green" as never }));
+  assert.throws(() => badgeSvg({ ...facts("pass", "verified"), date: "18.11.2026" }));
+  assert.throws(() => badgeSvg({ ...facts("pass", "verified"), date: '2026-11-18"><script>' }));
 });
 
 test("badgeStateOf: a report with nothing checked is drawn not checked; anything that is not a gate report is refused", () => {
@@ -117,14 +129,90 @@ test("badgeStateOf: a report with nothing checked is drawn not checked; anything
   assert.equal(badgeStateOf([]), null);
 });
 
+const CHECKED_AT = "2026-11-18T09:30:00.000Z";
+const healthyDefault = (): GateReport => ({
+  target: "https://x.example/",
+  state: "unavailable",
+  checkedAt: CHECKED_AT,
+  findings: [
+    { adapter: "validator", state: "pass", summary: "port: no problem" },
+    { adapter: "atlas", state: "unavailable", summary: "Agent Atlas could not connect to the target, so it has no verdict about the site." },
+    { adapter: "customs", state: "unavailable", summary: "no receipt for this target" },
+  ],
+});
+const validatorOnly = (signature?: GateReport["signature"]): GateReport => ({
+  target: "https://x.example/",
+  state: "pass",
+  checkedAt: CHECKED_AT,
+  findings: [{ adapter: "validator", state: "pass", summary: "port: no problem" }],
+  ...(signature ? { signature } : {}),
+});
+
+test("UAT-10 (PRI-L1-09, REC-5): healthy, down, tampered and expired sites draw different badges, and only a verified full pass is green", () => {
+  const drawn = (r: unknown): BadgeFacts => {
+    const f = badgeFactsOf(r);
+    assert.ok("facts" in f, JSON.stringify(f));
+    return f.facts;
+  };
+  const down: GateReport = {
+    target: "https://x.example/",
+    state: "unavailable",
+    checkedAt: CHECKED_AT,
+    findings: [{ adapter: "validator", state: "unavailable", summary: "The validator port could not run: the target could not be reached (the connection failed)." }],
+    signature: { verdict: "unverifiable", detail: "The signature could not be checked (cannot fetch plumbline.signature.json ...), so this says nothing about it." },
+  };
+  const cases = {
+    healthy: drawn(validatorOnly({ verdict: "verified", kid: "0123456789abcdef", detail: "ok" })),
+    healthyDefault: drawn(healthyDefault()),
+    down: drawn(down),
+    tampered: drawn(validatorOnly({ verdict: "invalid", reason: "tampered", detail: "x" })),
+    expired: drawn(validatorOnly({ verdict: "invalid", reason: "expired", detail: "x" })),
+    unchecked: drawn(validatorOnly()),
+  };
+  const svgs = Object.values(cases).map((f) => badgeSvg(f));
+  assert.equal(new Set(svgs).size, svgs.length, "no two of them are the same badge");
+  assert.deepEqual(cases.healthyDefault, { gate: "partly-checked", signature: "not-checked", date: "2026-11-18" });
+  assert.deepEqual(cases.down, { gate: "unreachable", signature: "unverifiable", date: "2026-11-18" });
+  assert.equal(badgeColour(cases.healthy), "green");
+  assert.equal(badgeColour(cases.tampered), "red");
+  assert.equal(badgeColour(cases.expired), "red");
+  assert.equal(badgeColour(cases.unchecked), "grey", "a pass whose signature was not checked is not green");
+  assert.equal(badgeColour(cases.down), "amber");
+  // a signature field that is not a verdict is not a gate report
+  assert.ok("problem" in badgeFactsOf({ ...validatorOnly(), signature: { verdict: "green" } }));
+  assert.ok("problem" in badgeFactsOf({ ...validatorOnly(), signature: { verdict: "invalid", reason: "odd" } }));
+});
+
+test("UAT-10 (PRI-L1-08): the badge is dated by the report's checkedAt; --now is refused, and so is a report with no time", () => {
+  const report = path.join(tmp, "dated.json");
+  writeFileSync(report, JSON.stringify(healthyDefault()));
+  const svg = path.join(tmp, "dated.svg");
+  const r = spawnSync(process.execPath, [CLI, "badge", "--report", report, "--out", svg], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^badge: wrote .*dated\.svg \(partly checked, signature not checked, 2026-11-18\)/);
+  assert.match(readFileSync(svg, "utf8"), />partly checked, signature not checked, 2026-11-18</);
+  const moved = spawnSync(process.execPath, [CLI, "badge", "--report", report, "--now", "2025-01-01T00:00:00Z"], { encoding: "utf8" });
+  assert.equal(moved.status, 2);
+  assert.match(moved.stderr, /--now cannot date a badge: its date is when the gate ran/);
+  const { checkedAt: _unused, ...old } = healthyDefault();
+  writeFileSync(report, JSON.stringify(old));
+  const undated = spawnSync(process.execPath, [CLI, "badge", "--report", report], { encoding: "utf8" });
+  assert.equal(undated.status, 2);
+  assert.match(undated.stderr, /does not say when the gate ran .*run plumbline gate --json again/);
+  writeFileSync(report, JSON.stringify({ ...healthyDefault(), checkedAt: "yesterday" }));
+  assert.equal(spawnSync(process.execPath, [CLI, "badge", "--report", report], { encoding: "utf8" }).status, 2);
+});
+
 test("plumbline badge writes the SVG, and refuses a file that is not a gate report (exit 2)", () => {
   const report = path.join(tmp, "gate.json");
-  writeFileSync(report, JSON.stringify(gate("fail", "fail", "pass")));
+  writeFileSync(report, JSON.stringify({ ...gate("fail", "fail", "pass"), checkedAt: CHECKED_AT }));
   const svg = path.join(tmp, "gate.svg");
-  const r = spawnSync(process.execPath, [CLI, "badge", "--report", report, "--out", svg, "--now", "2026-11-18T10:00:00Z"], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [CLI, "badge", "--report", report, "--out", svg], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^badge: wrote .*gate\.svg \(fail\)/);
-  assert.match(readFileSync(svg, "utf8"), />fail 2026-11-18</);
+  assert.match(r.stdout, /^badge: wrote .*gate\.svg \(fail, signature not checked, 2026-11-18\)/);
+  assert.match(readFileSync(svg, "utf8"), />fail, signature not checked, 2026-11-18</);
+  const json = spawnSync(process.execPath, [CLI, "badge", "--report", report, "--out", svg, "--json"], { encoding: "utf8" });
+  assert.deepEqual(JSON.parse(json.stdout), { badge: svg, state: "fail", gate: "fail", signature: "not-checked", date: "2026-11-18", colour: "red" });
   writeFileSync(report, JSON.stringify({ verdict: "verified" }));
   const bad = spawnSync(process.execPath, [CLI, "badge", "--report", report], { encoding: "utf8" });
   assert.equal(bad.status, 2);

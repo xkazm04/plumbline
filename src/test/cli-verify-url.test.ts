@@ -7,6 +7,7 @@ import path from "node:path";
 import { after, before, test } from "node:test";
 import { keygen, readTrust, run, runAsync, scratchDir, writeSite, writeTrust } from "./cli-helpers.js";
 import { loopbackServer, type TestServer } from "./net-helpers.js";
+import type { GateReport } from "../core/types.js";
 
 let server: TestServer;
 let site: string;
@@ -75,6 +76,65 @@ test("verify --url fetches the site and verifies it, bound to the URL's origin",
   } finally {
     writeFileSync(hocon, original);
   }
+});
+
+test("UAT-10 (PRI-L1-14): gate --trust carries the signature's verdict and its time; without --trust it says the signature was not checked; the badge draws each apart", async () => {
+  const { trust, keys } = signFor(server.url, "gate");
+  const target = `${server.url}/sub/`;
+  const gate = async (...extra: string[]) => {
+    const r = await runAsync("gate", target, "--adapters", "validator", "--allow-local", ...extra);
+    assert.notEqual(r.code, 2, r.out + r.err);
+    return r;
+  };
+  const before = Date.now();
+  const signed = JSON.parse((await gate("--trust", trust, "--json")).out) as GateReport;
+  assert.equal(signed.signature?.verdict, "verified", JSON.stringify(signed.signature));
+  assert.ok(signed.checkedAt !== undefined && Math.abs(Date.parse(signed.checkedAt) - before) < 60_000, signed.checkedAt);
+  const text = await gate("--trust", trust);
+  assert.match(text.out, /^ {2}signature: verified: The files match a signature made by a key this verifier already trusts/m);
+  assert.equal((text.err.match(/--allow-local/g) ?? []).length, 1, "the warning is printed once");
+
+  const plain = await gate();
+  assert.match(plain.out, /^ {2}signature: not checked: the gate checks the site's signature only with --trust <your trust file>/m);
+  const plainJson = JSON.parse((await gate("--json")).out) as GateReport;
+  assert.equal(plainJson.signature, undefined, "absent, never null");
+  assert.equal(plainJson.state, signed.state, "the signature never changes the gate's state");
+
+  // tampered on the server, then expired: each verdict lands in the report, and the exit code is the gate's own
+  const hocon = path.join(site, "networks", "helper.hocon");
+  const original = readFileSync(hocon);
+  writeFileSync(hocon, Buffer.concat([original, Buffer.from(" ")]));
+  let tampered: GateReport;
+  try {
+    const r = await gate("--trust", trust, "--json");
+    assert.equal(r.code, (await gate("--json")).code, "same exit code with and without --trust");
+    tampered = JSON.parse(r.out) as GateReport;
+  } finally {
+    writeFileSync(hocon, original);
+  }
+  assert.deepEqual([tampered.signature?.verdict, tampered.signature?.reason], ["invalid", "tampered"]);
+  assert.equal(run("sign", "--root", site, "--key", keys.privateFile, "--origin", server.url, "--days", "1", "--now", "2026-01-01T00:00:00.000Z").code, 0);
+  const expired = JSON.parse((await gate("--trust", trust, "--json")).out) as GateReport;
+  assert.deepEqual([expired.signature?.verdict, expired.signature?.reason], ["invalid", "expired"]);
+
+  // a trust file that cannot be read is a usage error before anything is fetched
+  const missing = await runAsync("gate", target, "--adapters", "validator", "--allow-local", "--trust", path.join(root, "nope.json"));
+  assert.equal(missing.code, 2);
+  assert.match(missing.err, /--trust: /);
+
+  // the badge from each report: four different words, green only for the verified one
+  const words = [signed, plainJson, tampered, expired].map((report, i) => {
+    const file = path.join(root, `gate-${i}.json`);
+    writeFileSync(file, JSON.stringify(report));
+    const b = run("badge", "--report", file, "--out", path.join(root, `gate-${i}.svg`), "--json");
+    assert.equal(b.code, 0, b.err);
+    return JSON.parse(b.out) as { signature: string; colour: string; date: string };
+  });
+  assert.deepEqual(words.map((w) => w.signature), ["verified", "not-checked", "tampered", "expired"]);
+  assert.equal(words[1]?.colour === "green", false);
+  assert.equal(words[2]?.colour, "red");
+  assert.equal(words[3]?.colour, "red");
+  assert.equal(words[0]?.date, signed.checkedAt?.slice(0, 10));
 });
 
 test("verify --url: files signed for another origin are unverifiable where they are served", async () => {

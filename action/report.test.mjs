@@ -80,8 +80,21 @@ test("the gate's outputs: its state and one summary line per adapter; an unreada
     ],
   });
   assert.equal(state, "unavailable");
-  assert.equal(summary, "### Plumbline gate: unavailable\nChecked by 1 of 2 (validator pass); Atlas had no verdict.\n- **validator**: pass. port: 0 problems\n- **atlas**: unavailable. timed out\n");
+  assert.equal(
+    summary,
+    "### Plumbline gate: unavailable\nChecked by 1 of 2 (validator pass); Atlas had no verdict.\n- **validator**: pass. port: 0 problems\n- **atlas**: unavailable. timed out\n- **signature**: not checked. This gate checks the site's signature only with `--trust <your trust file>`; `plumbline verify` checks it too.\n",
+  );
   assert.equal(gateOutputs(undefined).state, "unknown");
+});
+
+test("UAT-10 (PRI-L1-14): the gate summary says the signature's verdict when the report carries one, and that it was not checked when not", () => {
+  const findings = [{ adapter: "validator", state: "pass", summary: "port: 0 problems" }];
+  const tampered = gateOutputs({ state: "pass", findings, signature: { verdict: "invalid", reason: "tampered", detail: "A signed file differs from the version that was signed: a.json." } });
+  assert.match(tampered.summary, /\n- \*\*signature\*\*: invalid tampered\. A signed file differs from the version that was signed: a\.json\.\n$/);
+  assert.match(gateOutputs({ state: "pass", findings, signature: { verdict: "verified", detail: "ok | fine" } }).summary, /- \*\*signature\*\*: verified\. ok \\\| fine\n$/);
+  assert.match(gateOutputs({ state: "pass", findings }).summary, /- \*\*signature\*\*: not checked\./);
+  assert.match(gateOutputs({ state: "pass", findings, signature: { verdict: "green" } }).summary, /- \*\*signature\*\*: not checked\./, "an unknown verdict is not read as one");
+  assert.doesNotMatch(gateOutputs(undefined).summary, /signature/);
 });
 
 function run(args, files) {
@@ -132,7 +145,10 @@ test("gate, as the Action runs it: state output and job summary; an unreadable r
   });
   assert.equal(ok.status, 0, ok.stderr);
   assert.equal(ok.output, "state=pass\n");
-  assert.equal(ok.summary, "### Plumbline gate: pass\nChecked by 1 of 1 (validator pass).\n- **validator**: pass. ok\n");
+  assert.equal(
+    ok.summary,
+    "### Plumbline gate: pass\nChecked by 1 of 1 (validator pass).\n- **validator**: pass. ok\n- **signature**: not checked. This gate checks the site's signature only with `--trust <your trust file>`; `plumbline verify` checks it too.\n",
+  );
 
   const broken = run(["gate", "@report.json"], { "report.json": "" });
   assert.equal(broken.status, 0);

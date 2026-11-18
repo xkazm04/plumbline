@@ -500,7 +500,11 @@ function deadlineOf(args: ParsedArgs): number {
   return seconds * 1000;
 }
 
-export async function verify(argv: string[], out: Out): Promise<number> {
+/**
+ * `plumbline verify`. `options.quiet`: the caller (`gate --trust`, UAT-10) already printed the --allow-local warning, so
+ * it is not printed twice.
+ */
+export async function verify(argv: string[], out: Out, options: { quiet?: boolean } = {}): Promise<number> {
   const args = parseArgs(argv, ["root", "url", "trust", "now", "origin", "timeout", "jws"], ["allow-local"]);
   const root = args.values.get("root");
   // --jws: the signature is checked through a detached JWS (core/jws.ts) instead of its native sig; same trust store,
@@ -530,7 +534,7 @@ export async function verify(argv: string[], out: Out): Promise<number> {
   }
   const trustPath = required(args, "trust");
   const trust = await readTrustFile(trustPath);
-  if (allowLocal) process.stderr.write("WARNING: --allow-local: http and loopback addresses are allowed for this run (private ranges stay refused)\n");
+  if (allowLocal && options.quiet !== true) process.stderr.write("WARNING: --allow-local: http and loopback addresses are allowed for this run (private ranges stay refused)\n");
   const site = base !== undefined ? remoteSite(base, allowLocal, deadlineMs) : localSite(root as string);
 
   // Files the site did not serve cleanly (an error, not a 404): a verified verdict is never claimed over them.

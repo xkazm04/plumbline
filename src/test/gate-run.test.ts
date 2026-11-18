@@ -24,6 +24,9 @@ test("gate: every adapter passing gives pass, with one finding per adapter in or
   assert.equal(report.target, TARGET);
   assert.deepEqual(report.findings.map((f) => f.adapter), ["validator", "atlas", "customs"]);
   assert.ok(report.findings.every((f) => f.state === "pass"));
+  // UAT-10 (PRI-L1-08): the report says when the gate ran, by the gate's clock
+  assert.equal(report.checkedAt, NOW.toISOString());
+  assert.equal(report.signature, undefined, "the runner never claims a signature verdict");
 });
 
 test("gate: an unreachable Atlas and Customs make the state unavailable, and the validator's pass does not hide them", async () => {

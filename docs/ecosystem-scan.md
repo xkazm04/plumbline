@@ -92,8 +92,21 @@ per site (each state in a word as well as a colour) and each site's findings.
 
 ## A badge for one gate report
 
-`plumbline badge --report <gate report .json> [--out <file.svg>] [--now <iso>]` writes a small static SVG from
-`plumbline gate --json`'s output: the state and the date, in one of three colours, with the word always written and a
-title and an `aria-label` that say it again (`src/scan/badge.ts`). `unavailable` is written "not checked" and is grey,
-never green; a report whose findings are all `unavailable` is drawn "not checked" whatever its state says, by the gate's
-own rule. A file that is not a gate report is refused (exit 2).
+`plumbline badge --report <gate report .json> [--out <file.svg>]` writes a small static SVG from `plumbline gate
+--json`'s output: what the gate checked, what it says about the site's signature, and the day the gate ran, with the
+words always written and a title and an `aria-label` that say them again (`src/scan/badge.ts`). Since UAT-10:
+
+- The gate part is `pass`, `fail`, `partly checked` (some checkers answered, some had no verdict), `unreachable` (the
+  site itself did not answer) or `not checked` (no checker answered), the way every surface words a gate (UAT-9).
+- The signature part is the verdict `plumbline gate --trust <file>` recorded (`signature verified`, `signature invalid
+  (<reason>)`, `signature unverifiable`), or `signature not checked` for a report made without `--trust`.
+- Green only for a gate that passed on every checker **and** a verified signature; red for a failed checker or an
+  invalid signature, whatever else the badge says; dark amber for a site that could not be reached; grey for anything
+  else. So a healthy, a down, a tampered and an expired site draw four different badges (with `--trust`), and a badge
+  is never green over a signature it did not check. A site that publishes no signature is `signature unverifiable`, so
+  it is never green either.
+- The date is the report's `checkedAt` (when the gate ran), never the day the badge is drawn: `--now` is refused, and a
+  report with no `checkedAt` (written before 2026-11-18) is refused with "run plumbline gate --json again".
+
+A file that is not a gate report, or whose `signature` is not a verdict, is refused (exit 2). `--json` prints `{ badge,
+state, gate, signature, date, colour }`.

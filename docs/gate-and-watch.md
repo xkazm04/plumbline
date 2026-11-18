@@ -7,7 +7,7 @@ Everything here was checked against the live services on 2026-11-17; the recorde
 
 ## The gate
 
-`plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--allow-local] [--json]`.
+`plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--trust <plumbline.trust.json>] [--allow-local] [--json]`.
 The target is a site address, a network address (site address plus network name), the address of an `agent-manifest.json`, or
 the address of a `<name>.network.json`. The report state is the worst finding: `fail`, then `unavailable`, then `pass`. Asking
 for no adapters is `unavailable`, not `pass`. Adapters run independently, each with its own deadline (five times the per-fetch
@@ -38,6 +38,16 @@ itself did not answer (an adapter's own "the target could not be reached" senten
 checker was unavailable, so this is not a pass` when no checker answered. The state and the exit codes are unchanged.
 The Action's summary puts the last two in its heading; the scan's gate cell carries the sentence and draws a site that
 could not be reached in red; the Desk's result and verdict card do the same.
+
+**When, and the signature (UAT-10).** Every report carries `checkedAt`, the UTC time the gate ran (the badge is dated
+by it). The gate's three checkers do not read the site's signature. `--trust <plumbline.trust.json>` checks it too, by
+running `plumbline verify --url` itself against that trust file at the site base the target names (so, as verify does,
+a revocation the site publishes and that verifies under a trusted key is recorded in the trust file), and the report
+carries the verdict as `signature` (`verified`, `invalid` with its reason, or `unverifiable`, which includes a signature
+that could not be fetched). It never changes the state or the exit code. The text output ends with `signature:
+<verdict>: <sentence>`, or, without `--trust`, `signature: not checked: the gate checks the site's signature only with
+--trust <your trust file> (plumbline verify checks it too)`; the Action's job summary and the Desk's check view say the
+same. A trust file that cannot be read is a usage error (exit 2) before anything is fetched.
 
 `--allow-local` lets the gate check a site on this machine: it allows `http` and loopback addresses (`127/8`, `::1`) for
 this run, and prints a one-line warning to stderr. It still refuses every private range (`10/8`, `172.16/12`,

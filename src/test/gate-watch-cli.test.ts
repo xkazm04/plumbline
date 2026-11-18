@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import type { GateReport } from "../core/types.js";
 import { ALLOW_LOCAL_WARNING, NOTHING_CHECKED, gateExitCode } from "../cli/gate-command.js";
 import { fixture, loopbackServer } from "./net-helpers.js";
+import { isIsoUtc } from "../core/verify.js";
 
 const CLI = fileURLToPath(new URL("../cli/index.js", import.meta.url));
 const NO_NETWORK = new URL("./no-network.js", import.meta.url).href;
@@ -107,8 +108,11 @@ test("gate --allow-local: a loopback site is reachable only with the flag, which
     assert.equal(text.code, 0, text.out + text.err);
     const lines = text.out.trimEnd().split("\n");
     assert.equal(lines[0], `gate pass: ${target} - checked by 1 of 1 (validator pass)`);
-    assert.equal(lines.length, 2, text.out);
+    assert.equal(lines.length, 3, text.out);
     assert.match(lines[1] ?? "", /^ {2}pass {8}validator: Plumbline's port of the reference validation rules \(not the reference code\) found no problem/);
+    // UAT-10 (PRI-L1-14): the signature is not the gate's job unless it is given a trust file, and the output says so
+    assert.match(lines[2] ?? "", /^ {2}signature: not checked: the gate checks the site's signature only with --trust/);
+    assert.ok(isIsoUtc((JSON.parse(allowed.out) as GateReport).checkedAt), "the report says when the gate ran");
 
     const refused = await runAsync(tmp, "gate", target, "--adapters", "validator", "--json");
     assert.equal(refused.code, 1);

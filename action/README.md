@@ -44,7 +44,9 @@ unless `adapters: validator,atlas` leaves it out. `unavailable` is never `pass`;
 was, and the job summary says what was checked in the CLI's words: "Checked by 1 of 3 (validator pass); Atlas and
 Customs had no verdict." under the heading, or, in the heading itself, "the site could not be reached (...); nothing was
 checked, so this is not a pass" and "nothing was checked: every checker was unavailable, so this is not a pass". The
-Action never passes `--allow-local`: in CI the gate checks public https sites only.
+summary ends with a signature line: the Action's gate is not given a trust file, so it reads "**signature**: not
+checked", and a site's signature is checked with `plumbline verify` (or `plumbline gate --trust <file>`, whose report
+the summary reads the same way). The Action never passes `--allow-local`: in CI the gate checks public https sites only.
 
 **Watch** (`command: watch`, `root:` the site folder holding `plumbline.lock.json`). It reports grounding, runtime and
 peer drift; outputs `report` (the JSON path), `findings` (how many are `warn` or `block`) and `issue-body` (the path of a

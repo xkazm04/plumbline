@@ -166,11 +166,27 @@ export function gateSentence(report) {
   return missing.length === 0 ? by : `${by}; ${andList(missing.map((f) => nameOf(f.adapter)))} had no verdict`;
 }
 
-/** The gate's outputs: its state, the sentence for what was checked, and one summary line per adapter finding. */
+const VERDICT_WORDS = new Set(["verified", "invalid", "unverifiable"]);
+
+/**
+ * The job summary's signature line: src/cli/gate-command.ts signatureLine, in the summary's list form. A report with no
+ * `signature` was made without `--trust`, so the gate did not check the signature, and the line says so (PRI-L1-14).
+ */
+export function gateSignatureLine(signature) {
+  if (signature === undefined || signature === null || !VERDICT_WORDS.has(signature.verdict)) {
+    return "- **signature**: not checked. This gate checks the site's signature only with `--trust <your trust file>`; `plumbline verify` checks it too.";
+  }
+  const verdict = signature.verdict === "invalid" && typeof signature.reason === "string" ? `invalid ${cell(signature.reason)}` : signature.verdict;
+  return `- **signature**: ${verdict}.${typeof signature.detail === "string" ? ` ${cell(signature.detail)}` : ""}`;
+}
+
+/** The gate's outputs: its state, the sentence for what was checked, one summary line per adapter finding, and the signature. */
 export function gateOutputs(report) {
   const state = typeof report?.state === "string" ? report.state : "unknown";
   const findings = Array.isArray(report?.findings) ? report.findings : [];
   const lines = findings.map((f) => `- **${cell(f?.adapter)}**: ${cell(f?.state)}. ${cell(f?.summary)}`);
+  // UAT-10 (PRI-L1-14): the signature's verdict when the gate was given a trust file, else that it was not checked
+  if (typeof report === "object" && report !== null) lines.push(gateSignatureLine(report.signature));
   const sentence = findings.length > 0 ? cell(gateSentence(report)) : "";
   // a site that did not answer, or a run that checked nothing, is said in the heading itself (an alarm, not a grey word)
   const alarm = /^the site could not be reached|^nothing was checked/.test(sentence);

@@ -2664,3 +2664,15 @@ test("UAT-9: the Desk's gate result says what was checked; a site that did not a
   assert.ok(shown().includes("The site could not be reached (the connection failed); nothing was checked, so this is not a pass."), shown());
   assert.equal(headClass(), "overall is-alarm");
 });
+
+test("UAT-10 (PRI-L1-14): the Desk's gate result says the signature was not checked there, and where it is", async () => {
+  App.page.gate = {
+    state: "pass",
+    target: "https://healthy.example/",
+    findings: [{ adapter: "validator", state: "pass", summary: "The validator port found no problem: 1 network definition checked." }],
+  };
+  App.page.render("gate");
+  const shown = JSON.stringify(StubDocument.describe(document.getElementById("gate-result")));
+  assert.ok(shown.includes(STRINGS.gate.signatureNote), shown);
+  assert.match(STRINGS.gate.signatureNote, /signature was not checked here/);
+});
