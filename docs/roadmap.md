@@ -120,6 +120,12 @@ Design:
 Done: outline is identical in Node and the Desk (shared pure module, copied by `build-site.mjs`); duplicate-key files
 fail closed as the validator port does; tests for each count; docs.
 
+As built: the outline is computed in `observe.ts`, so the Desk gets it through `lib/` with no change to a signed Desk
+file. "Fail closed" means no outline: a peer whose file repeats a key (or is not JSON) is recorded without one, and a
+changed one says "cannot be outlined"; the finding stays `block`. Hosts include `link_labels` keys as well as agents'
+`tools`. An agent without a string name is keyed by its position. `plumbline diff` exits 0 (same outline), 1 (differs)
+or 2 (cannot be outlined). The relock change list itself is unchanged (D10 reads the findings).
+
 ### D8. Grounding that checks facts
 
 Goal: catch "the page changed and the network still states the old fact", deterministically, with no model.
@@ -138,6 +144,12 @@ Design:
 
 Done: extraction tests per pattern with false-positive cases; a fixture site whose price changes; Desk parity for the
 published-lock case; docs state plainly what an anchor is and is not (presence of a literal, not truth).
+
+As built: "appears in the text" is set membership of normalised literals taken from the page by the same patterns, not
+a substring search, so the re-check at watch time (which holds only hashes) asks exactly the question asked at lock
+time. Literals come from every agent's `instructions` only. The agent files themselves (manifest, `links.json`,
+networks) get no anchors; a page that cannot be reduced at capture is an `info` and keeps its byte hash. Also fixed on
+the way (separate commit 4b9c90e): a pre-existing test that failed for about 1 generated key in 1,800.
 
 ## Phase C: trust
 
@@ -245,8 +257,8 @@ stderr or a report); docs.
 | D1 | done | a9a03ee | Relock and re-sign the Desk: `site/drift.js` (a signed file) changed. |
 | D2 | done | 8a79b57 | Choose the scoped package name, set it in `package.json`, lift `"private": true`, publish. |
 | D9 | done | 9ab1e40 | Curate `ecosystem/sites.txt`; decide whether and where to publish results. Run of 2026-11-18 (3 sites): gate pass 1 (Agent Customs), unavailable 2 (the Desk and Agent Atlas: validator and Atlas pass, no Customs receipt); lock found 1 (the Desk: no drift, info only), absent 2; signature published 1 (the Desk, kid `91971cfa8d0e630c`, unverifiable to the scan), absent 2. The Desk took 12.1 s, Atlas 1.4 s, Customs 2.2 s. |
-| D7 | not started | | |
-| D8 | not started | | |
+| D7 | done | 6c36ee8 | Relock the Desk's lock (`site/plumbline.lock.json`, signed) so its peers carry an outline; until then a changed partner says "re-lock to record one". Re-sign after. |
+| D8 | done | 7c87318, 4b9c90e | None beyond the Desk relock above (the Desk names no `--source` page today; add one with `--relock --source` if a page grounds the network). |
 | D4 | not started | | |
 | D5 | not started | | |
 | D3 | not started | | |
