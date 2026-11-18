@@ -1,7 +1,7 @@
 // The signing commands: keygen, sign, verify, rotate, revoke. Exit 0 clean, 1 findings, 2 usage or I/O error.
 // The verifier's trust-store commands (trust, adopt) are in trust-command.ts.
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CliError, UsageError, nowFrom, parseArgs, required, type ParsedArgs } from "./args.js";
 import {
@@ -46,6 +46,8 @@ import {
   signedPathsOf,
   statementsOf,
   verifySignature,
+  signDetachedJws,
+  verifyDetachedJws,
   type PlumblineKey,
   type PlumblineRevocation,
   type PlumblineRotation,
@@ -55,6 +57,8 @@ import {
   subjectDigest,
 } from "../core/index.js";
 import { DEFAULT_TIMEOUT_MS, safeFetch, SafeFetchError, type SafeFetchOptions } from "../net/safe-fetch.js";
+import { unsignedBytesOf } from "../core/canonical.js";
+import { verifyText } from "../core/keys.js";
 
 export type Out = (line: string) => void;
 
@@ -63,7 +67,8 @@ export const USAGE = {
   keygen: "usage: plumbline keygen --out <dir> [--now <iso>] [--json]",
   sign: "usage: plumbline sign --root <site dir> --key <plumbline.private.json> --origin <https origin> [--days N] [--now <iso>] [--json]",
   verify:
-    "usage: plumbline verify --trust <plumbline.trust.json> (--root <site dir> [--origin <https origin>] | --url <https site base> [--allow-local] [--timeout <seconds>]) [--now <iso>] [--json]",
+    "usage: plumbline verify --trust <plumbline.trust.json> (--root <site dir> [--origin <https origin>] | --url <https site base> [--allow-local] [--timeout <seconds>]) [--jws <detached JWS file>] [--now <iso>] [--json]",
+  "export-jws": "usage: plumbline export-jws --root <site dir> --key <plumbline.private.json> [--out <file>] [--json]",
   rotate: "usage: plumbline rotate --root <site dir> --old-key <old private file> --new-key <new private file> [--now <iso>] [--json]",
   revoke: "usage: plumbline revoke --root <site dir> --key <private file> [--reason <text>] [--now <iso>] [--json]",
   trust:
@@ -439,8 +444,19 @@ function deadlineOf(args: ParsedArgs): number {
 }
 
 export async function verify(argv: string[], out: Out): Promise<number> {
-  const args = parseArgs(argv, ["root", "url", "trust", "now", "origin", "timeout"], ["allow-local"]);
+  const args = parseArgs(argv, ["root", "url", "trust", "now", "origin", "timeout", "jws"], ["allow-local"]);
   const root = args.values.get("root");
+  // --jws: the signature is checked through a detached JWS (core/jws.ts) instead of its native sig; same trust store,
+  // same files, same verdicts. The JWS file is always local: it is the verifier's copy of what the publisher exported.
+  const jwsPath = args.values.get("jws");
+  let jws: string | undefined;
+  if (jwsPath !== undefined) {
+    try {
+      jws = await readFile(jwsPath, "utf8");
+    } catch {
+      throw new CliError(`cannot read the JWS file ${jwsPath}`);
+    }
+  }
   const url = args.values.get("url");
   if ((root === undefined) === (url === undefined)) throw new UsageError("give exactly one of --root and --url");
   if (url !== undefined && args.values.has("origin")) {
@@ -521,11 +537,15 @@ export async function verify(argv: string[], out: Out): Promise<number> {
       }
     }
     const now = nowFrom(args);
-    result = await verifySignature(signature as PlumblineSignature, files, trustStoreOf(trust.entries), {
+    const verifyOptions = {
       ...(now ? { now } : {}),
       ...(publishedKey ? { publishedKey } : {}),
       ...(expectedOrigin !== undefined ? { expectedOrigin } : {}),
-    });
+    };
+    result =
+      jws !== undefined
+        ? await verifyDetachedJws(signature as PlumblineSignature, jws, files, trustStoreOf(trust.entries), verifyOptions)
+        : await verifySignature(signature as PlumblineSignature, files, trustStoreOf(trust.entries), verifyOptions);
     // A file that could not be read might be the one that makes the difference: not verified, and not tampered either.
     // But a file that WAS read and does not match its signed digest is proof of tampering whatever else is unread: keep
     // `tampered` then (the Desk's rule too, site/desk.js).
@@ -568,6 +588,48 @@ export async function verify(argv: string[], out: Out): Promise<number> {
   lines.push(formatResult(result));
   emit(args, out, { results: [result], ...(revocation ? { revocation } : {}) }, lines);
   return result.verdict === "verified" ? 0 : 1;
+}
+
+/**
+ * `plumbline export-jws --root <site> --key <private file> [--out <file>]`: the site's plumbline.signature.json as a
+ * detached JWS (core/jws.ts, docs/jws-profile.md), signed by the key that made it. It needs the private key, because a
+ * JWS signs its header with the payload. It refuses a key whose kid is not the signature's, and a signature that does
+ * not verify under that key (sign again first), so it never vouches for a statement the key did not make. The native
+ * file is not changed and nothing is published.
+ */
+export async function exportJws(argv: string[], out: Out): Promise<number> {
+  const args = parseArgs(argv, ["root", "key", "out"]);
+  const root = required(args, "root");
+  const keyPath = required(args, "key");
+  const inRoot = await privateKeyInRootProblem(root, keyPath);
+  if (inRoot !== undefined) throw new CliError(`refusing to export: ${inRoot}`);
+  const text = await readTextIfPresent(path.join(root, SIGNATURE_FILE));
+  if (text === undefined) throw new CliError(`${SIGNATURE_FILE} not found in ${root}: sign the site first`);
+  let signature: PlumblineSignature;
+  try {
+    signature = JSON.parse(text) as PlumblineSignature;
+  } catch {
+    throw new CliError(`${SIGNATURE_FILE} is not valid JSON`);
+  }
+  const privateFile = await readPrivateKeyFile(keyPath);
+  const record = await keyRecordOf(privateFile, new Date());
+  if (typeof signature !== "object" || signature === null || signature.kid !== record.kid) {
+    throw new CliError(`${SIGNATURE_FILE} was not made by this key (its kid is not ${record.kid}); export with the key that signed it`);
+  }
+  let statement: string;
+  try {
+    statement = unsignedBytesOf(signature);
+  } catch {
+    throw new CliError(`${SIGNATURE_FILE} carries a value canonical JSON cannot encode`);
+  }
+  if (typeof signature.sig !== "string" || !(await verifyText(record.publicKey, statement, signature.sig))) {
+    throw new CliError(`${SIGNATURE_FILE} does not verify under this key, so it is not exported; sign the site again first`);
+  }
+  const jws = await signDetachedJws(signature, privateFile.privateKey);
+  const target = args.values.get("out");
+  if (target !== undefined) await writeNew(target, `${jws}\n`, 0o644);
+  emit(args, out, { jws, kid: record.kid, ...(target !== undefined ? { file: target } : {}) }, target !== undefined ? [`wrote ${target} (detached JWS, EdDSA, kid ${record.kid})`] : [jws]);
+  return 0;
 }
 
 /** The origin of the self-check entry rotate and revoke apply a revocation file to: a revocation names no origin. */

@@ -11,3 +11,4 @@ export { rotateKey, verifyRotation, adoptRotation, walkRotationChain, statements
 export { revokeKey, applyRevocation, applyRevocationText, spreadRevocations, type RevokeOptions, type RevocationOutcome } from "./revoke.js";
 export { signedPathsOf, networkPathOf, codePathOf, isSafeSubjectPath, parseManifest, type SitePresence } from "./signed-paths.js";
 export { countDuplicateKeys } from "./json-keys.js";
+export { JWS_ALG, jwsSigningInput, parseDetachedJws, signDetachedJws, verifyDetachedJws, type PlumblineJwsHeader } from "./jws.js";

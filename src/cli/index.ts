@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// plumbline init|watch|diff|gate|badge|keygen|sign|verify|rotate|revoke|trust|adopt|dns
+// plumbline init|watch|diff|gate|badge|keygen|sign|verify|rotate|revoke|trust|adopt|dns|export-jws
 // Exit 0 clean, 1 findings, 2 usage or I/O error. Signing commands in commands.ts; the verifier's trust-store commands
 // in trust-command.ts; gate and watch in their own command modules.
 
 import { CliError, UsageError } from "./args.js";
 import { BADGE_USAGE, badge } from "./badge-command.js";
 import { DIFF_USAGE, diff } from "./diff-command.js";
-import { USAGE, keygen, revoke, rotate, sign, verify, type Out } from "./commands.js";
+import { USAGE, exportJws, keygen, revoke, rotate, sign, verify, type Out } from "./commands.js";
 import { runGateCommand } from "./gate-command.js";
 import { runInitCommand } from "./init-command.js";
 import { DNS_USAGE, adopt, dnsRecord, trust } from "./trust-command.js";
@@ -27,6 +27,7 @@ const HANDLERS: Record<string, (argv: string[], out: Out) => Promise<number>> = 
   trust,
   adopt,
   dns: dnsRecord,
+  "export-jws": exportJws,
 };
 
 const COMMANDS = Object.keys(HANDLERS);

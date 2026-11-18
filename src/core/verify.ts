@@ -132,6 +132,12 @@ export function revokedResult(what: string, kid: string, origin: string): Verify
   );
 }
 
+/**
+ * The signature math: true only when the statement's signed bytes verify under the public key. The native form checks
+ * `sig` over the bytes themselves; the detached JWS form (jws.ts) checks the JWS signature over its signing input.
+ */
+export type SignatureMath = (publicKey: string, signed: string) => Promise<boolean>;
+
 /** `verified` needs the signer in the trust store; an unknown signer is `unverifiable`, whatever the math says. */
 export async function verifySignature(
   signature: PlumblineSignature,
@@ -139,7 +145,21 @@ export async function verifySignature(
   trust: TrustStore,
   options: VerifyOptions = {},
 ): Promise<VerifyResult> {
-  const result = await verifyAgainstTrust(signature, files, trust, options);
+  return verifyStatement(signature, files, trust, options, (publicKey, signed) => verifyText(publicKey, signed, signature.sig));
+}
+
+/**
+ * Every rule of verifySignature (shape, trust entry, revocation, digests, coverage, time, the three verdicts, the
+ * origin check) with the signature math given by the caller: the one pipeline the native and the JWS form share.
+ */
+export async function verifyStatement(
+  signature: PlumblineSignature,
+  files: SubjectFile[],
+  trust: TrustStore,
+  options: VerifyOptions,
+  math: SignatureMath,
+): Promise<VerifyResult> {
+  const result = await verifyAgainstTrust(signature, files, trust, options, math);
   const expected = options.expectedOrigin;
   if (expected === undefined || result.verdict === "invalid" || signature.origin === expected) return result;
   // An invalid result stays invalid (tampering is tampering wherever it is served). Anything else is not attested here.
@@ -156,6 +176,7 @@ async function verifyAgainstTrust(
   files: SubjectFile[],
   trust: TrustStore,
   options: VerifyOptions,
+  math: SignatureMath,
 ): Promise<VerifyResult> {
   // 1. shape
   const problem = shapeProblem(signature);
@@ -214,7 +235,7 @@ async function verifyAgainstTrust(
 
   // 5. a signer the verifier already trusts: the TRUST STORE's key decides
   if (trusted) {
-    return (await verifyText(trusted.entry.publicKey, signed, signature.sig))
+    return (await math(trusted.entry.publicKey, signed))
       ? {
           verdict: "verified",
           kid,
@@ -228,7 +249,7 @@ async function verifyAgainstTrust(
   const published = options.publishedKey;
   let consistent = false;
   if (published && isRecord(published) && published.kid === kid && (await isDerivedKid(kid, published.publicKey))) {
-    consistent = await verifyText(published.publicKey, signed, signature.sig);
+    consistent = await math(published.publicKey, signed);
   }
   return {
     verdict: "unverifiable",
