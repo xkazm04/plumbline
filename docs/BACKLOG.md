@@ -497,6 +497,18 @@ may run in parallel, because it adds no claim.
 - standard: `quality-gates/refusal-names-a-reachable-remedy`.
 - Size: S.
 - Must not break: guardrail 5.
+- State: fixed (commit 1385041), awaiting recertify. Built as "says so", the way `init` does for `--source` (an `info`
+  finding, not a refusal): on an existing lock `watch --init` prints "watch: kept the plumbline.lock.json that is there
+  (--init never rewrites a lock; accept changes with watch --relock after a review)", one `info` per `--source` and
+  `--external` it could not add ("Not added: a lock was already there, and --init never rewrites one; add it with
+  watch --relock --external a2a-card=<url> after a review."), then the ordinary watch of that lock, whose exit code it
+  keeps; on a fresh folder "watch: wrote plumbline.lock.json (N grounding sources, N runtime files, N peers, N
+  pending)". `--json` carries `lock` (`written` or `kept`) and `lockState`. `docs/gate-and-watch.md` lists the
+  `external` relock label (and the `lockChanges` comment). Live on kiln-row with the real CLI: `watch --root site --init
+  --external a2a-card=https://cards.example/agent-card.json` printed the kept line and the "Not added ... --relock
+  --external" line; the lock's SHA-256 was unchanged. The UAT harness (`local-cli.mjs watch --init`) says the same.
+  Test: "UAT-14 ..." in `src/test/gate-watch-cli.test.ts`. Ceiling: the exit code on a kept lock is the watch's (1 when
+  that lock has drift), as before; the "Not added" line is `info`, so it alone never fails a run.
 
 ### UAT-15. Guardrails at the moment of a bad-day mistake
 
