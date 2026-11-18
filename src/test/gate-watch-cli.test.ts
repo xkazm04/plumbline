@@ -3,7 +3,7 @@
 // targets are private addresses (refused before connecting) or the loopback test server.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -102,6 +102,14 @@ test("gate --allow-local: a loopback site is reachable only with the flag, which
     assert.deepEqual((JSON.parse(allowed.out) as GateReport).findings.map((f) => [f.adapter, f.state]), [["validator", "pass"]]);
     assert.ok(allowed.err.includes(ALLOW_LOCAL_WARNING), allowed.err);
 
+    // p-a851cc: the text report a person reads in a terminal or a CI log: the gate line, then one line per adapter
+    const text = await runAsync(tmp, "gate", target, "--adapters", "validator", "--allow-local");
+    assert.equal(text.code, 0, text.out + text.err);
+    const lines = text.out.trimEnd().split("\n");
+    assert.equal(lines[0], `gate pass: ${target}`);
+    assert.equal(lines.length, 2, text.out);
+    assert.match(lines[1] ?? "", /^ {2}pass {8}validator: Plumbline's port of the reference validation rules \(not the reference code\) found no problem/);
+
     const refused = await runAsync(tmp, "gate", target, "--adapters", "validator", "--json");
     assert.equal(refused.code, 1);
     assert.equal((JSON.parse(refused.out) as GateReport).state, "unavailable");
@@ -144,6 +152,10 @@ test("gate refuses an unknown adapter, a bad --fail-on, a bad --timeout and a se
     [["gate", "https://site.example/", "--timeout", "soon"], /--timeout takes a positive number of milliseconds/],
     [["gate", "https://site.example/", "https://other.example/"], /unexpected argument/],
     [["gate", "https://site.example/", "--verbose"], /unknown option --verbose/],
+    // p-bd5d12: a target that is not an http(s) URL is a usage error before any adapter runs (old: a gate was run)
+    [["gate", "example.com"], /the target must be an http\(s\) URL/],
+    [["gate", "ftp://example.com/x"], /the target must be an http\(s\) URL/],
+    [["gate", "example.com:8443/net", "--json"], /the target must be an http\(s\) URL/],
   ];
   for (const [args, message] of cases) {
     const r = runSync(tmp, ...args);
@@ -193,6 +205,82 @@ test("watch --relock rewrites the lock, prints what changed and the re-sign remi
   const both = runSync(root, "watch", "--root", root, "--init", "--relock");
   assert.equal(both.code, 2);
   assert.match(both.err, /--init and --relock do not go together/);
+});
+
+test("REGRESSION (p-8478a5): watch --relock --drop <ref> takes a grounding source out of the lock and lists it as removed", () => {
+  // Old code: --relock re-captured every ref the previous lock held, and --drop was an unknown argument (exit 2).
+  const root = mkdtempSync(path.join(tmp, "watch-drop-"));
+  writeFileSync(path.join(root, "agent-manifest.json"), '{ "networks": [] }\n');
+  mkdirSync(path.join(root, "data"));
+  writeFileSync(path.join(root, "data", "rooms.json"), '{ "rooms": [1] }\n');
+  writeFileSync(path.join(root, "data", "menu.json"), '{ "menu": [] }\n');
+  const refs = () => (JSON.parse(readFileSync(path.join(root, "plumbline.lock.json"), "utf8")) as { grounding: { sources: { ref: string }[] } }).grounding.sources.map((s) => s.ref);
+  assert.equal(runSync(root, "watch", "--root", root, "--init", "--source", "data/rooms.json", "--source", "data/menu.json").code, 0);
+  assert.deepEqual(refs(), ["agent-manifest.json", "data/rooms.json", "data/menu.json"]);
+
+  const dropped = runSync(root, "watch", "--root", root, "--relock", "--drop", "data/rooms.json", "--timeout", "2000");
+  assert.equal(dropped.code, 0, dropped.out + dropped.err);
+  assert.match(dropped.out, /^removed grounding data\/rooms\.json$/m);
+  assert.deepEqual(refs(), ["agent-manifest.json", "data/menu.json"]);
+  // a later re-lock does not bring it back, and the watch is clean without it
+  assert.match(runSync(root, "watch", "--root", root, "--relock", "--timeout", "2000").out, /^no ref changed$/m);
+  assert.equal(runSync(root, "watch", "--root", root, "--timeout", "2000").code, 0);
+
+  // a file the site itself names can be dropped, and the relock says every watch will report it as not covered
+  const named = runSync(root, "watch", "--root", root, "--relock", "--drop", "agent-manifest.json", "--json", "--timeout", "2000");
+  assert.equal(named.code, 0, named.out + named.err);
+  const parsed = JSON.parse(named.out) as { changes: { removed: string[] }; findings: { severity: string; ref: string; summary: string }[] };
+  assert.deepEqual(parsed.changes.removed, ["grounding agent-manifest.json"]);
+  const warned = parsed.findings.filter((f) => f.severity !== "info"); // "no runtime folder" is info
+  assert.deepEqual(warned.map((f) => [f.severity, f.ref]), [["warn", "agent-manifest.json"]]);
+  assert.match(warned[0]!.summary, /still names/);
+  // a ref that is not in the lock is said so, and nothing else changes
+  const nothing = runSync(root, "watch", "--root", root, "--relock", "--drop", "data/none.json", "--json", "--timeout", "2000");
+  const none = JSON.parse(nothing.out) as { changes: { removed: string[] }; findings: { severity: string; ref: string; summary: string }[] };
+  assert.deepEqual(none.changes.removed, []);
+  assert.ok(none.findings.some((f) => f.severity === "info" && f.ref === "data/none.json" && /was not in the lock/.test(f.summary)), JSON.stringify(none.findings));
+});
+
+test("p-cf22cb: watch refuses a bad --root, --timeout, --drop or argument, each with exit 2, the usage line and nothing on stdout", () => {
+  const cases: [string[], RegExp][] = [
+    [["watch", "--root"], /--root takes a folder/],
+    [["watch", "--timeout", "0"], /--timeout takes a positive number of milliseconds/],
+    [["watch", "--timeout", "soon"], /--timeout takes a positive number of milliseconds/],
+    [["watch", "--timeout"], /--timeout takes a positive number of milliseconds/],
+    [["watch", "--verbose"], /unknown argument --verbose/],
+    [["watch", "somewhere"], /unknown argument somewhere/],
+    [["watch", "--source"], /--source takes a path or an https URL/],
+    [["watch", "--relock", "--drop"], /--drop takes a grounding ref/],
+    [["watch", "--drop", "data/rooms.json"], /--drop goes with --relock/],
+    [["watch", "--relock", "--source", "a.json", "--drop", "a.json"], /--source and --drop name the same ref/],
+    [["watch", "--init", "--relock"], /--init and --relock do not go together/],
+  ];
+  const root = mkdtempSync(path.join(tmp, "watch-usage-"));
+  for (const [args, message] of cases) {
+    const r = runSync(root, ...args);
+    assert.equal(r.code, 2, args.join(" "));
+    assert.match(r.err, message, args.join(" "));
+    assert.match(r.err, /usage: plumbline watch/, args.join(" "));
+    assert.equal(r.out, "", `nothing is reported on a usage error: ${args.join(" ")}`);
+  }
+  assert.ok(!existsSync(path.join(root, "plumbline.lock.json")), "no usage error writes a lock");
+});
+
+test("p-cf22cb: a watch that cannot write its lock exits 2 with 'watch failed', which the Action reads as a real failure", () => {
+  // --relock with --root naming a file: the lock's folder cannot be made
+  const file = path.join(mkdtempSync(path.join(tmp, "watch-fail-")), "not-a-folder");
+  writeFileSync(file, "x\n");
+  const relock = runSync(tmp, "watch", "--root", file, "--relock", "--timeout", "2000");
+  assert.equal(relock.code, 2, relock.out + relock.err);
+  assert.match(relock.err, /^watch failed: /m);
+  assert.equal(relock.out, "");
+  // --init where the lock's name is a link to nowhere: no lock is read, and none can be written in its place
+  const root = mkdtempSync(path.join(tmp, "watch-fail-init-"));
+  symlinkSync(path.join(root, "nowhere"), path.join(root, "plumbline.lock.json"), "junction");
+  const init = runSync(root, "watch", "--root", root, "--init");
+  assert.equal(init.code, 2, init.out + init.err);
+  assert.match(init.err, /^watch failed: /m);
+  assert.equal(init.out, "");
 });
 
 test("watch --json with no lock reports lockState absent and no findings, and still exits 1", () => {

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { LOCK_FILE, SIGNATURE_FILE } from "../core/types.js";
 import { lockProblem, type Lock } from "../watch/decide.js";
+import { runtimeProvenance } from "../watch/capture.js";
 import { runRelock } from "../watch/index.js";
 import { UPSTREAM_COMMITS_URL, viaCommitsUrl } from "../watch/lock.js";
 import { copySite, scripted, type Route } from "./net-helpers.js";
@@ -82,6 +83,18 @@ test("runtime source: a via that could leave the GitHub API path makes the lock 
   ]) {
     assert.match(lockProblem({ ...base, runtime: { source: "nsdeploy", commit: "53a787c", files: {}, via } }) ?? "", /via/, JSON.stringify(via));
   }
+});
+
+test("REGRESSION (p-1a9b4a): a via whose repository name is . or .. makes the lock unusable, and init does not record one", () => {
+  // Old code: REPO matched owner/.. and viaCommitsUrl built https://api.github.com/repos/owner/../commits, which URL
+  // parsing turns into https://api.github.com/repos/commits.
+  const base = { version: 1, grounding: { sources: [], builtAt: "t" }, peers: {} };
+  for (const repo of ["owner/..", "owner/.", "cognizant-ai-labs/.."]) {
+    assert.match(lockProblem({ ...base, runtime: { source: "nsdeploy", commit: "53a787c", files: {}, via: { ...VIA, repo } } }) ?? "", /via/, repo);
+  }
+  assert.equal(lockProblem({ ...base, runtime: { source: "nsdeploy", commit: "53a787c", files: {}, via: { ...VIA, repo: "owner/.github" } } }), null, "a dot inside a name is fine");
+  assert.equal(runtimeProvenance(["Copy of owner/.. `skills/runtime` at commit 7817c1f75b8d4f497c869540212be17dda94dcae"]).via, undefined);
+  assert.equal(runtimeProvenance(["Copy of owner/. `skills/runtime` at commit 7817c1f75b8d4f497c869540212be17dda94dcae"]).via, undefined);
 });
 
 // ---- re-lock ----

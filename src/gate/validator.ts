@@ -19,7 +19,8 @@
 // What is ours and NOT in the reference rules: duplicate agent names are reported (the spec lists them; the
 // reference only keeps the last), `tools` entries that are not arrays are reported, and a manifest or network file with
 // duplicate keys anywhere fails: the reference runtime's HOCON reader merges them where JSON.parse keeps the last, so
-// such a file means something different from what this port (or any JSON reader) sees.
+// such a file means something different from what this port (or any JSON reader) sees. A file JSON.parse accepts and
+// the key counter cannot read fails too: the rule fails closed rather than report it unchecked as clean.
 // What is NOT ported: HOCON parsing, `{token}` replacement-string expansion before validation, partner checks, the
 // action-tool checks, and every check Agent Atlas and Agent Customs run (those are their adapters).
 //
@@ -30,6 +31,7 @@ import { countDuplicateKeys } from "../core/json-keys.js";
 
 export type IssueCode =
   | "duplicate-keys"
+  | "duplicate-keys-unchecked"
   | "manifest-no-networks"
   | "manifest-entry-incomplete"
   | "manifest-front-man-mismatch"
@@ -50,6 +52,8 @@ export interface Issue {
 const ISSUE_TEXT: Record<IssueCode, string> = {
   "duplicate-keys":
     "duplicate keys: the reference runtime merges them, so the file means something different from what a JSON reader sees",
+  "duplicate-keys-unchecked":
+    "the file could not be checked for duplicate keys (JSON.parse reads it, Plumbline's key counter cannot), so the rule fails closed",
   "manifest-no-networks": "the manifest lists no networks",
   "manifest-entry-incomplete": "a manifest network entry lacks a name, front_man or hocon",
   "manifest-front-man-mismatch": "a manifest front_man names a different agent than the network's front agent",
@@ -72,11 +76,18 @@ type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === "object" && v !== null && !Array.isArray(v);
 const nameOf = (agent: unknown): string | null => (isObject(agent) && typeof agent.name === "string" ? agent.name.trim() : null);
 
-function isMcpRef(ref: string): boolean {
-  if (!ref.startsWith("http://") && !ref.startsWith("https://")) return false;
+/**
+ * The reference's rule for telling an MCP endpoint from an agent address by its text alone: a `/mcp/` segment, a
+ * trailing `/mcp`, or an `mcp.` host label, compared without case. The ONE copy: the gate's validator exempts these
+ * references, and the watch's peer discovery (src/watch/discover.ts) does not lock them as peers. A caller checks the
+ * scheme itself.
+ */
+export function isMcpEndpoint(ref: string): boolean {
   const lowered = ref.toLowerCase();
   return lowered.includes("/mcp/") || lowered.endsWith("/mcp") || lowered.includes("//mcp.") || lowered.includes(".mcp.");
 }
+
+const isMcpRef = (ref: string): boolean => (ref.startsWith("http://") || ref.startsWith("https://")) && isMcpEndpoint(ref);
 
 const isExternalAgent = (ref: string): boolean => ref.startsWith("http://") || ref.startsWith("https://") || ref.startsWith("/");
 
@@ -159,15 +170,27 @@ export function frontManAgrees(entryFrontMan: string | undefined, config: unknow
   return front === null || front === entryFrontMan;
 }
 
-/** The duplicate-key rule on a file's text (a manifest or a network definition). Text that is not JSON yields nothing. */
-export function duplicateKeyIssues(text: string): Issue[] {
-  let count = 0;
+/**
+ * The duplicate-key rule on a file's text (a manifest or a network definition). Text that JSON.parse refuses yields
+ * nothing here: that is the caller's own "not valid JSON" finding. Text JSON.parse accepts that the key counter cannot
+ * read fails closed (`duplicate-keys-unchecked`): a file this rule could not check is never reported as one without
+ * duplicates.
+ *
+ * :param count: the key counter; core's countDuplicateKeys (tests inject one that throws).
+ */
+export function duplicateKeyIssues(text: string, count: (text: string) => number = countDuplicateKeys): Issue[] {
+  let found = 0;
   try {
-    count = countDuplicateKeys(text);
+    found = count(text);
   } catch {
-    return [];
+    try {
+      JSON.parse(text);
+    } catch {
+      return [];
+    }
+    return [{ code: "duplicate-keys-unchecked", count: 1 }];
   }
-  return count > 0 ? [{ code: "duplicate-keys", count }] : [];
+  return found > 0 ? [{ code: "duplicate-keys", count: found }] : [];
 }
 
 function flatten(counts: Map<IssueCode, number>): Issue[] {

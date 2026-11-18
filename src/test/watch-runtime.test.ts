@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { SafeFetchError } from "../net/safe-fetch.js";
+import { runtimeFolder } from "../watch/decide.js";
 import { UPSTREAM_COMMITS_URL } from "../watch/lock.js";
 import { copySite, fixture } from "./net-helpers.js";
 import { baseRoutes, ofKind, watch } from "./watch-helpers.js";
@@ -97,4 +98,34 @@ test("runtime upstream: a lock with no recorded commit says upstream cannot be c
 
 test("runtime: the upstream check asks GitHub unauthenticated for one commit of nsdeploy", async () => {
   assert.equal(UPSTREAM_COMMITS_URL, "https://api.github.com/repos/cognizant-ai-lab/nsdeploy/commits?per_page=1");
+});
+
+test("REGRESSION (p-9ddaa4): a file added to the vendored runtime folder after the lock was written is a block", async () => {
+  // Old code: the watch read only lock.runtime.files, so a new file beside them passed every watch as clean.
+  const root = await locked();
+  writeFileSync(join(root, "runtime/extra.js"), "export const extra = 1;\n");
+  mkdirSync(join(root, "runtime/generated/more"), { recursive: true });
+  writeFileSync(join(root, "runtime/generated/more/hook.mjs"), "export {};\n");
+  const { findings } = await watch(root, baseRoutes());
+  assert.deepEqual(
+    findings.map((f) => [f.kind, f.severity, f.ref]),
+    [
+      ["runtime", "block", "runtime/extra.js"],
+      ["runtime", "block", "runtime/generated/more/hook.mjs"],
+    ],
+  );
+  assert.match(findings[0]!.summary, /added to the vendored runtime folder after the lock was written/);
+  assert.match(findings[0]!.actual ?? "", /^[0-9a-f]{64}$/, "the added file's hash is reported");
+  assert.equal(findings[0]!.expected, undefined);
+  // a file outside the runtime folder is not runtime drift
+  writeFileSync(join(root, "notes.txt"), "x\n");
+  assert.equal(ofKind((await watch(root, baseRoutes())).findings, "runtime").length, 2);
+});
+
+test("p-9ddaa4: the locked runtime folder is the common folder of the lock's runtime files", () => {
+  assert.equal(runtimeFolder({ "runtime/a.js": "x", "runtime/generated/b.js": "x" }), "runtime");
+  assert.equal(runtimeFolder({ "site/runtime/a.js": "x", "site/runtime/b/c.js": "x" }), "site/runtime");
+  assert.equal(runtimeFolder({ "runtime/a.js": "x" }), "runtime");
+  assert.equal(runtimeFolder({}), null, "no runtime files: no folder to list");
+  assert.equal(runtimeFolder({ "a.js": "x", "runtime/b.js": "x" }), null, "files at the root: the root is not listed as a runtime folder");
 });

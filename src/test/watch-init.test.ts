@@ -3,6 +3,8 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { test } from "node:test";
 import { LOCK_FILE, SEVERITIES, DRIFT_KINDS, type PlumblineLock } from "../core/types.js";
+import { isMcpEndpoint } from "../gate/validator.js";
+import { discover } from "../watch/discover.js";
 import { copySite } from "./net-helpers.js";
 import { baseRoutes, PEER, PEER2, watch } from "./watch-helpers.js";
 
@@ -152,4 +154,16 @@ test("watch --init never reads a hocon outside the root: an unsafe one is a find
   const text = readFileSync(join(root, LOCK_FILE), "utf8");
   assert.ok(!text.includes("secret.hocon") && !text.includes("evil.example"), "nothing outside the root reaches the lock");
   assert.deepEqual(readdirSync(parent).sort(), ["agent-manifest.json", "data", "fixture_guesthouse.network.json", "links.json", "runtime", "secret.hocon", "site"].sort(), "nothing was written outside the root");
+});
+
+test("p-310649: one MCP-endpoint rule: the gate validator's isMcpEndpoint is what the watch's discovery leaves out of peers", async () => {
+  const mcp = ["https://x.example/mcp", "https://x.example/MCP/tools", "https://mcp.x.example/a", "https://a.mcp.example/a"];
+  const agents = ["https://peer.example/net", "https://mcpish.example/net", "https://x.example/mcpserver"];
+  for (const ref of mcp) assert.equal(isMcpEndpoint(ref), true, ref);
+  for (const ref of agents) assert.equal(isMcpEndpoint(ref), false, ref);
+  const root = copySite();
+  for (const name of readdirSync(root)) if (name.endsWith(".network.json") || name === "links.json" || name === "agent-manifest.json") rmSync(join(root, name));
+  writeFileSync(join(root, "mix.network.json"), JSON.stringify({ tools: [{ name: "front", instructions: "x", tools: [...mcp, ...agents] }] }));
+  const found = await discover(root);
+  assert.deepEqual(found.peers, [...agents].sort());
 });

@@ -1,7 +1,7 @@
 // Watch: three drift detectors (grounding, runtime, peer) against plumbline.lock.json, plus what the lock does not cover
 // and the site's own signature expiry. Dry-run by default: it reports. With `init` and no lock it writes the lock and
-// nothing else; `runRelock` rewrites it after a person reviewed the drift. Opening a PR or an issue is the workflow
-// template's job through `gh` (action/templates/plumbline-watch.yml), never this library's.
+// nothing else; `runRelock` rewrites it after a person reviewed the drift. Opening, editing and closing the drift issue is
+// the Action's job (action/action.yml with `issues: true`), never this library's.
 
 import { LOCK_FILE, type DriftFinding } from "../core/types.js";
 import { DEFAULT_TIMEOUT_MS, safeFetch } from "../net/safe-fetch.js";
@@ -87,19 +87,26 @@ export interface RelockReport {
 /**
  * `watch --relock`: after a person reviewed the drift, rewrite plumbline.lock.json from the current state and say what
  * changed. Every grounding ref the previous lock held is captured again (with the extra sources), so a `--source` given
- * at init is not dropped; one that is gone now is a finding and leaves the lock. The lock is a signed file, so the
- * caller reminds the publisher to sign again.
+ * at init is not dropped; one that is gone now is a finding and leaves the lock. A ref in `deps.dropSources`
+ * (`--drop`) is left out, and the change list shows it removed. The lock is a signed file, so the caller reminds the
+ * publisher to sign again.
  */
 export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Promise<RelockReport> {
   const env = envOf(options, deps);
   const read = await readLock(options.root);
   const before: Lock | undefined = read.kind === "ok" ? read.lock : undefined;
-  const extraSources = [...(before?.grounding.sources.map((s) => s.ref) ?? []), ...(deps.extraSources ?? [])];
+  const held = before?.grounding.sources.map((s) => s.ref) ?? [];
+  const extraSources = [...held, ...(deps.extraSources ?? [])];
+  const dropSources = [...new Set(deps.dropSources ?? [])];
   const { lock, findings } = await captureLock(env, {
     now: env.now,
     extraSources,
+    dropSources,
     ...(deps.runtimeDir !== undefined ? { runtimeDir: deps.runtimeDir } : {}),
   });
+  for (const ref of dropSources.filter((r) => !held.includes(r))) {
+    findings.push({ kind: "grounding", severity: "info", ref, summary: "This ref was not in the lock, so there was nothing to drop." });
+  }
   await replaceLock(options.root, lock);
   return { previous: stateOf(read).lockState, changes: lockChanges(before, lock), findings };
 }

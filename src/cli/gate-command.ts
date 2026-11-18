@@ -1,7 +1,7 @@
 // plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--allow-local] [--json]
 // Exit 0: the gate passed by --fail-on (with --fail-on fail, `unavailable` on SOME adapters alone does not fail it).
 // 1: the gate failed by --fail-on, or NOTHING was checked (every adapter `unavailable`, whatever --fail-on says).
-// 2: usage error.
+// 2: usage error, including a target that is not an http(s) URL (refused before any adapter runs).
 
 import { runGate, ALL_ADAPTERS, type GateOptions } from "../gate/index.js";
 import type { GateReport } from "../core/types.js";
@@ -13,6 +13,16 @@ export const NOTHING_CHECKED = "nothing was checked: every adapter was unavailab
 
 export const ALLOW_LOCAL_WARNING =
   "WARNING: --allow-local: http and loopback addresses are allowed for this run (private ranges stay refused); use it only for a site on this machine";
+
+/** True for an absolute http: or https: URL with a host: the only gate target an adapter can check. */
+export function isHttpUrl(target: string): boolean {
+  try {
+    const url = new URL(target);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.hostname !== "";
+  } catch {
+    return false;
+  }
+}
 
 /** True when no adapter produced a verdict: every finding is `unavailable` (or there are none). */
 export function nothingChecked(report: GateReport): boolean {
@@ -75,6 +85,12 @@ export async function runGateCommand(args: string[]): Promise<number> {
   }
   if (target === undefined || target === "") {
     process.stderr.write(USAGE);
+    return 2;
+  }
+  // Before any adapter runs: a target that is not an http(s) URL would make every adapter unavailable and be sent to
+  // Agent Atlas as written. It is a configuration error, so it exits 2 like one.
+  if (!isHttpUrl(target)) {
+    process.stderr.write(`the target must be an http(s) URL, such as https://site.example/\n${USAGE}`);
     return 2;
   }
 

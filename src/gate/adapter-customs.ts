@@ -8,8 +8,9 @@
 //      The index is unsigned and only points; the receipt is the authority;
 //   3. fetch the receipt, check its signature with Node WebCrypto against Customs' key, and require the key to equal
 //      the key pinned in this build (see PINNED_CUSTOMS_KEY): a changed key is `unavailable`, never trusted silently;
-//   4. a failed signature is `fail`; a receipt for another network, or an index that disagrees with the receipt, is
-//      `unavailable`; an expired receipt (past its own expiresAt, or 35 days after inspectedAt, whichever is first) is
+//   4. a failed signature is `fail`; a receipt signed with a key other than the published one (an unknown signer, such
+//      as one Customs rotated away from) is `unavailable`, and so is a receipt for another network or one the index
+//      disagrees with; an expired receipt (past its own expiresAt, or 35 days after inspectedAt, whichever is first) is
 //      `unavailable`: an old stamp does not stand in for a fresh check;
 //   5. report the stamped verdict: CLEARED and CONDITIONS are `pass`; HOLD, DENIED and INVALID are `fail`; anything else
 //      (UNREADABLE, an unknown code) is `unavailable`.
@@ -137,9 +138,11 @@ async function checkOne(ctx: GateContext, entry: Record<string, unknown>, networ
     return un("The receipt is not in the recorded shape.");
   }
   const keyId = await customsKeyId(key as { crv: string; kty: string; x: string; y: string });
-  const inspector = receipt.inspector;
-  if (signature.keyId !== keyId || !isObject(inspector) || inspector.keyId !== keyId) {
-    return { state: "fail", summary: "The receipt claims a different signing key than Agent Customs' published key, so its signature does not check out." };
+  // An unknown signer is not a forged receipt: nothing has been verified yet, and after Customs rotates its key the
+  // receipts it signed with the old one stay in its index until re-stamped. So `unavailable`, never `fail`; only a
+  // signature that does not verify against the trusted key (below) is `fail`.
+  if (signature.keyId !== keyId) {
+    return un("The receipt was signed with a key this build does not trust (not the key Agent Customs publishes now), so there is no verdict; ask Customs to re-stamp the network.");
   }
   let valid = false;
   try {
@@ -154,6 +157,10 @@ async function checkOne(ctx: GateContext, entry: Record<string, unknown>, networ
     valid = false;
   }
   if (!valid) return { state: "fail", summary: "The receipt's signature does not verify against Agent Customs' key: the receipt was changed after it was signed or was not signed by Customs." };
+  const inspector = receipt.inspector;
+  if (!isObject(inspector) || inspector.keyId !== keyId) {
+    return un("The signed receipt's inspector names a different key than its signature, which is not a receipt Customs writes, so Plumbline reports no verdict.");
+  }
   if (normaliseNetworkUrl(receipt.network) !== normaliseNetworkUrl(networkUrl)) {
     return un("The signed receipt is for a different network than the one asked about.");
   }

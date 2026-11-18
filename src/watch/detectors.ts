@@ -2,28 +2,27 @@
 // read means. Each detector returns findings and never throws: a thing that cannot be read is a finding, not silence
 // and not a crash. Severity rules: decide.ts and docs/gate-and-watch.md.
 
-import { SIGNATURE_FILE, PEER_LINKS_ABSENT, type DriftFinding, type PeerRecord } from "../core/types.js";
+import { join } from "node:path";
+import { SIGNATURE_FILE, type DriftFinding } from "../core/types.js";
 import { hashBytes } from "../net/canonical.js";
-import { describeFetchError } from "../net/fetch-types.js";
-import { locatePeerFile, type Fetcher } from "../net/locate.js";
+import type { Fetcher } from "../net/locate.js";
 import type { SafeFetchOptions } from "../net/safe-fetch.js";
 import {
+  addedRuntimeFinding,
   coverageFindings,
   groundingFinding,
   isRuntimeVia,
   peerFindings,
   pendingPeerFindings,
-  readSignatureKid,
   runtimeFinding,
+  runtimeFolder,
   signatureExpiryFinding,
-  type LinksRead,
   type Lock,
   type Observed,
-  type PeerObservation,
-  type SignatureRead,
 } from "./decide.js";
 import { discover } from "./discover.js";
-import { ReadProblem, UPSTREAM_COMMITS_URL, UPSTREAM_REPO, readUnderRoot, short, viaCommitsUrl } from "./lock.js";
+import { ReadProblem, UPSTREAM_COMMITS_URL, UPSTREAM_REPO, listFiles, readUnderRoot, short, toPosix, underRoot, viaCommitsUrl } from "./lock.js";
+import { describeWatchError, observePeer, observePublished } from "./observe.js";
 
 export interface DetectorEnv {
   root: string;
@@ -33,37 +32,10 @@ export interface DetectorEnv {
   now: Date;
 }
 
-/** The fetch-error sentence the watch puts in parentheses (the shared table in net/fetch-types). */
-export const why = (error: unknown): string => describeFetchError(error, "it could not be read");
+/** The fetch-error sentence the watch puts in parentheses (the shared table in net/fetch-types, through observe.ts). */
+export const why = describeWatchError;
 
 const get = (env: DetectorEnv, url: string, extra: SafeFetchOptions = {}) => env.fetch(url, { ...env.fetchOptions, ...extra });
-
-/**
- * The state of a peer's `links.json` at its site base: the SHA-256 of its exact bytes, or PEER_LINKS_ABSENT when the
- * peer answers 404 or 410. The runtime fetches it for every peer network it loads and lays it over that network's
- * links, so it is as much the peer's code as its network definition.
- */
-export async function readPeerLinks(env: DetectorEnv, base: string): Promise<LinksRead> {
-  let response;
-  try {
-    response = await get(env, `${base}links.json`);
-  } catch (error) {
-    return { problem: `could not be fetched (${why(error)})` };
-  }
-  if (response.status === 404 || response.status === 410) return { state: PEER_LINKS_ABSENT };
-  if (!response.ok) return { problem: `answered HTTP ${response.status}` };
-  return { state: await hashBytes(response.bytes) };
-}
-
-/** A peer's signer kid, by the one rule init and the watch share (decide.ts readSignatureKid). */
-export async function peerKid(env: DetectorEnv, base: string): Promise<SignatureRead> {
-  try {
-    const sig = await get(env, `${base}${SIGNATURE_FILE}`);
-    return readSignatureKid({ status: sig.status, text: sig.ok ? sig.text() : "" });
-  } catch (error) {
-    return readSignatureKid({ error: why(error) });
-  }
-}
 
 /** Hashes a local file under the root. Throws a ReadProblem whose message completes the sentence "it ...". */
 export async function hashLocal(env: DetectorEnv, ref: string): Promise<string> {
@@ -88,14 +60,7 @@ async function observeLocal(env: DetectorEnv, ref: string): Promise<Observed> {
 
 async function observeRef(env: DetectorEnv, ref: string): Promise<Observed> {
   if (!/^https?:\/\//i.test(ref)) return observeLocal(env, ref);
-  let response;
-  try {
-    response = await get(env, ref);
-  } catch (error) {
-    return { ok: false, missing: false, sentence: `could not be fetched (${why(error)})` };
-  }
-  if (!response.ok) return { ok: false, missing: false, sentence: `could not be fetched (HTTP ${response.status})` };
-  return { ok: true, sha256: await hashBytes(response.bytes) };
+  return observePublished(env.fetch, ref, { fetchOptions: env.fetchOptions });
 }
 
 export async function detectGrounding(lock: Lock, env: DetectorEnv): Promise<DriftFinding[]> {
@@ -113,6 +78,12 @@ export async function detectRuntime(lock: Lock, env: DetectorEnv): Promise<Drift
   for (const [file, expected] of Object.entries(lock.runtime.files)) {
     const finding = runtimeFinding(file, expected, await observeLocal(env, file));
     if (finding) out.push(finding);
+  }
+  // (a2) and so is a file added beside the locked ones: list the locked runtime folder for what the lock does not hold.
+  const folder = runtimeFolder(lock.runtime.files);
+  if (folder !== null && underRoot(env.root, folder) !== null) {
+    const added = (await listFiles(join(env.root, folder))).map((full) => toPosix(env.root, full)).filter((ref) => !(ref in lock.runtime.files));
+    for (const ref of added.sort()) out.push(addedRuntimeFinding(ref, await observeLocal(env, ref)));
   }
   // (b) ask GitHub whether the runtime's source moved on. Failure to ask is info, never silence and never block.
   out.push(...(await detectUpstream(lock, env)));
@@ -199,26 +170,11 @@ async function detectUpstream(lock: Lock, env: DetectorEnv): Promise<DriftFindin
   ];
 }
 
-/** What the watch sees of one peer now: its definition, its links.json (when the lock records it) and its signer. */
-async function observePeer(url: string, record: PeerRecord, env: DetectorEnv): Promise<PeerObservation> {
-  let located;
-  let response;
-  try {
-    located = await locatePeerFile(url, env.fetch, env.fetchOptions);
-    response = await get(env, located.fileUrl);
-  } catch (error) {
-    return { definition: { ok: false, reason: why(error) }, signature: { none: true } };
-  }
-  if (!response.ok) return { definition: { ok: false, status: response.status }, signature: { none: true } };
-  const sha256 = await hashBytes(response.bytes);
-  const links = record.links !== undefined ? await readPeerLinks(env, located.base) : undefined;
-  const signature = await peerKid(env, located.base);
-  return { definition: { ok: true, sha256 }, ...(links !== undefined ? { links } : {}), signature };
-}
-
 export async function detectPeers(lock: Lock, env: DetectorEnv): Promise<DriftFinding[]> {
   const results = await Promise.all(
-    Object.entries(lock.peers).map(async ([url, record]) => peerFindings(url, record, await observePeer(url, record, env))),
+    Object.entries(lock.peers).map(async ([url, record]) =>
+      peerFindings(url, record, await observePeer(url, env.fetch, { fetchOptions: env.fetchOptions, links: record.links !== undefined })),
+    ),
   );
   return [...results.flat(), ...pendingPeerFindings(lock)];
 }

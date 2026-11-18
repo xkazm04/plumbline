@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { runGate } from "../gate/index.js";
 import {
+  describeIssues,
+  duplicateKeyIssues,
   findFrontAgent,
   validateManifestEntries,
   validateNetworkDefinition,
@@ -158,4 +160,24 @@ test("REGRESSION (reviewer finding 10): a network or manifest with duplicate key
 
   // the same files without duplicates pass
   assert.equal((await run({ [MANIFEST]: { body: manifest() }, [NETWORK]: { body: clean } })).finding.state, "pass");
+});
+
+test("REGRESSION (p-f7d646): the duplicate-key rule fails closed when the key counter cannot read a file JSON.parse accepted", async () => {
+  // Old code: any throw from the counter became "no duplicates". The key counter refused a number longer than 512
+  // characters that JSON.parse accepts, so one long number switched the rule off and the validator passed.
+  const throwing = (): number => {
+    throw new Error("not JSON");
+  };
+  assert.deepEqual(duplicateKeyIssues('{"a":1}', throwing), [{ code: "duplicate-keys-unchecked", count: 1 }]);
+  assert.deepEqual(duplicateKeyIssues("{not json", throwing), [], "text JSON.parse refuses is the caller's finding, not this rule's");
+  assert.match(describeIssues([{ code: "duplicate-keys-unchecked", count: 1 }]), /could not be checked for duplicate keys/);
+
+  // End to end: a 600-digit number beside a hidden second commondefs. Whether the counter reads the long number
+  // (and reports the duplicate) or cannot (and fails closed), the validator fails and says duplicate keys.
+  const long = `1${"0".repeat(599)}`;
+  const text = JSON.stringify(network()).replace(/^\{/, `{"commondefs":{"replacement_values":{"x":"y"}},"pad":${long},`);
+  assert.doesNotThrow(() => JSON.parse(text));
+  const net = await run({ [MANIFEST]: { body: manifest() }, [NETWORK]: { body: text } });
+  assert.equal(net.finding.state, "fail");
+  assert.match(net.finding.summary, /duplicate keys/);
 });

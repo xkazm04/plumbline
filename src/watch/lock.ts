@@ -2,8 +2,8 @@
 // decide.ts), and the one way the watch reads a file under the site root: lexically under it AND, after every
 // symlink and junction is resolved, still under the root's real path.
 
-import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { LOCK_FILE } from "../core/types.js";
 import type { Fetcher } from "../net/locate.js";
 import type { SafeFetchOptions } from "../net/safe-fetch.js";
@@ -19,6 +19,8 @@ export interface WatchDeps {
   now?: () => Date;
   /** `init` and `relock`: extra grounding sources to lock, as paths under the root or https URLs. */
   extraSources?: string[];
+  /** `relock`: grounding refs to leave out of the new lock, even ones the previous lock held or the site names. */
+  dropSources?: string[];
   /** `init` and `relock`: the vendored runtime folder relative to the root; default is `runtime`, then `site/runtime`. */
   runtimeDir?: string;
   /** The upstream commits endpoint for the runtime check of a lock with no `runtime.via` (nsdeploy). */
@@ -135,3 +137,23 @@ export async function replaceLock(root: string, lock: Lock): Promise<void> {
 }
 
 export const short = (sha: string): string => sha.slice(0, 7);
+
+/** Every regular file under a folder, recursively (a link is not followed); nothing when the folder cannot be read. */
+export async function listFiles(dir: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const e of entries) {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) out.push(...(await listFiles(full)));
+    else if (e.isFile()) out.push(full);
+  }
+  return out;
+}
+
+/** A path under the root as a lock key: relative to the root, with `/` separators. */
+export const toPosix = (root: string, full: string): string => relative(root, full).split(sep).join(posix.sep);

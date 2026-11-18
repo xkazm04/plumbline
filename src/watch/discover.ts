@@ -6,12 +6,14 @@
 //                   manifest names (`networks[].hocon`, at exactly that path, by core's networkPathOf: the rule `sign`
 //                   uses, so an unsafe one is a finding and is never read).
 //   peers           read from EVERY network file above (root `*.network.json` and manifest-named ones alike): the keys
-//                   of `link_labels` and the `http(s)` entries of an agent's `tools` that are not MCP endpoints; plus
+//                   of `link_labels` and the `http(s)` entries of an agent's `tools` that are not MCP endpoints (the
+//                   gate validator's isMcpEndpoint, one rule for both); plus
 //                   the `http(s)` values in links.json.
 // Every file is read through readUnderRoot, so nothing outside the root's real path is read.
 
 import { readdir } from "node:fs/promises";
 import { networkPathOf, parseManifest } from "../core/signed-paths.js";
+import { isMcpEndpoint } from "../gate/validator.js";
 import { LINKS_FILE, MANIFEST_FILE, type DriftFinding } from "../core/types.js";
 import { readUnderRoot } from "./lock.js";
 
@@ -28,11 +30,6 @@ export interface Discovered {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isHttp = (v: unknown): v is string => typeof v === "string" && /^https?:\/\//i.test(v);
-
-function isMcp(ref: string): boolean {
-  const l = ref.toLowerCase();
-  return l.includes("/mcp/") || l.endsWith("/mcp") || l.includes("//mcp.") || l.includes(".mcp.");
-}
 
 async function readJson(root: string, ref: string): Promise<{ ok: true; value: unknown } | { ok: false; missing: boolean }> {
   let bytes: Uint8Array;
@@ -88,7 +85,7 @@ export async function discover(root: string): Promise<Discovered> {
     if (Array.isArray(value.tools)) {
       for (const agent of value.tools) {
         if (!isObject(agent) || !Array.isArray(agent.tools)) continue;
-        for (const t of agent.tools) if (isHttp(t) && !isMcp(t)) peers.add(t);
+        for (const t of agent.tools) if (isHttp(t) && !isMcpEndpoint(t)) peers.add(t);
       }
     }
   }

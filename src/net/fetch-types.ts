@@ -59,8 +59,10 @@ export interface SafeFetchOptions {
   headers?: Record<string, string>;
   /** Absolute timeout in milliseconds for the whole call. */
   timeoutMs?: number;
-  /** Body ceiling in bytes; clamped to MAX_BODY_BYTES. */
+  /** Body ceiling in bytes; clamped to MAX_BODY_BYTES (to MAX_RUNTIME_FILE_BYTES with `ceiling: "runtime"`). */
   maxBytes?: number;
+  /** `runtime`: the caller reads a published runtime or signed code file, which may be larger than a network definition. */
+  ceiling?: "runtime";
   /** Redirects to follow; clamped to MAX_REDIRECTS. */
   maxRedirects?: number;
   /**

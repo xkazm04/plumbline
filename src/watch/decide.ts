@@ -4,7 +4,7 @@
 // root and fetches through safeFetch; the Desk reads what the site publishes through the page's fetcher) and hands
 // the result here, so one severity policy serves both (docs/gate-and-watch.md):
 //   grounding  changed or unreadable source: warn. A file the lock should cover and does not: warn.
-//   runtime    changed or missing vendored file: block (copy-do-not-change).
+//   runtime    changed, missing or added vendored file: block (copy-do-not-change). Added is the CLI's alone.
 //   peer       changed definition, a links.json that appeared, changed or went away, or a changed signer kid: block;
 //              unreachable, links.json not checkable or not recorded, signature gone, pending since init, or named by
 //              a network and not in the lock: warn; newly signed: info.
@@ -25,6 +25,7 @@ import {
   type PendingPeer,
   type LockState,
 } from "../core/types.js";
+import { isBlockedAddress, parseIPv4 } from "../net/address.js";
 
 // ---- the lock and report members (the wire contract now lives in core/types.ts; these names stay for callers) ----
 
@@ -38,7 +39,8 @@ export type WatchReport = DriftReport;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isHex = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
-const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+// owner/name, as GitHub allows them; a name of "." or ".." is not a repository and would climb the API's path.
+const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/(?!\.\.?$)[A-Za-z0-9._-]{1,100}$/;
 const COMMIT = /^[0-9a-f]{7,40}$/;
 const isSafePath = (v: unknown): v is string =>
   typeof v === "string" && /^[A-Za-z0-9._/-]+$/.test(v) && v.split("/").every((s) => s !== "" && s !== "." && s !== "..");
@@ -127,6 +129,35 @@ export function runtimeFinding(file: string, expected: string, seen: Observed): 
   };
 }
 
+/**
+ * The vendored runtime folder a lock covers: the deepest folder that holds every `runtime.files` key (`runtime`, or
+ * `site/runtime`), or null when there are no files or one sits at the root (the root is never listed as a runtime
+ * folder). The CLI's watch lists it for files the lock does not hold (addedRuntimeFinding); the Desk cannot list a
+ * folder, so this stays the CLI's.
+ */
+export function runtimeFolder(files: Record<string, string>): string | null {
+  const dirs = Object.keys(files).map((f) => f.split("/").slice(0, -1));
+  if (dirs.length === 0) return null;
+  let common = dirs[0] ?? [];
+  for (const d of dirs) {
+    let n = 0;
+    while (n < common.length && n < d.length && common[n] === d[n]) n += 1;
+    common = common.slice(0, n);
+  }
+  return common.length === 0 ? null : common.join("/");
+}
+
+/** A file in the runtime folder that the lock does not hold: added after the lock was written. */
+export function addedRuntimeFinding(file: string, seen: Observed): DriftFinding {
+  return {
+    kind: "runtime",
+    severity: "block",
+    ref: file,
+    ...(seen.ok ? { actual: seen.sha256 } : {}),
+    summary: "A file was added to the vendored runtime folder after the lock was written; the runtime is copy-do-not-change. Remove it, or review it and run watch --relock to accept it.",
+  };
+}
+
 /** What a peer's plumbline.signature.json says about its signer: a kid in its exact pattern, nothing, or a problem. */
 export type SignatureRead = { kid: string } | { none: true } | { problem: string };
 
@@ -157,8 +188,12 @@ export type LinksRead = { state: string } | { problem: string };
 
 /** What a driver saw of one locked peer. */
 export interface PeerObservation {
-  /** The network definition: hashed, or unreachable with a sentence for the parentheses. */
-  definition: { ok: true; sha256: string } | { ok: false; status?: number; reason?: string };
+  /**
+   * The network definition: hashed; unreachable, with an HTTP status or a sentence for the parentheses; or `refused`,
+   * when the network file the peer's manifest names is an address the driver will not contact (the Desk: a sentence
+   * from destinationProblem, which never quotes it).
+   */
+  definition: { ok: true; sha256: string } | { ok: false; status?: number; reason?: string; refused?: string };
   /** Read only when the lock records `links`. */
   links?: LinksRead;
   signature: SignatureRead;
@@ -166,6 +201,9 @@ export interface PeerObservation {
 
 export function peerFindings(url: string, record: PeerRecord, seen: PeerObservation): DriftFinding[] {
   const def = seen.definition;
+  if (!def.ok && def.refused !== undefined) {
+    return [{ kind: "peer", severity: "warn", ref: url, summary: `A peer's network file was not contacted: ${def.refused}, which a peer's manifest may not point a browser at.` }];
+  }
   if (!def.ok) {
     return [
       {
@@ -321,42 +359,51 @@ export function signatureExpiryFinding(text: string | undefined, now: Date): Dri
 
 // ---- a lock written by a stranger (the Desk) ----
 
-const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+/**
+ * The host part of the rule, for a parsed https address: a public host name, never `localhost`, a single-label
+ * intranet name, an IPv6 literal, or an IPv4 literal in any range safeFetch refuses (net/address.ts: one table).
+ */
+function hostProblem(url: URL): string | null {
+  const host = url.hostname.toLowerCase();
+  if (host.startsWith("[")) return "it is an IP literal, not a public host name";
+  if (host === "localhost" || host.endsWith(".localhost") || !host.includes(".")) return "it is not a public host name";
+  if (parseIPv4(host) !== null && isBlockedAddress(host)) return "it is a private or loopback address";
+  return null;
+}
 
-function publicIpv4(host: string): boolean {
-  const m = IPV4.exec(host);
-  if (!m) return true;
-  const [a, b] = [Number(m[1]), Number(m[2])];
-  if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
-  if (a === 100 && b >= 64 && b <= 127) return false;
-  if (a === 169 && b === 254) return false;
-  if (a === 172 && b >= 16 && b <= 31) return false;
-  if (a === 192 && b === 168) return false;
-  if (a === 198 && (b === 18 || b === 19)) return false;
-  return true;
+function parsed(address: string): URL | string {
+  try {
+    return new URL(address);
+  } catch {
+    return "it is not a valid URL";
+  }
+}
+
+/**
+ * Why an address taken from a document someone else published (a lock's https grounding ref, the network file a
+ * peer's manifest names) is not fetched by the Desk, or null when it may be: https, no credentials, and a public host
+ * (hostProblem). The sentence never quotes the address. peerAddressProblem adds the rule for a lock's peer keys.
+ */
+export function destinationProblem(address: string): string | null {
+  const url = parsed(address);
+  if (typeof url === "string") return url;
+  if (url.protocol !== "https:") return "it is not an https address";
+  if (url.username || url.password) return "it carries credentials";
+  return hostProblem(url);
 }
 
 /**
  * Why a peer address taken from a lock someone else published is not fetched, or null when it may be. The keys of a
  * fetched lock's `peers` are destinations a stranger chose, so they are held to more than the page's fetcher allows:
- * https, no credentials, query or fragment, and a public host name (no `localhost`, no single-label intranet name, no
- * private or loopback IPv4 literal, no IPv6 literal). The sentence never quotes the address.
+ * destinationProblem's rule, and no query or fragment. The sentence never quotes the address.
  */
 export function peerAddressProblem(address: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(address);
-  } catch {
-    return "it is not a valid URL";
-  }
+  const url = parsed(address);
+  if (typeof url === "string") return url;
   if (url.protocol !== "https:") return "it is not an https address";
   if (url.username || url.password) return "it carries credentials";
   if (url.search || url.hash) return "it carries a query or a fragment";
-  const host = url.hostname.toLowerCase();
-  if (host.startsWith("[")) return "it is an IP literal, not a public host name";
-  if (host === "localhost" || host.endsWith(".localhost") || !host.includes(".")) return "it is not a public host name";
-  if (!publicIpv4(host)) return "it is a private or loopback address";
-  return null;
+  return hostProblem(url);
 }
 
 /** The finding for a lock peer the Desk refuses to contact. */

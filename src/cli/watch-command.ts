@@ -1,7 +1,8 @@
-// plumbline watch [--root <dir>] [--init | --relock] [--source <ref>]... [--timeout <ms>] [--json]
+// plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--timeout <ms>] [--json]
 // Dry-run: it reports, and with --init (and no lock yet) writes plumbline.lock.json, nothing else. --relock rewrites the
 // lock from the current state after a person reviewed the drift, prints what changed and reminds that the lock is a
-// signed file.
+// signed file. --drop (with --relock only, repeatable) leaves a grounding ref out of the new lock; it is listed as
+// removed.
 // Exit 0: no finding of severity warn or block (info alone is clean), or --relock wrote the lock. 1: at least one warn
 // or block, or no lock could be used (absent, unreadable or unusable: nothing was checked, which is never clean).
 // 2: usage or I/O error.
@@ -11,7 +12,8 @@ import { resolve } from "node:path";
 import { RESIGN_REMINDER } from "../watch/decide.js";
 import { runRelock, runWatch } from "../watch/index.js";
 
-const USAGE = "usage: plumbline watch [--root <dir>] [--init | --relock] [--source <path-or-https-url>]... [--timeout <ms>] [--json]\n";
+const USAGE =
+  "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <path-or-https-url>]... [--timeout <ms>] [--json]\n";
 
 export async function runWatchCommand(args: string[]): Promise<number> {
   let root = process.cwd();
@@ -20,6 +22,7 @@ export async function runWatchCommand(args: string[]): Promise<number> {
   let json = false;
   let timeoutMs: number | undefined;
   const extraSources: string[] = [];
+  const dropSources: string[] = [];
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i] as string;
@@ -41,6 +44,13 @@ export async function runWatchCommand(args: string[]): Promise<number> {
         return 2;
       }
       extraSources.push(v);
+    } else if (arg === "--drop") {
+      const v = value();
+      if (!v) {
+        process.stderr.write(`--drop takes a grounding ref the lock holds\n${USAGE}`);
+        return 2;
+      }
+      dropSources.push(v);
     } else if (arg === "--timeout") {
       const n = Number(value());
       if (!Number.isFinite(n) || n <= 0) {
@@ -57,12 +67,20 @@ export async function runWatchCommand(args: string[]): Promise<number> {
     process.stderr.write(`--init and --relock do not go together: --init writes a first lock, --relock replaces one\n${USAGE}`);
     return 2;
   }
+  if (dropSources.length > 0 && !relock) {
+    process.stderr.write(`--drop goes with --relock: it takes a ref out of the lock --relock writes\n${USAGE}`);
+    return 2;
+  }
+  if (dropSources.some((ref) => extraSources.includes(ref))) {
+    process.stderr.write(`--source and --drop name the same ref\n${USAGE}`);
+    return 2;
+  }
   const options = { root, init, ...(timeoutMs !== undefined ? { timeoutMs } : {}) };
 
   if (relock) {
     let result;
     try {
-      result = await runRelock(options, { extraSources });
+      result = await runRelock(options, { extraSources, dropSources });
     } catch (error) {
       process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;

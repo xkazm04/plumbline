@@ -81,6 +81,28 @@ test("customs: a signature made with some other key fails", async () => {
   assert.equal(finding.state, "fail");
 });
 
+test("REGRESSION (p-05d52a): a receipt signed by a key Customs no longer publishes, and naming it, is unavailable, not a failed signature", async () => {
+  // Old code: any key id other than the published one was `fail` ("its signature does not check out") before any
+  // signature was checked; after Customs rotates its key, every receipt still signed with the old one read as forged.
+  const old = await makeSigner();
+  const signed = await old.sign(receiptFor("https://montbaga.github.io/agent-customs/agent_customs", "CLEARED"));
+  const routes = recorded();
+  routes[CLEARED_RECEIPT] = { body: signed };
+  const { finding, report } = await customs(CLEARED_TARGET, routes);
+  assert.equal(finding.state, "unavailable");
+  assert.equal(report.state, "unavailable");
+  assert.match(finding.summary, /signed with a key this build does not trust/);
+  assert.match(finding.summary, /re-stamp/);
+  // a receipt whose inspector names another key than its signature is not in a shape Customs writes: unavailable
+  const signer = await makeSigner();
+  const network = "https://montbaga.github.io/agent-customs/agent_customs";
+  const mixed = await signer.sign(receiptFor(network, "CLEARED"), signer.pinned.keyId, "some-other-key-id");
+  const inconsistent = await customs(CLEARED_TARGET, signerRoutes(signer, network, mixed, "CLEARED"), { customsPinnedKey: signer.pinned });
+  assert.equal(inconsistent.finding.state, "unavailable");
+  assert.match(inconsistent.finding.summary, /inspector names a different key than its signature/);
+  // and a trusted key id whose signature fails stays `fail` (the test above: "a signature made with some other key fails")
+});
+
 test("customs: no receipt for this target is unavailable, with that reason, never pass", async () => {
   const { finding, report } = await customs("https://other.example/net.network.json", recorded());
   assert.equal(finding.state, "unavailable");
@@ -115,6 +137,53 @@ test("customs: unreachable index, key or receipt, a non-200, junk, and a changed
   const { finding } = await customs(CLEARED_TARGET, routes);
   assert.equal(finding.state, "unavailable");
   assert.match(finding.summary, /different key than the one pinned/);
+});
+
+test("p-a851cc: the adapter's remaining refusals are each unavailable, with their own reason", async () => {
+  const base = recorded();
+  // a published key file whose key id does not match its key
+  const key = JSON.parse(fixture("customs-key.json"));
+  const badKeyId = await customs(CLEARED_TARGET, { ...base, [KEY]: { body: { ...key, keyId: "AAAAAAAAAAAAAAAA" } } });
+  assert.equal(badKeyId.finding.state, "unavailable");
+  assert.match(badKeyId.finding.summary, /published key id does not match its key/);
+
+  // an index entry whose path breaks Customs' naming rule: the unsigned index never steers a fetch
+  const index = JSON.parse(fixture("customs-index.json"));
+  for (const r of index.receipts) if (r.path.endsWith("agent_customs.json")) r.path = "../../elsewhere/evil.json";
+  const steered = await customs(CLEARED_TARGET, { ...base, [INDEX]: { body: index } });
+  assert.equal(steered.finding.state, "unavailable");
+  assert.match(steered.finding.summary, /does not match its own naming rule/);
+  assert.ok(!steered.calls.some((c) => c.includes("evil")), steered.calls.join(", "));
+
+  // a signed receipt with unusable dates
+  const signer = await makeSigner();
+  const network = "https://montbaga.github.io/agent-customs/agent_customs";
+  const undated = receiptFor(network, "CLEARED");
+  undated.inspectedAt = "soon";
+  const dates = await customs(CLEARED_TARGET, signerRoutes(signer, network, await signer.sign(undated), "CLEARED"), { customsPinnedKey: signer.pinned });
+  assert.equal(dates.finding.state, "unavailable");
+  assert.match(dates.finding.summary, /no usable dates/);
+
+  // no network address for the target: no manifest, or a manifest that names no network
+  for (const manifest of [{ status: 404 }, { body: { networks: [] } }] as Route[]) {
+    const none = await customs("https://site.example/", { ...base, "https://site.example/agent-manifest.json": manifest });
+    assert.equal(none.finding.state, "unavailable");
+    assert.match(none.finding.summary, /no network address could be worked out/);
+    assert.ok(!none.calls.includes(INDEX), "Customs is not asked");
+  }
+});
+
+test("p-a851cc: a target with several networks shows the worst outcome and the count", async () => {
+  const manifest = {
+    networks: [
+      { name: "agent_customs", front_man: "f", hocon: "agent_customs.network.json" },
+      { name: "unstamped", front_man: "f", hocon: "unstamped.network.json" },
+    ],
+  };
+  const { finding } = await customs(C, { ...recorded(), [`${C}agent-manifest.json`]: { body: manifest } });
+  assert.equal(finding.state, "unavailable", "one CLEARED and one with no receipt: unavailable is worse than pass");
+  assert.match(finding.summary, /no receipt for this target/);
+  assert.match(finding.summary, /\(2 networks on this target; the worst is shown\)$/);
 });
 
 test("customs: an expired receipt is unavailable, not pass", async () => {
@@ -185,8 +254,8 @@ async function makeSigner() {
   return {
     keyFile,
     pinned,
-    async sign(receipt: any, claimedKeyId = keyId) {
-      const withKey = { ...receipt, inspector: { ...receipt.inspector, keyId: claimedKeyId } };
+    async sign(receipt: any, claimedKeyId = keyId, inspectorKeyId = claimedKeyId) {
+      const withKey = { ...receipt, inspector: { ...receipt.inspector, keyId: inspectorKeyId } };
       const sig = await globalThis.crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(canonicalJson(withKey)));
       return { receipt: withKey, signature: { alg: "ES256", keyId: claimedKeyId, value: Buffer.from(sig).toString("base64url") } };
     },

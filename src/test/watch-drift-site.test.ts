@@ -1,7 +1,7 @@
 // The Desk's drift reader (site/drift.js) against the same decisions as the CLI's watch (src/watch/decide.ts).
 // site/drift.js imports ./lib/plumbline/..., which scripts/build-site.mjs writes. So the test lays out its own copy of
-// that folder from THIS build (core, the three browser-safe net modules and watch/decide.js, the list build-site
-// copies) beside a copy of drift.js, and imports that: no network, and no dependency on a site/lib someone else built.
+// that folder from THIS build (core plus BROWSER_MODULES below, the list build-site copies) beside a copy of drift.js,
+// and imports that: no network, and no dependency on a site/lib someone else built.
 
 import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -26,6 +26,12 @@ interface DriftResult {
 }
 type ReadDrift = (target: string, fetcher: unknown, options?: object) => Promise<DriftResult>;
 
+/** The browser-safe modules beyond core that drift.js reaches: scripts/build-site.mjs must copy the same list. */
+const BROWSER_MODULES: Record<string, string[]> = {
+  net: ["address.js", "canonical.js", "locate.js", "fetch-types.js"],
+  watch: ["decide.js", "observe.js"],
+};
+
 let loaded: Promise<ReadDrift> | undefined;
 function loadDrift(): Promise<ReadDrift> {
   loaded ??= (async () => {
@@ -37,11 +43,12 @@ function loadDrift(): Promise<ReadDrift> {
       for (const name of names) copyFileSync(join(BUILD, sub, name), join(lib, sub, name));
     };
     copy("core", readdirSync(join(BUILD, "core")).filter((n) => n.endsWith(".js")));
-    copy("net", ["canonical.js", "locate.js", "fetch-types.js"]);
-    copy("watch", ["decide.js"]);
+    for (const [sub, names] of Object.entries(BROWSER_MODULES)) copy(sub, names);
     copyFileSync(join(REPO, "site", "drift.js"), join(dir, "drift.js"));
     // the browser copy must not reach a Node module: the same rule build-site enforces
-    assert.ok(!/from\s+["']node:/.test(readFileSync(join(lib, "watch", "decide.js"), "utf8")), "decide.js imports a Node module");
+    for (const [sub, names] of Object.entries(BROWSER_MODULES)) {
+      for (const name of names) assert.ok(!/from\s+["']node:/.test(readFileSync(join(lib, sub, name), "utf8")), `${sub}/${name} imports a Node module`);
+    }
     const mod = (await import(pathToFileURL(join(dir, "drift.js")).href)) as { readDrift: ReadDrift };
     return mod.readDrift;
   })();
@@ -66,6 +73,11 @@ test("Desk drift: a lock's peer address that is not https, carries credentials o
     "https://10.0.0.1/x",
     "https://192.168.1.20/x",
     "https://169.254.169.254/latest",
+    // p-0810b9: documentation and protocol ranges, which only safeFetch's table refused before
+    "https://192.0.2.5/x",
+    "https://203.0.113.9/x",
+    "https://198.51.100.7/x",
+    "https://192.0.0.8/x",
     "https://intranet/x",
     "https://[::1]/x",
     "https://query.example/p?say=hi",
@@ -85,11 +97,44 @@ test("Desk drift: a lock's peer address that is not https, carries credentials o
     const mine = result.findings.filter((f) => f.ref === url);
     assert.deepEqual(mine.map((f) => [f.kind, f.severity]), [["peer", "warn"]], url);
     assert.match(mine[0]!.summary, /was not contacted/);
-    for (const part of ["127.0.0.1", "user", "localhost", "10.0.0.1", "intranet", "say=hi", "#frag", "cred.example"]) {
+    for (const part of ["127.0.0.1", "user", "localhost", "10.0.0.1", "192.0.2.5", "203.0.113.9", "intranet", "say=hi", "#frag", "cred.example"]) {
       assert.ok(!mine[0]!.summary.includes(part), `the summary quotes the address: ${mine[0]!.summary}`);
     }
   }
   assert.ok(s.calls.includes("https://peer.example/partner.network.json"), "a public https peer is still checked");
+});
+
+test("REGRESSION (p-088c6f): a lock's https grounding ref and a peer manifest's network file are held to the address rule, and never contacted", async () => {
+  const readDrift = await loadDrift();
+  const record = { sha256: HEX("c"), links: "absent", checkedAt: NOW.toISOString() };
+  const grounding = [
+    { ref: "https://192.168.1.1/admin", sha256: HEX("a") },
+    { ref: "https://localhost/data.json", sha256: HEX("a") },
+    { ref: "https://user:pw@creds.example/data.json", sha256: HEX("a") },
+  ];
+  const peer = "https://hocon.example/partner";
+  const s = scripted({
+    [`${SITE}/agent-manifest.json`]: { body: { networks: [] } },
+    [`${SITE}/${LOCK_FILE}`]: { body: lockWith({ [peer]: record }, { grounding: { sources: grounding, builtAt: NOW.toISOString() } }) },
+    // the peer's own manifest points its network file at a private address
+    "https://hocon.example/agent-manifest.json": { body: { networks: [{ name: "partner", hocon: "https://10.0.0.5/x.json", front_man: "f" }] } },
+  });
+  const result = await readDrift(`${SITE}/`, s.fetch);
+  assert.equal(result.lockState, "found");
+  for (const host of ["192.168.1.1", "localhost", "creds.example", "10.0.0.5"]) {
+    assert.ok(!s.calls.some((c) => new URL(c).hostname === host), `${host} was contacted: ${s.calls.join(", ")}`);
+  }
+  for (const { ref } of grounding) {
+    const mine = result.findings.filter((f) => f.ref === ref);
+    assert.deepEqual(mine.map((f) => [f.kind, f.severity]), [["grounding", "warn"]], ref);
+    assert.match(mine[0]!.summary, /was not fetched/, ref);
+    for (const part of ["192.168", "localhost", "creds", "user"]) assert.ok(!mine[0]!.summary.includes(part), mine[0]!.summary);
+  }
+  const mine = result.findings.filter((f) => f.ref === peer);
+  assert.deepEqual(mine.map((f) => [f.kind, f.severity]), [["peer", "warn"]]);
+  assert.match(mine[0]!.summary, /network file was not contacted: it is a private or loopback address/);
+  assert.ok(!mine[0]!.summary.includes("10.0.0.5"), mine[0]!.summary);
+  assert.deepEqual(result.unreachablePeers, [], "a refused network file is not an unreachable peer");
 });
 
 test("Desk drift: an absent, refused, unreadable or unusable lock is a lock state with a sentence and no findings", async () => {

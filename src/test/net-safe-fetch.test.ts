@@ -62,6 +62,15 @@ test("REGRESSION (reviewer finding 11): a literal ::ffff:0: address is refused b
   assert.equal(await codeOf(safeFetch("https://translated.example/", { resolver: resolvesTo, timeoutMs: 2000 })), "blocked-address");
 });
 
+test("REGRESSION (p-10277d): the IPv6 documentation prefix 3fff::/20 and benchmarking prefix 2001:2::/48 are refused, as the header says", () => {
+  // Old code: isBlockedIPv6 refused 2001:db8::/32 only; these fell through as public (the v4 side refuses both kinds).
+  for (const a of ["3fff::1", "3fff:fff:ffff::1", "[3fff:abc::1]", "2001:2::1", "2001:2:0:ffff::1"]) {
+    assert.equal(isBlockedAddress(a), true, `${a} should be blocked`);
+  }
+  // the edges stay public: just past each prefix
+  for (const a of ["3fff:1000::1", "2001:2:1::1"]) assert.equal(isBlockedAddress(a), false, `${a} should be allowed`);
+});
+
 test("loopback is allowed by the test flag alone, and private ranges stay blocked", () => {
   assert.equal(isBlockedAddress("127.0.0.1", true), false);
   assert.equal(isBlockedAddress("::1", true), false);
@@ -243,6 +252,36 @@ test("the absolute timeout trips with its own error, including on a body that ne
     assert.ok(Date.now() - started < 3000);
     // A hung resolver is bounded by the same timeout.
     assert.equal(await codeOf(safeFetch("https://slow-dns.example/", { timeoutMs: 100, resolver: () => new Promise(() => undefined) })), "timeout");
+  } finally {
+    await server.close();
+  }
+});
+
+test("REGRESSION (p-e945d0): a redirect whose body drips forever has its connection closed, not drained past the timeout", async () => {
+  let redirectClosed: () => void = () => undefined;
+  const closed = new Promise<void>((resolve) => {
+    redirectClosed = resolve;
+  });
+  const server = await loopbackServer((req, res) => {
+    if (req.url === "/start") {
+      res.writeHead(302, { location: "/arrived" }); // no content-length: a chunked body that never ends
+      const timer = setInterval(() => res.write("."), 20);
+      res.on("close", () => {
+        clearInterval(timer);
+        redirectClosed();
+      });
+      return;
+    }
+    res.end("arrived");
+  });
+  try {
+    const result = await safeFetch(`${server.url}/start`, { allowLocal: true, timeoutMs: 5000 });
+    assert.equal(result.text(), "arrived");
+    assert.equal(result.redirects, 1);
+    // Old code: response.resume() kept reading the redirect's body after safeFetch returned and cleared its timer, so
+    // nothing ever closed that connection. The server must see it close promptly, well inside the timeout.
+    const outcome = await Promise.race([closed.then(() => "closed"), new Promise((resolve) => setTimeout(() => resolve("still open"), 1000))]);
+    assert.equal(outcome, "closed", "the redirect hop's connection must be closed once its Location is read");
   } finally {
     await server.close();
   }

@@ -6,45 +6,25 @@
 //                    ("<owner>/<repo> `<path>` at commit <sha>", as site/runtime/NOTICE does for agentic-web), that
 //                    repository, folder and commit; omitted otherwise. The upstream check then asks that folder.
 //   grounding        what discover.ts names (the root's agent files and every manifest-named network file), plus
-//                    the extra sources (--source, and on --relock every ref the previous lock held).
+//                    the extra sources (--source, and on --relock every ref the previous lock held), less the refs
+//                    --relock --drop names.
 //   peers            every peer discover.ts names, fetched through safeFetch: the hash of its network definition, the
 //                    state of its links.json and its signer kid. A peer that cannot be captured goes into
 //                    `pendingPeers` with the time, and every watch reports it until a re-lock fills it in.
 // Anything else that cannot be captured is NOT written to the lock and comes back as a finding, so a lock with a gap
 // is never mistaken for a complete one.
 
-import { readdir } from "node:fs/promises";
-import { join, posix, relative, sep } from "node:path";
+import { join } from "node:path";
 import { FORMAT_VERSION, type DriftFinding } from "../core/types.js";
-import { hashBytes } from "../net/canonical.js";
-import { locatePeerFile } from "../net/locate.js";
-import { SafeFetchError } from "../net/safe-fetch.js";
 import type { Lock, PendingPeer, RuntimeVia } from "./decide.js";
-import { hashLocal, hashRef, peerKid, readPeerLinks, why, type DetectorEnv } from "./detectors.js";
+import { hashLocal, hashRef, type DetectorEnv } from "./detectors.js";
 import { discover } from "./discover.js";
-import { readUnderRoot } from "./lock.js";
+import { listFiles, readUnderRoot, toPosix } from "./lock.js";
+import { observePeer } from "./observe.js";
 
 const COMMIT = /nsdeploy commit\s+`?([0-9a-f]{7,40})`?/i;
 /** "cognizant-ai-labs/agentic-web `skills/agentify-website/runtime` at commit 7817c1f..." (site/runtime/NOTICE). */
-const VIA = /\b([A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100})\s+`([A-Za-z0-9._/-]+)`\s+at commit\s+`?([0-9a-f]{7,40})\b/;
-
-async function listFiles(dir: string): Promise<string[]> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const out: string[] = [];
-  for (const e of entries) {
-    const full = join(dir, e.name);
-    if (e.isDirectory()) out.push(...(await listFiles(full)));
-    else if (e.isFile()) out.push(full);
-  }
-  return out;
-}
-
-const toPosix = (root: string, full: string): string => relative(root, full).split(sep).join(posix.sep);
+const VIA = /\b([A-Za-z0-9][A-Za-z0-9-]{0,38}\/(?!\.\.?\s)[A-Za-z0-9._-]{1,100})\s+`([A-Za-z0-9._/-]+)`\s+at commit\s+`?([0-9a-f]{7,40})\b/;
 
 /** The nsdeploy commit and, when there is one, the repository folder the runtime copy was really taken from. */
 export function runtimeProvenance(texts: string[]): { commit?: string; via?: RuntimeVia } {
@@ -62,7 +42,7 @@ export function runtimeProvenance(texts: string[]): { commit?: string; via?: Run
 
 export async function captureLock(
   env: DetectorEnv,
-  options: { extraSources?: string[]; runtimeDir?: string; now: Date },
+  options: { extraSources?: string[]; dropSources?: string[]; runtimeDir?: string; now: Date },
 ): Promise<{ lock: Lock; findings: DriftFinding[] }> {
   const findings: DriftFinding[] = [];
   const { root } = env;
@@ -108,7 +88,18 @@ export async function captureLock(
   // grounding
   const found = await discover(root);
   findings.push(...found.findings);
-  const refs = [...new Set([...found.refs, ...(options.extraSources ?? [])])];
+  // --drop wins over everything else, a file the site names included: that one is said so, because every watch's
+  // coverage check will report it as not covered for as long as the site names it.
+  const drop = new Set(options.dropSources ?? []);
+  for (const ref of found.refs.filter((r) => drop.has(r))) {
+    findings.push({
+      kind: "grounding",
+      severity: "warn",
+      ref,
+      summary: "Dropped from the lock as asked, but the site still names this file, so every watch reports it as not covered until the site stops naming it.",
+    });
+  }
+  const refs = [...new Set([...found.refs, ...(options.extraSources ?? [])])].filter((r) => !drop.has(r));
   const sources: { ref: string; sha256: string }[] = [];
   for (const ref of refs) {
     try {
@@ -125,24 +116,22 @@ export async function captureLock(
   const peers: Lock["peers"] = {};
   const pendingPeers: Record<string, PendingPeer> = {};
   for (const url of found.peers) {
-    try {
-      const { fileUrl, base } = await locatePeerFile(url, env.fetch, env.fetchOptions);
-      const response = await env.fetch(fileUrl, env.fetchOptions);
-      if (!response.ok) throw new Error(`answered HTTP ${response.status}`);
-      const links = await readPeerLinks(env, base);
-      if ("problem" in links) throw new Error(`its links.json ${links.problem}`);
-      const signature = await peerKid(env, base);
-      peers[url] = {
-        sha256: await hashBytes(response.bytes),
-        links: links.state,
-        ...("kid" in signature ? { kid: signature.kid } : {}),
-        checkedAt: options.now.toISOString(),
-      };
-    } catch (error) {
-      const detail = error instanceof SafeFetchError ? why(error) : error instanceof Error ? error.message : "it could not be fetched";
-      pendingPeers[url] = { since: options.now.toISOString() };
-      findings.push({ kind: "peer", severity: "warn", ref: url, summary: `A peer could not be captured, so the lock holds it as pending and every watch reports it (${detail}).` });
+    // the same reads every watch makes of a locked peer (observe.ts), with links.json always asked
+    const seen = await observePeer(url, env.fetch, { fetchOptions: env.fetchOptions, links: true });
+    const { definition: def, links, signature } = seen;
+    if (def.ok && links !== undefined && "state" in links) {
+      peers[url] = { sha256: def.sha256, links: links.state, ...("kid" in signature ? { kid: signature.kid } : {}), checkedAt: options.now.toISOString() };
+      continue;
     }
+    const detail = !def.ok
+      ? def.status !== undefined
+        ? `answered HTTP ${def.status}`
+        : (def.refused ?? def.reason ?? "it could not be fetched")
+      : links !== undefined && "problem" in links
+        ? `its links.json ${links.problem}`
+        : "it could not be fetched";
+    pendingPeers[url] = { since: options.now.toISOString() };
+    findings.push({ kind: "peer", severity: "warn", ref: url, summary: `A peer could not be captured, so the lock holds it as pending and every watch reports it (${detail}).` });
   }
 
   return {

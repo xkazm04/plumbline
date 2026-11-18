@@ -13,7 +13,9 @@ the address of a `<name>.network.json`. The report state is the worst finding: `
 for no adapters is `unavailable`, not `pass`. Adapters run independently, each with its own deadline (five times the per-fetch
 timeout); one failing, hanging or throwing never hides the others.
 
-Exit code: 0 passed by `--fail-on`, 1 failed by it, 2 usage. One rule sits above `--fail-on`: when **every** adapter is
+Exit code: 0 passed by `--fail-on`, 1 failed by it, 2 usage. A target that is not an absolute `http(s)` URL (`example.com`,
+`ftp://...`) is a usage error: it exits 2 with "the target must be an http(s) URL" before any adapter runs, so nothing
+is sent to Agent Atlas and CI shows a configuration error, not a failed or partial check. One rule sits above `--fail-on`: when **every** adapter is
 `unavailable`, nothing was checked, and the gate exits 1 whatever `--fail-on` says, with the line
 `plumbline gate: nothing was checked: every adapter was unavailable, so this is not a pass` on stderr (so `--json` output
 stays one JSON document). Otherwise `--fail-on fail` fails only on a `fail`, so a run where some adapters were
@@ -40,7 +42,7 @@ port of the rules**, written from reading that code, and its summary says "port"
 | missing references | an agent's `tools` entry is not an MCP endpoint, a remote agent address, a declared `link_slots` name, or an agent in this network |
 | manifest | `networks[]` has no entry, or an entry lacks `name`, `front_man` or `hocon`; `front_man` differs from the network's front agent |
 | duplicates (ours, not in the reference) | two agents share a name |
-| duplicate keys (ours, not in the reference) | the manifest or a network definition repeats a key inside one object, anywhere in the file (keys compared after unescaping). The summary says "duplicate keys: the reference runtime merges them, so the file means something different from what a JSON reader sees": `JSON.parse` keeps the last value, the runtime's HOCON reader deep-merges them, so a duplicate `commondefs` can change an agent's instructions while every JSON tool, this port included, sees a clean file |
+| duplicate keys (ours, not in the reference) | the manifest or a network definition repeats a key inside one object, anywhere in the file (keys compared after unescaping). The summary says "duplicate keys: the reference runtime merges them, so the file means something different from what a JSON reader sees": `JSON.parse` keeps the last value, the runtime's HOCON reader deep-merges them, so a duplicate `commondefs` can change an agent's instructions while every JSON tool, this port included, sees a clean file. A file `JSON.parse` accepts that the key counter cannot read fails too ("could not be checked for duplicate keys ... so the rule fails closed"): an unchecked file is never reported as one without duplicates |
 
 Not ported: HOCON parsing, `{token}` expansion before validation, partner and action-tool checks. States: `pass` when every
 network definition checked is clean; `fail` for a rule violation, a manifest or network that answers 404 or is not JSON, or an
@@ -64,7 +66,13 @@ publish ES256-signed receipts, a public key and an index. The adapter: works out
 `receipts/index.json` (no entry is `unavailable`, "no receipt for this target", never `pass`); fetches the receipt; verifies its
 ECDSA P-256 / SHA-256 signature over `canonicalJson(receipt)` with Node WebCrypto against the published key, which must equal the
 key pinned in `src/gate/context.ts` (a changed key is `unavailable` until Plumbline is updated); and reports the stamped verdict.
-A failed signature is `fail`. A validly signed receipt for another network, an index that contradicts the receipt, or a receipt
+A failed signature is `fail`. A receipt signed with a key other than the published one, and naming it, is `unavailable`
+("signed with a key this build does not trust ... ask Customs to re-stamp"), not `fail`: an unknown signer is not a forged
+receipt, and after Customs rotates its key the receipts it signed with the old one stay in its index until re-stamped. A
+receipt whose inspector names another key than its signature, a published key file whose key id does not match its key, an
+index entry whose path breaks Customs' naming rule (never followed), a receipt with unusable dates, and a target with no
+network address are each `unavailable` with their own reason. A target with several networks shows the worst outcome with
+"(N networks on this target; the worst is shown)". A validly signed receipt for another network, an index that contradicts the receipt, or a receipt
 past its own `expiresAt` or 35 days after `inspectedAt` (whichever is first) is `unavailable`. `CLEARED` and `CONDITIONS` are
 `pass`; `HOLD`, `DENIED` and `INVALID` are `fail`; `UNREADABLE` or an unknown code is `unavailable`.
 
@@ -75,11 +83,13 @@ networks Customs lists get receipts (its `tools/receipt-sites.json`), so most ta
 
 ## The watch
 
-`plumbline watch [--root <dir>] [--init | --relock] [--source <ref>]... [--timeout <ms>] [--json]`. It is a dry run: it
+`plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--timeout <ms>] [--json]`. It is a dry run: it
 reports, and with `--init` and no lock yet it writes `plumbline.lock.json`. With a lock present, `--init` does not
-overwrite it; `--relock` does (below). Opening an issue is the workflow template's job (`action/templates/plumbline-watch.yml`),
-never the library's. Exit 0 when no finding is `warn` or `block` (`info` alone is clean), 1 otherwise, 2 for a usage or
-I/O error.
+overwrite it; `--relock` does (below). Opening, editing and closing the drift issue is the Action's job (`issues: true`,
+`action/action.yml`), never the library's. Exit 0 when no finding is `warn` or `block` (`info` alone is clean), 1 otherwise, 2 for a usage or
+I/O error: a usage error prints its reason and the usage line on stderr and nothing on stdout; an I/O error (a lock that
+cannot be written, a `--root` that is a file under `--relock`) prints `watch failed: <reason>`, which the Action reads as
+a failed step.
 
 **The lock's state is not a finding.** Every report carries `lockState`: `found` (the lock was read and checked),
 `absent` (no lock), `unreadable` (it could not be read, or it is reached through a link that leaves the root) or
@@ -92,6 +102,7 @@ a lock the browser was refused), so a drift count is a count of drift.
 | --- | --- | --- |
 | `grounding` | each `grounding.sources[].ref` (a path under the root, or an https URL through `safeFetch`), hashed again | changed: `warn`. Unreadable, missing or outside the root: `warn`, saying so |
 | `runtime` (a) | each file in `runtime.files`, under the root | changed or missing: `block` (the vendored runtime is copy-do-not-change) |
+| `runtime` added | the locked runtime folder (the deepest folder holding every `runtime.files` key, such as `runtime` or `site/runtime`), listed | a file in it the lock does not hold: `block`, with its hash as `actual`, "added to the vendored runtime folder after the lock was written". Remove it, or review it and `--relock`. CLI only: a browser cannot list a folder |
 | `runtime` (b) | the runtime's upstream, from the GitHub API, unauthenticated (see "Which upstream the runtime check asks") | upstream moved on: `info` "Upstream is ahead" with both short SHAs. Cannot ask (timeout, rate limit, HTTP error, odd answer): `info` "Could not check upstream". Never `block` |
 | `peer` | each `peers[url]`: the network definition, hashed again | changed in any byte: `block` (a peer's definition runs in the visitor's browser, so a changed one is changed code). Unreachable: `warn` |
 | `peer` links | each `peers[url].links`: the peer's `links.json` at the same site base (the runtime fetches it for every peer network it loads and lays it over that network's links) | appeared (locked `absent`, now served), changed, or gone (404/410 now): `block`. Cannot be read (timeout, HTTP 5xx): `warn`. A lock written before 2026-11-17 has no `links` for the peer: `warn`, "re-lock to track it", never a silent pass |
@@ -150,18 +161,26 @@ watch reported it as info, and the copy was refreshed to `7ee54a3` on 2026-11-18
 - a lock with no `via` (a site that vendors nsdeploy's runtime directly, or a lock written before 2026-11-18) is checked
   against nsdeploy's newest commit, as before.
 
-`via` is checked before it becomes part of an address: `repo` is `owner/name` in GitHub's characters, `path` a safe
-relative path, `commit` 7 to 40 hex characters; anything else makes the lock `unusable`.
+`via` is checked before it becomes part of an address: `repo` is `owner/name` in GitHub's characters (a name of `.` or
+`..` is refused: it would climb the API's path), `path` a safe relative path, `commit` 7 to 40 hex characters; anything
+else makes the lock `unusable`, and `--init` does not record such a `via` from a NOTICE.
 
 ### Accepting drift: `--relock`
 
-`plumbline watch --root <dir> --relock [--json]`, after a person reviewed the drift and accepts it. It captures the
+`plumbline watch --root <dir> --relock [--drop <ref>]... [--json]`, after a person reviewed the drift and accepts it. It captures the
 current state exactly as `--init` does, plus every grounding ref the previous lock held (so a `--source` given at init is
 kept; one that is gone now is a finding and leaves the lock), writes the lock in place (beside it, then renamed over it,
 so a failed write leaves the old one), and prints what changed: `added`, `removed` and `changed` refs, each labelled
 `grounding`, `runtime`, `peer`, `pending`, `runtime commit` or `runtime via`. It ends with the reminder that the lock is a
 signed file. With `--json` it prints `{ relocked, previous, changes: { added, removed, changed }, findings, reminder }`.
 Exit 0 when it wrote the lock. `--init` and `--relock` together are a usage error.
+
+`--drop <ref>` (repeatable, with `--relock` only) takes a grounding source the publisher no longer wants watched out of
+the lock: it is not captured again, and `removed grounding <ref>` lists it. A later `--relock` does not bring it back. A
+ref the site itself still names (a root agent file, a manifest-named network) can be dropped too, and the relock says so
+with a `warn`: every watch's coverage check will report it as not covered while the site names it. A ref the lock did not
+hold is an `info`, "nothing to drop". `--drop` without `--relock`, or naming the same ref as a `--source`, is a usage
+error. Only grounding refs are dropped; a peer leaves the lock when no network names it any more.
 
 ### The lock (`plumbline.lock.json`)
 
@@ -203,12 +222,24 @@ signature `invalid tampered` (`docs/signature-format.md`). So the publisher's or
 The Desk re-checks a site's PUBLISHED lock in the browser. What every read means (the lock's shape rule, each finding
 and its severity, the peer signer rule, pending peers) is `src/watch/decide.ts`, an I/O-free module the CLI's watch
 loads too, so the two cannot disagree; a test gives both the same lock and the same bytes and compares the findings.
-What the Desk does differently is I/O only: lock references resolve against the lock's URL, and the upstream, coverage
-and signature-expiry checks are the CLI's. And the lock is a stranger's document, so its peer addresses are
-destinations a stranger chose: one that is not `https`, carries credentials, a query or a fragment, or names
-`localhost`, a single-label host, a private or loopback IPv4 literal or any IPv6 literal is never contacted, and is a
-`warn` whose sentence does not quote it (the page's fetcher allows `http` to `localhost`, so a lock could otherwise aim
-the visitor's browser at their own machine).
+What is read of a published file or a peer, and in what order (the network definition located through the peer's
+manifest, then its `links.json`, then its signer kid), is `src/watch/observe.ts`, a fetcher-injected module with no Node
+import that the CLI's watch, its `--init` capture and the Desk all run; only the fetcher, the error sentence and an
+address guard are the Desk's own. What the Desk does differently is I/O only: lock references resolve against the lock's
+URL, and the upstream, coverage, added-runtime-file and signature-expiry checks are the CLI's. And the lock is a
+stranger's document, so the addresses in it are destinations a stranger chose:
+
+- a **peer address** that is not `https`, carries credentials, a query or a fragment, or names `localhost`, a
+  single-label host, any IPv6 literal, or an IPv4 literal in a range `safeFetch` refuses is never contacted, and is a
+  `warn` whose sentence does not quote it (decide.ts `peerAddressProblem`);
+- an absolute **grounding ref** in the lock, and the **network file a peer's own manifest names** (its `hocon` can be an
+  absolute address on any host), are held to the same rule less the query check (decide.ts `destinationProblem`): never
+  fetched, a `warn` ("was not fetched, because ...", "A peer's network file was not contacted: ..."), and a refused
+  network file is not listed as an unreachable peer.
+
+The IPv4 ranges are not a second list: `peerAddressProblem` and `destinationProblem` call `isBlockedAddress` from
+`src/net/address.ts`, the table `safeFetch` enforces (the page's fetcher allows `http` to `localhost`, so a lock could
+otherwise aim the visitor's browser at their own machine).
 
 ## `safeFetch` (`src/net/safe-fetch.ts`)
 
@@ -217,10 +248,12 @@ Every fetch of an address we do not own goes through this one function. Its rule
 1. **https only.** `http` and loopback addresses are accepted only behind the `allowLocal` option, which defaults to false:
    the tests' loopback server and `plumbline gate --allow-local` set it. Private ranges stay refused even then, and so
    does `http` to a public address.
-2. **Resolve, then check every answer**, with `node:dns`, before connecting. Refused: `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`,
+2. **Resolve, then check every answer**, with `node:dns`, before connecting. The table is `src/net/address.ts` (no Node
+   import; the Desk's drift reader holds IP literals to the same one). Refused: `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`,
    `169.254/16` (cloud metadata), `172.16/12`, `192.0.0/24`, `192.0.2/24`, `192.88.99/24` (deprecated 6to4 relay anycast),
    `192.168/16`, `198.18/15`, `198.51.100/24`, `203.0.113/24`, multicast and reserved `224/3`; in v6 `::`, `::1`, `fc00::/7`,
-   `fe80::/10`, `fec0::/10`, `ff00::/8`, `2001:db8::/32`, Teredo, the v4-compatible `::a.b.c.d`, the v4-translated
+   `fe80::/10`, `fec0::/10`, `ff00::/8`, the documentation prefixes `2001:db8::/32` and `3fff::/20` (RFC 9637), the
+   benchmarking prefix `2001:2::/48` (RFC 5180), Teredo, the v4-compatible `::a.b.c.d`, the v4-translated
    `::ffff:0:a.b.c.d` and everything else in the IETF-reserved `::/8`, and the v6 forms that carry a v4 address judged by the
    address inside (`::ffff:a.b.c.d`, `64:ff9b::/96`, `2002::/16`, and ISATAP interface identifiers `::0:5efe:a.b.c.d` and
    `::200:5efe:a.b.c.d` under any prefix). One bad answer among several refuses the host. An unparseable address is refused.
@@ -230,6 +263,8 @@ Every fetch of an address we do not own goes through this one function. Its rule
    cognizant-ai-labs/agentic-web is `examples/sites/pizza_restaurant_website_assistant_static/...network.json` at 41,156 bytes (the next
    is 9,370). 41,156 x 10 = 411,560, rounded up to 512 KiB. A caller may lower the ceiling, never raise it. No `accept-encoding` is sent, so no decompression bomb.
 6. **One absolute timeout** (default 10 s) covers resolution, connect, redirects and the whole body; a body that drips forever trips it.
+   A redirect's body is never read: its connection is closed as soon as the `Location` is known, so a redirecting host whose
+   body never ends cannot hold the socket (and the CLI process) open after `safeFetch` returns.
 
 Failures carry their own code, and one table words them for the gate, the watch and the Desk (`describeFetchError` in
 `src/net/fetch-types.ts`, which has no Node import, so the browser build carries it): `blocked-address`, `insecure-scheme`, `dns-failed`, `too-many-redirects`, `body-too-large`,
@@ -239,7 +274,7 @@ Failures carry their own code, and one table words them for the gate, the watch 
 
 - **A gate `pass` is not a security review.** The validator port checks structure, not what the instructions say. Atlas checks public files against a spec profile ("not that a site's agents are safe to trust"). A Customs receipt is a stamp on one inspection on one date; the live network was not rechecked.
 - **`unavailable` is not `pass`.** A gate where every adapter was `unavailable` exits 1 under either `--fail-on`. Fail the build on any `unavailable` (`--fail-on unavailable`) if a partly checked site must not ship.
-- **A clean watch means the locked things match the lock, and the site names nothing the lock misses.** The coverage check sees a new root agent file, a new manifest-named network and a new peer. It does not see a runtime file added next to the locked ones, or a new file of the kind only `--source` locks; the added refs `--relock` lists show those.
+- **A clean watch means the locked things match the lock, and the site names nothing the lock misses.** The coverage check sees a new root agent file, a new manifest-named network and a new peer. The CLI's watch also sees a file added to the locked runtime folder (the Desk does not: a browser cannot list a folder). It does not see a new file of the kind only `--source` locks; the added refs `--relock` lists show those.
 - **It does not verify signatures.** The peer check compares signer kids; the signature itself is verified by the verifier in `src/core` against a trust store.
 - **It sees only public files and only what the fetch could reach.** A peer that serves different bytes to different visitors, or only to browsers, is not seen. A peer on a private address is never contacted.
 - **The upstream check is informational.** "Upstream is ahead" means the newest commit differs, not that the vendored copy is vulnerable; the vendored runtime also carries local edits listed in its README.
