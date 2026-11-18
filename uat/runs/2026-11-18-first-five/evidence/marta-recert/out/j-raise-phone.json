@@ -1,0 +1,92 @@
+{
+  "ok": false,
+  "exit": 2,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert",
+  "checks": [
+    {
+      "label": "rooms.html finding says a stated fact is no longer on it",
+      "pass": true,
+      "pattern": "/\\d+ of \\d+ facts[^.]*no longer on it[^.]*/",
+      "match": "1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact",
+      "context": "rce changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact. locked 87b52e6f251d7602dbb2cf220d211c"
+    },
+    {
+      "label": "it says the network still states it, and the kind",
+      "pass": true,
+      "pattern": "/network still states it \\(\\d+ prices?\\)/",
+      "match": "network still states it (1 price)",
+      "context": "ork states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an ol"
+    },
+    {
+      "label": "the reading names the price with a currency (95 or 89)",
+      "pass": false,
+      "pattern": "/€\\s?(89|95)\\b|\\b(89|95)\\s?€|EUR\\s?(89|95)/",
+      "match": null
+    },
+    {
+      "label": "no 64-character hash in the default view",
+      "pass": false,
+      "pattern": "/^(?![\\s\\S]*<HEX64>)[\\s\\S]*$/",
+      "match": null
+    },
+    {
+      "label": "a next step is named for the reader (forward / ask / re-lock)",
+      "pass": false,
+      "pattern": "/\\b(forward|send this|ask (your|the) (developer|web)|re-?lock|whoever maintains)\\b/i",
+      "match": null
+    },
+    {
+      "label": "no sideways scroll",
+      "pass": true,
+      "extra": {
+        "sw": [
+          390,
+          390
+        ]
+      }
+    }
+  ],
+  "snaps": [
+    {
+      "name": "rc-10-raise-drift-phone",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-10-raise-drift-phone.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-10-raise-drift-phone.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-10-raise-drift-phone.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "driftStatus": "Drift read: 2 findings, the worst Warning. Lock signed by a key you have not trusted.",
+    "driftResult": "Lock read from http://127.0.0.1:4100/plumbline.lock.json\n\nSigned lock, by a key you have not trusted: until you trust that key, the host could rewrite it.\n\nGROUNDING (1)\n!\nWARNING\nrooms.html\n\nA grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.\n\nlocked 87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee · now fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\n\nPEERS (1)\n!\nWARNING\nhttp://127.0.0.1:4101/fellside_bikes\n\nA peer in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked.\n\nNot checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub).",
+    "hexCount": [
+      "87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee",
+      "fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12"
+    ],
+    "scrollWidth": [
+      390,
+      390
+    ]
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "pageErrors": []
+}

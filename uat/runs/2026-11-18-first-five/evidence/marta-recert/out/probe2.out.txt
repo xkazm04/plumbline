@@ -1,0 +1,58 @@
+money  anchored; change counted                           '€ 89' (space)
+       network ["money:eur 89"] page ["money:eur 89"] after ["money:eur 95"]
+money  anchored; change counted                           '89€'
+       network ["money:eur 89"] page ["money:eur 89"] after ["money:eur 95"]
+money  anchored; change counted                           '89,- €'
+       network ["money:eur 89"] page ["money:eur 89"] after ["money:eur 95"]
+money  NOT ANCHORED (init names it as not on the page)    'EUR89'
+       network ["money:eur 89"] page [] after []
+money  NOT ANCHORED (init names it as not on the page)    'Euro 89'
+       network ["money:eur 89"] page [] after []
+money  anchored; change counted                           '89 Euro'
+       network ["money:eur 89"] page ["money:eur 89"] after ["money:eur 95"]
+money  anchored; change counted                           '<sup>€</sup>89'
+       network ["money:eur 89"] page ["money:eur 89"] after ["money:eur 95"]
+money  anchored; change counted                           '€89pp'
+       network ["money:eur 89"] page ["money:eur 89"] after ["money:eur 95"]
+money  anchored; change counted                           '€89–€109 by season'
+       network ["money:eur 89"] page ["money:eur 109","money:eur 89"] after ["money:eur 109","money:eur 95"]
+money  anchored; change counted                           'from €89 to €109'
+       network ["money:eur 89"] page ["money:eur 109","money:eur 89"] after ["money:eur 109","money:eur 95"]
+money  anchored; change counted                           '€&nbsp;89'
+       network ["money:eur 89"] page ["money:eur 89"] after ["money:eur 95"]
+money  anchored; change counted                           '&#8364;89'
+       network ["money:eur 89"] page ["money:eur 89"] after ["money:eur 95"]
+money  NOT ANCHORED (init names it as not on the page)    'eighty-nine euros'
+       network ["money:eur 89"] page [] after []
+money  anchored; change NOT counted (false all-clear)     '<del>€89</del> €79' (offer)
+       network ["money:eur 89"] page ["money:eur 89"] after ["money:eur 79","money:eur 89"]
+money  anchored; change counted                           booking form <option>Double – €89</option>
+       network ["money:eur 89"] page ["money:eur 89"] after ["money:eur 95"]
+money  NOT ANCHORED (init names it as not on the page)    price only in JSON-LD
+       network ["money:eur 89"] page [] after []
+money  NOT ANCHORED (init names it as not on the page)    price only in an image alt
+       network ["money:eur 89"] page [] after []
+time   NOT ANCHORED (init names it as not on the page)    '3 o'clock'
+       network ["time:15:00"] page [] after []
+time   NOT ANCHORED (init names it as not on the page)    'from 3' (no unit)
+       network ["time:15:00"] page [] after []
+time   NOT ANCHORED (init names it as not on the page)    '3-6pm' range
+       network ["time:15:00"] page ["time:18:00"] after ["time:18:00"]
+time   NOT ANCHORED (init names it as not on the page)    '15 Uhr'
+       network ["time:15:00"] page [] after []
+time   NOT ANCHORED (init names it as not on the page)    'noon' (network 12:00)
+       network ["time:12:00"] page [] after ["time:13:00"]
+time   NOT ANCHORED (init names it as not on the page)    '15.00' bare in a table cell
+       network ["time:15:00"] page [] after []
+time   NOT ANCHORED (init names it as not on the page)    '1500 hrs'
+       network ["time:15:00"] page [] after []
+phone  NOT ANCHORED (init names it as not on the page)    '01632 96 04 18'
+       network ["phone:632960418"] page [] after []
+phone  anchored; change counted                           '+44 (0) 1632 960 418'
+       network ["phone:632960418"] page ["phone:632960418"] after ["phone:632960419"]
+phone  anchored; change counted                           '01632-960-418'
+       network ["phone:632960418"] page ["phone:632960418"] after ["phone:632960419"]
+phone  anchored; change counted                           '(01632) 960418'
+       network ["phone:632960418"] page ["phone:632960418"] after ["phone:632960419"]
+phone  anchored; change counted                           'Tel 01632960418'
+       network ["phone:632960418"] page ["phone:632960418"] after ["phone:632960419"]

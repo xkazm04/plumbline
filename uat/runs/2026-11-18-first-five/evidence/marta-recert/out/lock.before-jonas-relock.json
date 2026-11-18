@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "runtime": {
+    "source": "nsdeploy",
+    "commit": "53a787c",
+    "files": {
+      "runtime/NOTICE": "c6f812b262323c14031810fcd1bca0fd5e937c51fbc7cb3addb80e7d38d1ba9a",
+      "runtime/README.md": "936244095cbe2c7681a4ae3eca8a5696393e193df7a11de81556bbcba9d88cc4",
+      "runtime/engine.js": "b23e9e71c4f04db7ebd92c95456774decf4328c26384b1aa69d4219c446a8a39",
+      "runtime/ui.js": "7f6d0dad1801ac25d384f20c790a515abca222d56f7138e5b9f15626800ea1f6"
+    },
+    "via": {
+      "repo": "cognizant-ai-labs/agentic-web",
+      "path": "skills/agentify-website/runtime",
+      "commit": "7ee54a3"
+    }
+  },
+  "grounding": {
+    "sources": [
+      {
+        "ref": "agent-manifest.json",
+        "sha256": "342cf34d42a78544fc71841c266c2a695a4858788a68d99dd5deb936328b4070"
+      },
+      {
+        "ref": "larch_house.network.json",
+        "sha256": "af65d05e709de774cfc0dd8dd44e154f45d7e23092a03f9c53f0941634c1e489"
+      },
+      {
+        "ref": "rooms.html",
+        "sha256": "87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee",
+        "anchors": [
+          "4a71fcee5733d0f032d44b20789bbb55343bae3898e676e034684e8020275ea1",
+          "76a8f83a792de1c9a35bf8f38be7dacabfc73121ccaf789998431712c048ea3b",
+          "8d5e6d1567b46e3c2e8bed0acdf221bacabeec4f5f2ad71d8b0be7f3db712420",
+          "da5b82c03a40aac61311815992dc000ccc933a79c90f1abd9cd2de39529648d6",
+          "dbea5450986372450158cc3f2ece25cd7fb6538e12067a06fa4fe023d1482742",
+          "e43bf5a0f5303f197561f0349deabd14f55fa5b28671de8a0442505de9985420",
+          "e4a496d5d569f26814189a390711515e1affa9d849315a52775774bbfe93f0ef"
+        ]
+      }
+    ],
+    "builtAt": "2026-11-18T13:57:31.142Z"
+  },
+  "peers": {
+    "http://127.0.0.1:4101/fellside_bikes": {
+      "sha256": "568bec710a4a741413cb7e5103737556d9434b083366e14c7c5cc63c6653bb46",
+      "links": "absent",
+      "outline": {
+        "agents": {
+          "a7a3991608f88ab51f0043d7de00a0bef39bd4117c3d53b7798b695f49b66569": "38cc3e01d58899a8f992887fd4924a55ca2a752d9d82b5451985d48271e5af9c",
+          "aa9a1a2603eae9838fbbcd364c85075b69bf34d912ea8b2ae99cae409057f4d8": "2662abedf033ce3e2dbd273bbe0b6b3abca869f128ba727d7e06df7dbc6ef6e6"
+        },
+        "hosts": [],
+        "front": "a7a3991608f88ab51f0043d7de00a0bef39bd4117c3d53b7798b695f49b66569"
+      },
+      "checkedAt": "2026-11-18T13:57:31.142Z"
+    }
+  }
+}

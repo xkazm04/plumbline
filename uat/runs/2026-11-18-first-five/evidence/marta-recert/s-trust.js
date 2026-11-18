@@ -1,0 +1,18 @@
+await goto(BASE_URL + '#/drift?target=http://127.0.0.1:4100/');
+await page.waitForFunction(() => document.querySelector('main') !== null);
+await waitUntil(() => document.querySelectorAll('#portlist-items li').length >= 5 || !document.querySelector('#drift')?.hidden, { label: 'a view rendered' });
+const dl = await page.evaluate(() => ({ hash: location.hash, driftVisible: !document.querySelector('#drift')?.hidden, value: document.querySelector('#drift-target')?.value }));
+note('deepLinkFresh', dl);
+await snap('rc-12-deeplink-fresh');
+expect('fresh deep link opens drift with the address filled in', dl.driftVisible && dl.value === 'http://127.0.0.1:4100/', dl);
+await goto(BASE_URL + '#/verify');
+await waitFor('#verify-target');
+await fill('#verify-target', 'http://127.0.0.1:4100/');
+await click('#verify-run');
+await waitUntil(() => /finished|Verif/i.test(document.querySelector('#verify-status')?.textContent || ''), { label: 'verify settles', timeout: 60000 });
+await waitUntil(() => (document.querySelector('#verify-result')?.textContent || '').length > 20, { label: 'verify result', timeout: 30000 });
+await snap('rc-13-raise-verify-before-trust');
+note('verifyStatusBefore', await page.locator('#verify-status').innerText());
+note('verifyResultBefore', (await page.locator('#verify-result').innerText()).slice(0, 1500));
+const p = await probe();
+note('probeVerify', p.filter(x => /trust|compared|key/i.test((x.name||'') + (x.id||''))));

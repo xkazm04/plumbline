@@ -1,0 +1,63 @@
+{
+  "ok": false,
+  "exit": 2,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert",
+  "checks": [
+    {
+      "label": "names the header or CORS to ask the host for",
+      "pass": false,
+      "pattern": "/Access-Control-Allow-Origin|\\bCORS\\b|ask your host/i",
+      "match": null
+    },
+    {
+      "label": "not green: could not be checked",
+      "pass": true,
+      "pattern": "/could not be (checked|fetched)[^.]*/",
+      "match": "could not be checked: it could not be fetched (the browser could not read it)",
+      "context": " WARNING rooms.html A grounding source could not be checked: it could not be fetched (the browser could not read it). locked 87b52e6f251d7602dbb2cf220d211c"
+    }
+  ],
+  "snaps": [
+    {
+      "name": "rc-17-raise-nocors-drift",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-17-raise-nocors-drift.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-17-raise-nocors-drift.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-17-raise-nocors-drift.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "status": "Drift read: 2 findings, the worst Warning. Lock signed by a key you have not trusted.",
+    "result": "Lock read from http://127.0.0.1:4100/plumbline.lock.json\n\nSigned lock, by a key you have not trusted: until you trust that key, the host could rewrite it.\n\nGROUNDING (1)\n!\nWARNING\nrooms.html\n\nA grounding source could not be checked: it could not be fetched (the browser could not read it).\n\nlocked 87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee\n\nPEERS (1)\n!\nWARNING\nhttp://127.0.0.1:4101/fellside_bikes\n\nA peer in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked.\n\nNot checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub)."
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Access to fetch at 'http://127.0.0.1:4100/rooms.html' from origin 'http://127.0.0.1:4199' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_FAILED"
+    }
+  ],
+  "pageErrors": []
+}

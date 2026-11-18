@@ -1,0 +1,117 @@
+{
+  "label": "v2-fix-temp",
+  "harness": true,
+  "issues": "true",
+  "relockPr": "true",
+  "repoName": "larchhouse/larchhouse-site",
+  "root": "site",
+  "failedStep": null,
+  "steps": [
+    {
+      "id": "inputs",
+      "name": "Check the inputs",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {}
+    },
+    {
+      "id": "run",
+      "name": "Run plumbline",
+      "code": 0,
+      "stdoutTail": "om different facts: review the change, then re-lock (watch --relock).\"\n    },\n    {\n      \"kind\": \"grounding\",\n      \"severity\": \"warn\",\n      \"ref\": \"rooms.html\",\n      \"expected\": \"87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee\",\n      \"actual\": \"fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\",\n      \"summary\": \"A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network no longer states it either, so no stale fact is left: review the change, then re-lock (watch --relock).\"\n    },\n    {\n      \"kind\": \"runtime\",\n      \"severity\": \"info\",\n      \"ref\": \"cognizant-ai-labs/agentic-web\",\n      \"summary\": \"Could not check upstream: GitHub rate-limited the request until epoch 1795013413.\"\n    },\n    {\n      \"kind\": \"peer\",\n      \"severity\": \"warn\",\n      \"ref\": \"http://127.0.0.1:4101/fellside_bikes\",\n      \"summary\": \"A peer could not be captured when the lock was written (pending since 2026-11-18), so it is not watched; it answers now: review it, then run watch --relock to capture it.\"\n    },\n    {\n      \"kind\": \"grounding\",\n      \"severity\": \"block\",\n      \"ref\": \"plumbline.signature.json\",\n      \"summary\": \"The site's signature no longer covers its files: 1 of 3 signed files differs from the signed version or is missing (larch_house.network.json), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign).\"\n    }\n  ]\n}\n",
+      "stderrTail": "local-cli: TEST HARNESS (uat/driver/local-cli.mjs): the built Plumbline modules with allowLocal; the product's CLI cannot do this run against a loopback site\n",
+      "outputs": {
+        "report": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v2-fix-temp/plumbline-watch.json",
+        "findings": "4",
+        "issue-body": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v2-fix-temp/plumbline-issue.md"
+      }
+    },
+    {
+      "id": "issue-plan",
+      "name": "Decide on the drift issue",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {
+        "action": "edit",
+        "number": "1",
+        "comment": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v2-fix-temp/plumbline-issue-comment.md"
+      }
+    },
+    {
+      "id": "issue-do",
+      "name": "Open, edit or close the drift issue",
+      "code": 0,
+      "stdoutTail": "Updated issue #1\n",
+      "stderrTail": "",
+      "outputs": {}
+    },
+    {
+      "id": "pr-plan",
+      "name": "Decide on the pull request",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "Switched to a new branch 'plumbline/relock'\nlocal-cli: TEST HARNESS (uat/driver/local-cli.mjs): the built Plumbline modules with allowLocal; the product's CLI cannot do this run against a loopback site\n",
+      "outputs": {
+        "action": "edit",
+        "number": "2",
+        "draft": "true",
+        "title": "Plumbline: accept the drift (relock)",
+        "branch": "plumbline/relock",
+        "body": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v2-fix-temp/plumbline-pr/body.md",
+        "comment": ""
+      }
+    },
+    {
+      "id": "pr-do",
+      "name": "Open, update or close the pull request",
+      "code": 0,
+      "stdoutTail": "Updated pull request #2\n",
+      "stderrTail": "",
+      "outputs": {}
+    }
+  ],
+  "ghCallsThisRun": [
+    {
+      "run": "v2-fix-temp",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "issue edit 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v2-fix-temp/plumbline-issue.md",
+      "what": "issue edit",
+      "notifies": false,
+      "number": 1
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "issue comment 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v2-fix-temp/plumbline-issue-comment.md",
+      "what": "issue comment",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "pr edit 2 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v2-fix-temp/plumbline-pr/body.md",
+      "what": "pr edit",
+      "notifies": false,
+      "number": 2
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "pr ready 2 --undo",
+      "what": "pr ready",
+      "notifies": false,
+      "number": 2
+    }
+  ]
+}

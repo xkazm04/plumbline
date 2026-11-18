@@ -1,0 +1,63 @@
+
+=== M1-twin-same-price: a twin room at the same price as the double; Marta raises the double only
+  init> init: wrote plumbline.lock.json (3 grounding sources, 0 runtime files, 0 peers, 0 pending)
+  init> facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+  init> facts rooms.html: watches 7 (3 prices, 2 times, 1 phone number, 1 e-mail address); not on it: 2 (2 times: 07:00, 22:00)
+  init> facts not watched on any page: 2 (2 times: 07:00, 22:00); a change to them is not seen until a --source page states them
+  watch[1]> warn  grounding rooms.html: A grounding source changed since the lock was written; all 7 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.
+
+=== M2-winter-offer-strikethrough: a winter offer shown the usual way: the old price struck through, the offer beside it
+  init> init: wrote plumbline.lock.json (3 grounding sources, 0 runtime files, 0 peers, 0 pending)
+  init> facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+  init> facts rooms.html: watches 7 (3 prices, 2 times, 1 phone number, 1 e-mail address); not on it: 2 (2 times: 07:00, 22:00)
+  init> facts not watched on any page: 2 (2 times: 07:00, 22:00); a change to them is not seen until a --source page states them
+  watch[1]> warn  grounding rooms.html: A grounding source changed since the lock was written; all 7 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.
+
+=== M3-format-only-15-to-3pm: control: check-in rewritten 15:00 -> 3pm, the same fact (must NOT read as a stale fact)
+  init> init: wrote plumbline.lock.json (3 grounding sources, 0 runtime files, 0 peers, 0 pending)
+  init> facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+  init> facts rooms.html: watches 7 (3 prices, 2 times, 1 phone number, 1 e-mail address); not on it: 2 (2 times: 07:00, 22:00)
+  init> facts not watched on any page: 2 (2 times: 07:00, 22:00); a change to them is not seen until a --source page states them
+  watch[1]> warn  grounding rooms.html: A grounding source changed since the lock was written; all 7 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.
+
+=== M4-intro-from-price: the intro also says 'doubles from €89'; Marta changes the table only
+  init> init: wrote plumbline.lock.json (3 grounding sources, 0 runtime files, 0 peers, 0 pending)
+  init> facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+  init> facts rooms.html: watches 7 (3 prices, 2 times, 1 phone number, 1 e-mail address); not on it: 2 (2 times: 07:00, 22:00)
+  init> facts not watched on any page: 2 (2 times: 07:00, 22:00); a change to them is not seen until a --source page states them
+  watch[1]> warn  grounding rooms.html: A grounding source changed since the lock was written; all 7 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.
+
+=== M5-eur-glued: the editor writes 'EUR89' (no space)
+  init> init: wrote plumbline.lock.json (3 grounding sources, 0 runtime files, 0 peers, 0 pending)
+  init> facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+  init> facts rooms.html: watches 6 (2 prices, 2 times, 1 phone number, 1 e-mail address); not on it: 3 (1 price, 2 times: EUR 89, 07:00, 22:00)
+  init> facts not watched on any page: 3 (1 price, 2 times: EUR 89, 07:00, 22:00); a change to them is not seen until a --source page states them
+  watch[1]> warn  grounding rooms.html: A grounding source changed since the lock was written; all 6 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.
+
+=== M6-price-in-words: the page writes the double in words: 'eighty-nine euros'
+  init> init: wrote plumbline.lock.json (3 grounding sources, 0 runtime files, 0 peers, 0 pending)
+  init> facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+  init> facts rooms.html: watches 6 (2 prices, 2 times, 1 phone number, 1 e-mail address); not on it: 3 (1 price, 2 times: EUR 89, 07:00, 22:00)
+  init> facts not watched on any page: 3 (1 price, 2 times: EUR 89, 07:00, 22:00); a change to them is not seen until a --source page states them
+  watch[1]> warn  grounding rooms.html: A grounding source changed since the lock was written; all 6 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.
+
+=== M7-checkin-oclock: check-in written '3 o'clock'; then changed to '4 o'clock'
+  init> init: wrote plumbline.lock.json (3 grounding sources, 0 runtime files, 0 peers, 0 pending)
+  init> facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+  init> facts rooms.html: watches 6 (3 prices, 1 time, 1 phone number, 1 e-mail address); not on it: 3 (3 times: 07:00, 15:00, 22:00)
+  init> facts not watched on any page: 3 (3 times: 07:00, 15:00, 22:00); a change to them is not seen until a --source page states them
+  watch[1]> warn  grounding rooms.html: A grounding source changed since the lock was written; all 6 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.
+
+=== M8-phone-pairs: the phone written in pairs '01632 96 04 18'; then a digit changes
+  init> init: wrote plumbline.lock.json (3 grounding sources, 0 runtime files, 0 peers, 0 pending)
+  init> facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+  init> facts rooms.html: watches 6 (3 prices, 2 times, 1 e-mail address); not on it: 3 (2 times, 1 phone number: the phone number ending 960418, 07:00, 22:00)
+  init> facts not watched on any page: 3 (2 times, 1 phone number: the phone number ending 960418, 07:00, 22:00); a change to them is not seen until a --source page states them
+  watch[1]> warn  grounding rooms.html: A grounding source changed since the lock was written; all 6 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.
+
+=== M9-price-in-js: prices filled in by a script from a JSON file (the table cells are empty in the HTML)
+  init> init: wrote plumbline.lock.json (3 grounding sources, 0 runtime files, 0 peers, 0 pending)
+  init> facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+  init> facts rooms.html: watches 6 (2 prices, 2 times, 1 phone number, 1 e-mail address); not on it: 3 (1 price, 2 times: EUR 89, 07:00, 22:00)
+  init> facts not watched on any page: 3 (1 price, 2 times: EUR 89, 07:00, 22:00); a change to them is not seen until a --source page states them
+  watch[1]> warn  grounding rooms.html: A grounding source changed since the lock was written; all 6 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.

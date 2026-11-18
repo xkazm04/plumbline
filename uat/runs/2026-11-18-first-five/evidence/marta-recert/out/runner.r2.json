@@ -1,0 +1,73 @@
+{
+  "label": "r2-fix",
+  "harness": true,
+  "issues": "true",
+  "relockPr": "false",
+  "repoName": "larchhouse/larchhouse-site",
+  "root": "site",
+  "failedStep": null,
+  "steps": [
+    {
+      "id": "inputs",
+      "name": "Check the inputs",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {}
+    },
+    {
+      "id": "run",
+      "name": "Run plumbline",
+      "code": 0,
+      "stdoutTail": " \"actual\": \"09c35b8d4813be73049252ea49425f6b0aa595ebc411c13f048a592eeab3d43c\",\n      \"summary\": \"A grounding source changed since the lock was written; the agent now answers from different facts: review the change, then re-lock (watch --relock).\"\n    },\n    {\n      \"kind\": \"grounding\",\n      \"severity\": \"warn\",\n      \"ref\": \"rooms.html\",\n      \"expected\": \"87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee\",\n      \"actual\": \"fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\",\n      \"summary\": \"A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network no longer states it either, so no stale fact is left: review the change, then re-lock (watch --relock).\"\n    },\n    {\n      \"kind\": \"runtime\",\n      \"severity\": \"info\",\n      \"ref\": \"cognizant-ai-labs/agentic-web\",\n      \"expected\": \"7ee54a3\",\n      \"actual\": \"997c4fb\",\n      \"summary\": \"Upstream is ahead: the runtime folder in cognizant-ai-labs/agentic-web changed after the copy (copied at 7ee54a3; the folder's newest commit is 997c4fb).\"\n    },\n    {\n      \"kind\": \"grounding\",\n      \"severity\": \"block\",\n      \"ref\": \"plumbline.signature.json\",\n      \"summary\": \"The site's signature no longer covers its files: 1 of 3 signed files differs from the signed version or is missing (larch_house.network.json), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign).\"\n    }\n  ]\n}\n",
+      "stderrTail": "local-cli: TEST HARNESS (uat/driver/local-cli.mjs): the built Plumbline modules with allowLocal; the product's CLI cannot do this run against a loopback site\n",
+      "outputs": {
+        "report": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-SGcTDe/_uat/tmp/r2-fix/plumbline-watch.json",
+        "findings": "3",
+        "issue-body": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-SGcTDe/_uat/tmp/r2-fix/plumbline-issue.md"
+      }
+    },
+    {
+      "id": "issue-plan",
+      "name": "Decide on the drift issue",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {
+        "action": "edit",
+        "number": "1",
+        "comment": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-SGcTDe/_uat/tmp/r2-fix/plumbline-issue-comment.md"
+      }
+    },
+    {
+      "id": "issue-do",
+      "name": "Open, edit or close the drift issue",
+      "code": 0,
+      "stdoutTail": "Updated issue #1\n",
+      "stderrTail": "",
+      "outputs": {}
+    }
+  ],
+  "ghCallsThisRun": [
+    {
+      "run": "r2-fix",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "r2-fix",
+      "call": "issue edit 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-SGcTDe/_uat/tmp/r2-fix/plumbline-issue.md",
+      "what": "issue edit",
+      "notifies": false,
+      "number": 1
+    },
+    {
+      "run": "r2-fix",
+      "call": "issue comment 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-SGcTDe/_uat/tmp/r2-fix/plumbline-issue-comment.md",
+      "what": "issue comment",
+      "notifies": true,
+      "number": 1
+    }
+  ]
+}

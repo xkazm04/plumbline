@@ -1,0 +1,11 @@
+await goto(BASE_URL + '#/drift');
+await waitFor('#drift-target');
+await fill('#drift-target', 'http://127.0.0.1:4100/');
+await click('#drift-run');
+await waitUntil(() => /Drift read|could not/i.test(document.querySelector('#drift-status')?.textContent || ''), { label: 'drift settles', timeout: 60000 });
+await waitUntil(() => (document.querySelector('#drift-result')?.textContent || '').length > 20, { label: 'result', timeout: 30000 });
+await snap('rc-30-cosmetic-drift');
+const res = await page.locator('#drift-result').innerText();
+note('status', await page.locator('#drift-status').innerText()); note('result', res);
+expectMatch('cosmetic reads all facts still on it', res, /all \d+ facts[^.]*still on it[^.]*/);
+expectMatch('cosmetic must not say old fact (negative)', res, /^(?![\s\S]*old fact)[\s\S]*$/);

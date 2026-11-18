@@ -1,0 +1,87 @@
+{
+  "ok": false,
+  "exit": 2,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert",
+  "checks": [
+    {
+      "label": "status line follows the new verdict (not Unverifiable)",
+      "pass": false,
+      "pattern": "/^(?![\\s\\S]*Unverifiable)[\\s\\S]*\\bVerified\\b/i",
+      "match": null
+    },
+    {
+      "label": "assistant asks for a key (record)",
+      "pass": true,
+      "pattern": "/needs your AI provider key|API key required/",
+      "match": "needs your AI provider key",
+      "context": "be undone before it happens. Assistant needs your AI provider key. Add it in AI model settings below. Re"
+    }
+  ],
+  "snaps": [
+    {
+      "name": "rc-14-raise-verify-after-trust",
+      "url": "http://127.0.0.1:4199/#/verify",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-14-raise-verify-after-trust.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-14-raise-verify-after-trust.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-14-raise-verify-after-trust.txt"
+    },
+    {
+      "name": "rc-15-raise-drift-after-trust",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-15-raise-drift-after-trust.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-15-raise-drift-after-trust.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-15-raise-drift-after-trust.txt"
+    },
+    {
+      "name": "rc-16-assistant",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-16-assistant.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-16-assistant.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-16-assistant.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "verifyStatusAfter": "Verify finished: Unverifiable.",
+    "verifyResultAfter": "✓\nVERIFIED\nhttp://127.0.0.1:4100/\n\nThese files came from the holder of a key you already trust for this origin, and they have not changed since they were signed. It does not mean the site is safe, honest or correct.\n\nThe files match a signature made by a key this verifier already trusts for this origin.\n\nSigner key id\n768793a9a535e8df\nSigned for origin\nhttp://127.0.0.1:4100\nFiles fetched from\nhttp://127.0.0.1:4100\nSignature valid until\n2027-02-16\nSigned files\nagent-manifest.json, larch_house.network.json, plumbline.lock.json\n\nTrusted. The site was verified again under your trust store: the verdict above is the new one.",
+    "driftStatusAfterTrust": "Drift read: 2 findings, the worst Warning. Signed lock.",
+    "lockLabelAfterTrust": "Lock read from http://127.0.0.1:4100/plumbline.lock.json /  / Signed lock: covered by a signature that verified under a publisher you trust. / "
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "pageErrors": []
+}

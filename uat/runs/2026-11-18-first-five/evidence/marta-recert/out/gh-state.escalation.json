@@ -1,0 +1,73 @@
+{
+  "next": 2,
+  "issues": [
+    {
+      "number": 1,
+      "title": "Plumbline drift",
+      "body": "Plumbline watch found drift since `plumbline.lock.json` was written.\n\n| Severity | Kind | Ref | What |\n| --- | --- | --- | --- |\n| warn | grounding | rooms.html | A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact. |\n\n`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. After reviewing a change you accept, in a clone of xkazm04/plumbline at the commit this workflow pins, run `node dist/cli/index.js watch --root <path to your site> --relock`, sign the site again (the lock is a signed file) and commit both. The next clean run closes this issue.\n\n\nA clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.\n\n<!-- plumbline:digest [[\"warn\",\"grounding\",\"rooms.html\",\"2f335822784f7c0e45077a224f79d89d0541f104c0b6a65f3da9466800e424b4\"]] -->\n",
+      "state": "open",
+      "comments": [
+        {
+          "run": "c2-raise-on-open",
+          "body": "Plumbline watch's findings changed as of https://github.com/larchhouse/larchhouse-site/actions/runs/c2-raise-on-open. The table in the issue body is up to date.\n\nNew:\n\n- **warn** grounding `rooms.html`: A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.\n"
+        }
+      ],
+      "history": [
+        {
+          "run": "c1-cosmetic",
+          "did": "created"
+        },
+        {
+          "run": "c2-raise-on-open",
+          "did": "body edited"
+        },
+        {
+          "run": "c2-raise-on-open",
+          "did": "commented"
+        }
+      ]
+    }
+  ],
+  "prs": [],
+  "calls": [
+    {
+      "run": "c0-setup",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "c1-cosmetic",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "c1-cosmetic",
+      "call": "issue create --title Plumbline drift --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-PCqi0D/_uat/tmp/c1-cosmetic/plumbline-issue.md",
+      "what": "issue create",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "c2-raise-on-open",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "c2-raise-on-open",
+      "call": "issue edit 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-PCqi0D/_uat/tmp/c2-raise-on-open/plumbline-issue.md",
+      "what": "issue edit",
+      "notifies": false,
+      "number": 1
+    },
+    {
+      "run": "c2-raise-on-open",
+      "call": "issue comment 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-PCqi0D/_uat/tmp/c2-raise-on-open/plumbline-issue-comment.md",
+      "what": "issue comment",
+      "notifies": true,
+      "number": 1
+    }
+  ]
+}

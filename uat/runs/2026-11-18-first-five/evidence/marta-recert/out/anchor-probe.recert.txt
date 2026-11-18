@@ -1,0 +1,72 @@
+money   anchored; the change is counted                fixture table: Room | Sleeps | Price, '€89 per night'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                table with the price column first: Room | Price | Sleeps
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                prose: 'sleeps 2: €89'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                prose without a number before: 'Double room €89'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                table: Room no. | Price ('Room 4 | €89')
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                table: Season | Price ('Summer 2027 | €89')
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                table: Nights | Price ('7 nights | €560')
+        network ["money:eur 560"]  page ["money:eur 560"]
+money   anchored; the change is counted                table: Price | Size m² ('€89 | 120')
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                suffix symbol: '89 €'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                suffix symbol after 'Sleeps' cell: '2 | 89 €'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                decimals: '€89.00'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                continental: '89,00 €'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                ISO before: 'EUR 89'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                word: '89 euros'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                both in words: network '89 euros', page '89 euros'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                'from €89' with '/night'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                entity: '&euro;89'
+        network ["money:eur 89"]  page ["money:eur 89"]
+money   anchored; the change is counted                pounds table with Sleeps: '2 | £89'
+        network ["money:gbp 89"]  page ["money:gbp 89"]
+money   anchored; the change is counted                dollars, adults column: '2 adults | $89'
+        network ["money:usd 89"]  page ["money:usd 89"]
+money   anchored; the change is counted                split markup: '<span>€</span><span>89</span>'
+        network ["money:eur 89"]  page ["money:eur 89"]
+time    anchored; the change is counted                24h '15:00'
+        network ["time:15:00"]  page ["time:15:00"]
+time    anchored; the change is counted                12h '3pm'
+        network ["time:15:00"]  page ["time:15:00"]
+time    anchored; the change is counted                12h '3 p.m.'
+        network ["time:15:00"]  page ["time:15:00"]
+time    anchored; the change is counted                dot '15.00' (UK/EU)
+        network ["time:15:00"]  page ["time:15:00"]
+time    anchored; the change is counted                dot 12h '10.30am'
+        network ["time:10:30"]  page ["time:10:30"]
+time    anchored; the change is counted                range '15:00–20:00'
+        network ["time:15:00"]  page ["time:15:00","time:20:00"]
+time    anchored; the change is counted                French '15h'
+        network ["time:15:00"]  page ["time:15:00"]
+time    anchored; the change is counted                table: Check-in | 15:00
+        network ["time:15:00"]  page ["time:15:00"]
+phone   anchored; the change is counted                international, as the network: '+44 1632 960418'
+        network ["phone:632960418"]  page ["phone:632960418"]
+phone   anchored; the change is counted                national: '01632 960418'
+        network ["phone:632960418"]  page ["phone:632960418"]
+phone   anchored; the change is counted                '+44 (0)1632 960418'
+        network ["phone:632960418"]  page ["phone:632960418"]
+phone   anchored; the change is counted                hyphenated: '+44-1632-960418'
+        network ["phone:632960418"]  page ["phone:632960418"]
+phone   anchored; the change is counted                only in a tel: link (text says 'Call us')
+        network ["phone:632960418"]  page ["phone:632960418"]
+email   anchored; the change is counted                plain
+        network ["email:stay@larchhouse.example"]  page ["email:stay@larchhouse.example"]
+email   anchored; the change is counted                only in a mailto: link (text says 'E-mail us')
+        network ["email:stay@larchhouse.example"]  page ["email:stay@larchhouse.example"]
+percent anchored; the change is counted                '10%' after a number cell
+        network ["percent:10%"]  page ["percent:10%"]

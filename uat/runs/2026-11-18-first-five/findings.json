@@ -96,7 +96,7 @@
     ],
     "code_check": "by-design",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Done.",
     "source": "marta-hollis--j1-price-changed.md",
     "severity_l1": "major",
@@ -105,6 +105,15 @@
       "reachability": "high",
       "trust_erosion": "high"
     },
+    "ceiling": "After fix-network no surface says 'old fact': rooms.html reads '... the network no longer states it either, so no stale fact is left: review the change, then re-lock (watch --relock).' But the fix is announced louder than before: a comment headed 'A new `block` finding' (the signature no longer covers the network) and the Desk and verify say 'the host may have rewritten it' / 'Do not treat these files as the publisher's' about her own site until the developer signs (MAR-RC-2).",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.r2-fix.md",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/gh-state.main-path.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-fix.json",
+      "shots/marta-recert/rc-20-fix-drift.png",
+      "shots/marta-recert/rc-21-fix-verify.png"
+    ],
     "rank": 27
   },
   {
@@ -136,10 +145,23 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l1_missed": "L1 measured anchoring on its own throwaway page, whose layout anchored the price ('1 of 6'), and recorded the distinction as a strength (MAR-L1-15).",
     "l2_priority": "Recertify: larch-house raise-price, unchanged fixture; the issue and the Desk must say a stated fact is gone, and cosmetic-edit must not.",
     "source": "marta-hollis--j1-price-changed.md",
+    "ceiling": "The stale fact is named by kind and count ('1 price'), never by value; a value that still appears elsewhere on the page (a twin at the same price, a struck-through offer, an intro 'from €89') hides the change (MAR-RC-1); a fact written in a form the watch does not read is named only in the developer's terminal at setup.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Unchanged fixture, four fresh worlds. raise-price: '1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.' on the real CLI, issue #1 (run r1-raise), the Desk at 1280 and 390 px and the live read_drift result; cosmetic-edit: 'all 7 facts ... are still on it, so what changed is something the lock does not watch.'",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.r1-raise.md",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.c1-cosmetic.md",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-raise-laptop.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-raise-phone.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-cos.json",
+      "shots/marta-recert/rc-10-raise-drift-laptop.png",
+      "shots/marta-recert/rc-10-raise-drift-phone.png",
+      "shots/marta-recert/rc-30-cosmetic-drift.png"
+    ],
     "rank": 27
   },
   {
@@ -382,21 +404,17 @@
     "dimension": "trust",
     "title": "Accepting one seller's proper rotation with --relock also blesses another seller's swapped signer, and every later relock re-blesses it",
     "expected": "A seller that rotated properly (adopt verified) can be accepted in the lock on its own; a seller whose signer changed without a rotation stays block.",
-    "got": "Live: after adopt --yes for ashgrove, the plain relock printed 'changed peer ...ashgrove_studio' and 'changed peer ...brackenfold_shop' with findings [], the next watch exited 0, and verify of brackenfold said unverifiable with brackenfold pinned to 8d80d8e4c1567c52. --drop <peer url> does not hold a peer back (TOM-L2-02). The only way to keep brackenfold blocked was to hand-edit its old record back into the signed lock and re-sign, and each later relock (to accept the card, during dovetail's outage) accepted brackenfold again: three times in one week.",
+    "got": "Recertify: a plain relock refuses (exit 1, nothing written, both peers named with both kids and how); --accept-signer <ashgrove> alone is refused naming brackenfold; --accept <ashgrove> --accept-signer <ashgrove> --trust writes ashgrove only, with 'signer peer ... (it rotated from the key the lock recorded, verified against your trust file; backed by your trust file)'; brackenfold's pin and block survived six later relocks (two refused, four narrowed).",
     "evidence": [
-      "src/watch/index.ts:98-121",
-      "src/watch/capture.ts:144-156",
-      "src/watch/decide.ts:474-478",
-      "src/cli/watch-command.ts:116-123",
-      "l2-transcripts/07-accept-A.txt",
-      "l2-transcripts/07-after-accept.json",
-      "l2-transcripts/10-relock-while-D-down.txt",
-      "l2-transcripts/14-accept-card.txt",
-      "l2-transcripts/08-handedit.json"
+      "shots/tomasz-recert/t/07-plain-relock.json",
+      "shots/tomasz-recert/t/08a-accept-signer-A-only.txt",
+      "shots/tomasz-recert/t/08b-accept-A.txt",
+      "shots/tomasz-recert/t/26-watch-final.json",
+      "src/watch/index.ts:154-211"
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Measured on the harness arm (the CLI cannot reach a loopback seller). Recertify: a per-peer accept, or a relock that refuses a signer the trust file does not back.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
     "severity_l1": "major",
@@ -405,6 +423,9 @@
       "reachability": "high",
       "trust_erosion": "high"
     },
+    "ceiling": "The hold lives only in the recorded kid: a relock while the held seller's signature is absent (404) records it unsigned, and the swapped key then returns as 'newly signed' info and is pinned by any plain relock, by hand or by the Action (TOM-RC-1); the refusal's one-line command accepts every refused peer, a swap included (TOM-RC-3); on loopback sellers only through the test harness (UAT-21).",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "kiln-row, harness relocks with the real CLI's trust and adopt: 07-plain-relock (refused, lock bytes unchanged), 08a, 08b, 10-B4, 10-B5, 26-watch-final (brackenfold still block at the end of the week)",
     "rank": 27
   },
   {
@@ -734,7 +755,7 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Done at L2. Recertify: same two arms.",
     "source": "marta-hollis--j1-price-changed.md",
     "severity_l1": "major",
@@ -743,6 +764,19 @@
       "reachability": "med",
       "trust_erosion": "high"
     },
+    "ceiling": "A relock keeps the stale page record ('Not accepted ... (1 price)'), the next watch and the Action keep the issue open, and with nothing else to accept no relock PR is offered; but `--relock --drop rooms.html` still removes the page and its alert, and the PR is still titled 'accept the drift'.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "W3: real CLI relock with the network at €89 printed 'no ref changed' and 'Not accepted: the network still states 1 fact this page no longer states (1 price) ...'; after sign and push the next run kept issue #1 open (plan none); the relock-pr plan was none. W4: PR #2 body opens 'What this relock does not accept'; merged unsigned, issue #1 stayed open.",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.w1.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.w2cli.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w3/gh-state.arm-cli-relock.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w3/pr-body-planned-not-opened.w1.md",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/pr-body.v1-raise.md",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v4.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w4/gh-state.arm-W.json",
+      "shots/marta-recert/rc-40-W-after-merge-drift.png"
+    ],
     "rank": 18
   },
   {
@@ -771,7 +805,7 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Done.",
     "source": "marta-hollis--j1-price-changed.md",
     "severity_l1": "major",
@@ -780,6 +814,13 @@
       "reachability": "high",
       "trust_erosion": "high"
     },
+    "ceiling": "'89 euros' anchors on page and network; a page with no anchored fact is a warn at init ('No fact is watched on this page ...', exit 1) and a change to it reads '... whether the network now states an old fact is not checked'. A network that states its facts only in words prints 'facts the network states: 0 (none)' with no warning; number words ('eighty-nine') never anchor.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/anchor-probe.recert.txt",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/mini.out.txt",
+      "Recertify journal: mini/zero (a network in words: init 'facts the network states: 0 (none)', exit 0) and mini/zero2 (the fixture network, a page with no fact: init warn, exit 1); both watches read 'is not checked'."
+    ],
     "rank": 18
   },
   {
@@ -806,7 +847,7 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Done.",
     "source": "marta-hollis--j1-price-changed.md",
     "severity_l1": "major",
@@ -815,6 +856,13 @@
       "reachability": "high",
       "trust_erosion": "high"
     },
+    "ceiling": "The raise after a cosmetic edit comments (notifies) with the stale-fact sentence; every later page edit while the issue is open comments 'New:' with the same sentence again (MAR-RC-3).",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "W2 c2-raise-on-open: issue edit + issue comment (notifies) 'New: - **warn** grounding `rooms.html`: ... 1 of 7 facts ... (1 price) ...'",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.c2.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/gh-state.escalation.json"
+    ],
     "rank": 18
   },
   {
@@ -851,6 +899,12 @@
       "reachability": "high",
       "trust_erosion": "med"
     },
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Narrowed, not resolved: the kind and count reach every surface ('(1 price)'). No value: the Desk check /€\\s?(89|95)\\b|\\b(89|95)\\s?€|EUR\\s?(89|95)/ FAILED (match null) at 1280 and 390 px; the issue body and the tool result hold no price.",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-raise-laptop.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.r1-raise.md"
+    ],
     "rank": 18
   },
   {
@@ -888,6 +942,13 @@
       "reachability": "high",
       "trust_erosion": "med"
     },
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Not built (UAT-29). The issue at raise-price: 167 words, 22 of 28 counted terms outside her vocabulary (the L2 body: 143 words, 21 on the same list); the Desk reading: 9 terms plus two 64-character hashes; the landing unchanged.",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/jargon.mjs",
+      "shots/marta-recert/rc-10-raise-drift-laptop.png",
+      "shots/marta-recert/rc-01-setup-overview.png"
+    ],
     "rank": 18
   },
   {
@@ -924,6 +985,12 @@
       "reachability": "high",
       "trust_erosion": "med"
     },
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Declined for now (DC-1). cosmetic-edit still opens issue #1 (notifies), severity warn; it now reads differently from a price change ('... so what changed is something the lock does not watch'). Closing still takes relock, sign, commit, push.",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.c1.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.c1-cosmetic.md"
+    ],
     "rank": 18
   },
   {
@@ -954,8 +1021,48 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Recertify by re-running anchor-probe.mjs and the mini-site arms.",
+    "source": "marta-hollis--j1-price-changed.md",
+    "ceiling": "36 of 36 L2 forms anchor; of 29 further forms 15 anchor and count, 13 do not (EUR89, 'Euro 89', number words, JSON-LD only, an image alt, \"3 o'clock\", 'from 3', '3-6pm', '15 Uhr', 'noon', a bare '15.00' cell, '1500 hrs', '01632 96 04 18') and init names each by value as not on the page, 1 anchors but is not counted (MAR-RC-1). The list reaches the developer's terminal only; once set up, a change to an unwatched fact reads 'something the lock does not watch' on her surfaces; init names the facts it does NOT watch by value and only the kinds of those it does.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/anchor-probe.recert.txt",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/probe2.out.txt",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/mini.out.txt",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w1/world-cli.log"
+    ],
+    "rank": 18
+  },
+  {
+    "id": "MAR-RC-1",
+    "journey": "j1-price-changed",
+    "character": "marta-hollis",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "med",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "A changed price that still appears elsewhere on the page is invisible: a twin at the same price, a struck-through offer or an intro 'from €89' gives 'all 7 facts ... are still on it, so what changed is something the lock does not watch'",
+    "expected": "When the page no longer states a fact where it stated it (the double room's €89), the watch either counts it as gone or says the value is still found elsewhere on the page so it cannot tell; it never says 'what changed is something the lock does not watch' about a value the lock watches. init says when one value on the page stands for more than one fact the network states, or appears more than once.",
+    "got": "Real CLI on copies of the fixture site: M1 (a twin room at €89; the double raised to €95), M2 ('<del>€89</del> €79 per night this winter') and M4 (intro 'Doubles from €89'; the table raised) each read 'warn grounding rooms.html: A grounding source changed since the lock was written; all 7 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.' while the network still says €89 for the double. init printed 'watches 7 (3 prices ...)' each time, with no hint. An anchor is the presence of a value anywhere on the page, not the fact at its place.",
+    "evidence": [
+      "src/watch/anchors.ts:376-381",
+      "src/watch/anchors.ts:466-471",
+      "src/watch/decide.ts:148-149",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/mini.mjs",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/mini.out.txt",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/probe2.out.txt"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "l1_missed": "The fix's own probe (36 forms) changes one value per page; no form states the same value twice.",
+    "l2_priority": "Next recertify: add M1, M2 and M4 to MC-1's grounding regression (the fixture plus these three copies) and assert none reads 'something the lock does not watch'.",
     "source": "marta-hollis--j1-price-changed.md",
     "rank": 18
   },
@@ -1481,21 +1588,22 @@
     },
     "dimension": "clarity",
     "title": "A proper key rotation and a bare signer swap produce the identical watch finding, and verify's only distinguishing line is text-only",
-    "expected": "The watch says whether the new kid is named by a rotation the peer publishes (or the trust file now holds it), so rotation and swap read differently; verify --json carries the rotation hint.",
-    "got": "Live: both 'block peer <url>: A peer is now signed by a different key than the one the lock recorded.', JSON differing only in ref and kids. verify --json for both: {verdict: unverifiable, kid, origin, detail: 'The signature is internally consistent but the signer is unknown: ...'}, exit 1; the 'hint: plumbline-rotation.json is present; ... plumbline adopt --url http://127.0.0.1:4501/ ...' line is in text output only.",
+    "expected": "The watch says whether the new kid is named by a rotation the peer publishes, so rotation and swap read differently; verify --json carries the rotation hint.",
+    "got": "Recertify: watch 'a rotation statement from the locked key is published (not verified here)' vs 'a different key, with no rotation published' (with --trust: 'it rotated from the key the lock recorded, verified against your trust file'); verify --json detail '... and the site publishes a rotation from fb6fcb1b539f9c72: check it with adopt before trusting ...' vs '... with no rotation from 94b090a84b42fb09: ... not a first contact ...'.",
     "evidence": [
-      "src/watch/decide.ts:283-286",
-      "src/watch/observe.ts:67-76",
-      "src/cli/commands.ts:621-630",
-      "l2-transcripts/05-swapped.json",
-      "l2-transcripts/05-verify-4501.json",
-      "l2-transcripts/05-verify-4502.json"
+      "shots/tomasz-recert/t/05-watch.txt",
+      "shots/tomasz-recert/t/05-watch-trust.json",
+      "shots/tomasz-recert/t/06-verify-4501.json",
+      "shots/tomasz-recert/t/06-verify-4502.json"
     ],
     "code_check": "present-but-missed",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Harness arm for the watch; real CLI for verify.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "ceiling": "Told apart by sentence only: neither the finding nor the verify JSON has a field naming rotation or swap (UAT-17); verify's 'hint:' line is still text-only, though the detail now carries the same fact.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "05-watch, 05-watch-trust, 06-verify-4501/4502 (real CLI verify --json, exit 1 each)",
     "rank": 18
   },
   {
@@ -1512,23 +1620,22 @@
     },
     "dimension": "trust",
     "title": "A relock run while a seller is offline discards its pinned hash, kid and outline; it returns changed and re-keyed as 'added peer' with no finding",
-    "expected": "A pinned peer that cannot be re-captured keeps its previous record (or the relock refuses it), and on return the new state is compared with the old pin.",
-    "got": "Live: relock while dovetail was down printed 'added pending ...dovetail_loom / removed peer ...dovetail_loom' and the lock held only {since}. Constructed: dovetail returned with an added agent and signed by a new key. Watch: only 'A peer could not be captured when the lock was written (pending since 2026-11-18), so it is not watched; run watch --relock once it answers.' (the never-captured sentence). Following it: 'added peer ...dovetail_loom', findings [], next watch exit 0. Control arm, same returned seller against the pre-offline lock: block 'A peer's network definition changed ... In outline: agents: 1 added, 0 removed, 1 changed; ...' plus info 'unsigned when locked now publishes a signature'. Second control: the world's unchanged seller-back against the pin-kept lock gives no line.",
+    "expected": "A pinned peer that cannot be re-captured keeps its previous record, and on return the new state is compared with the old pin.",
+    "got": "Recertify: relock during seller-offline: 'no ref changed' and 'A peer could not be re-read (the connection failed), so the lock keeps its earlier pin (recorded 2026-11-18) ...'; record identical, no pending. After seller-back-changed the main arm and the no-relock control arm print the same block 'In outline: agents: 1 added, 0 removed, 1 changed; ...' and info 'unsigned when locked now publishes a signature'.",
     "evidence": [
-      "src/watch/capture.ts:144-167",
-      "src/watch/decide.ts:317-330",
-      "src/watch/index.ts:98-121",
-      "l2-transcripts/10-relock-while-D-down.txt",
-      "l2-transcripts/11-back-after-pin-lost.json",
-      "l2-transcripts/11-control-pin-kept.json",
-      "l2-transcripts/12-relock-D-back.json",
-      "l2-transcripts/24-ctl-back.json"
+      "shots/tomasz-recert/t/14-accept-D-offline.txt",
+      "shots/tomasz-recert/t/16-back-changed.json",
+      "shots/tomasz-recert/t/16-back-changed-control.json",
+      "shots/tomasz-recert/t/15-cli-relock-reaches-none.txt"
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Harness arm; the seller's change and new key are a constructed arm (the world's dovetail is unsigned and its seller-back changes nothing). A world act 'seller-back-changed' would make it a fixture.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "ceiling": "A kept pin is only as fresh as its date; a seller's first signature (dovetail's c195cf32f3013c23) is recorded by a relock with no signer line even with --trust (TOM-RC-4); harness arm on loopback.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "14-accept-D-offline, 15-cli-relock-reaches-none, 16-back-changed vs 16-back-changed-control (identical)",
     "rank": 18
   },
   {
@@ -1545,24 +1652,22 @@
     },
     "dimension": "completion",
     "title": "An Agent Card offline during a relock is dropped from the lock for good, and later watches read clean while it is still offline",
-    "expected": "The card is kept (pending, like a peer) and reported on every watch until it is captured or dropped on purpose with --drop.",
-    "got": "Live: control watch with the card offline: warn 'An external agent definition could not be reached (the connection failed), so it was not checked.', exit 1. Relock while offline: 'removed external <card>' and warn '... could not be locked (the connection failed), so it is not in the lock.', exit 0; lock external: []. Next watch, card still offline: info only, exit 0. card-back, relock: 'no ref changed', external still []. Only a fresh --relock --external restored it.",
+    "expected": "The card is kept and reported on every watch until it is captured or dropped on purpose.",
+    "got": "Recertify: relock while the card was down: 'no ref changed' and '... could not be re-read (the connection failed), so the lock keeps its earlier record ...'; external still holds the card; next watch with the card still down: the same warn, exit 1; after card-back the line is gone.",
     "evidence": [
-      "src/watch/capture.ts:169-185",
-      "src/watch/index.ts:106-108",
-      "src/watch/decide.ts:337-350",
-      "docs/gate-and-watch.md:268-270",
-      "l2-transcripts/15-card-offline.json",
-      "l2-transcripts/16-relock-card-down.json",
-      "l2-transcripts/16-after-card-dropped.json",
-      "l2-transcripts/17-relock-card-back.txt",
-      "l2-transcripts/18-readd-card.txt"
+      "shots/tomasz-recert/t/18-card-offline.txt",
+      "shots/tomasz-recert/t/19-relock-card-down.txt",
+      "shots/tomasz-recert/t/19-watch-card-still-down.json",
+      "shots/tomasz-recert/t/20-card-back.txt"
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Harness arm (the CLI refuses an http card).",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "ceiling": "The card's record still carries no signature count (TOM-L1-13); a real-CLI relock that refuses the card's address says '(it could not be read)' where it says '(it is not an https address)' for peers (TOM-RC-5).",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "18, 19-relock-card-down, 19-watch-card-still-down, 20-card-back",
     "rank": 18
   },
   {
@@ -1580,24 +1685,20 @@
     "dimension": "trust",
     "title": "'Unsigned' is not a state: the watch is silent, the lock has only an absent kid, and CLI verify exits 2 with an error while the Desk and the pre-load check say unverifiable",
     "expected": "An unsigned seller reads unverifiable (or an explicit 'unsigned' state) on every surface, with one exit-code meaning.",
-    "got": "Live, same seller (copperwick, signature served 404), same minute: CLI verify --json {\"error\":\"plumbline.signature.json not found in http://127.0.0.1:4503/\"}, exit 2; Desk #/verify 'UNVERIFIABLE ... This site publishes no plumbline.signature.json, so nothing can be verified.'; pre-load module (alias arm) {verdict: unverifiable, signed: false, refuse: false, 'The peer publishes no signature, so who published its definition cannot be told.'}; harness watch: no line for an unsigned seller in any event; lock: no kid key. trust --url on an unsigned seller also exits 2 ('.well-known/plumbline-key.json not found').",
+    "got": "Recertify: CLI verify --json {verdict: unverifiable, detail: 'This site publishes no plumbline.signature.json ...'}, exit 1 (landed); Desk verify UNVERIFIABLE. But the watch still prints no line for copperwick and dovetail while they are unsigned, and their lock records still only lack a kid.",
     "evidence": [
-      "src/watch/decide.ts:283-298",
-      "src/watch/capture.ts:150-153",
-      "src/cli/commands.ts:531-533",
-      "src/browser/preload.ts:82",
-      "site/desk.js:687",
-      "docs/signature-format.md:513",
-      "l2-transcripts/21-verify-4503.json",
-      "shots/tomasz/tom-l2-desk-verify-4503.png",
-      "l2-transcripts/22-desk.json",
-      "l2-transcripts/03-baseline.json"
+      "shots/tomasz-recert/t/04-verify-4503.json",
+      "shots/tomasz-recert/tom-rc-desk-verify-4503-unsigned.png",
+      "shots/tomasz-recert/t/04-baseline.json",
+      "shots/tomasz-recert/t/03-relock-add-card.lock-after.json"
     ],
     "code_check": "by-design",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "fixed",
     "l2_priority": "Real CLI + Desk; reconciliation item across CLI and Desk.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "Landed and reachable for verify (real CLI) and the Desk. Does not unblock: the watch and the lock still have no unsigned state, so his unsigned column still needs a verify per seller.",
     "rank": 18
   },
   {
@@ -1615,21 +1716,19 @@
     "dimension": "senior-quality",
     "title": "Drift JSON has no reason code, no timestamp and polymorphic expected/actual, so an inventory needs sentence-matching",
     "expected": "Each finding carries a code from a closed, documented list; the report carries checkedAt; card and peer are told apart by a field.",
-    "got": "Live, built mechanically from the week's JSON: 0 to 4 of 25 inventory cells per event came from a field (0 in six of ten events); 'last checked' and 'reason code' never; pinned hash only via a 64-hex pattern on expected when something changed; the card's signer has no field anywhere; 'no finding' means clean, unsigned, or (after a relock) not in the lock.",
+    "got": "Recertify, the same rules applied mechanically: 0 to 6 of 25 cells per event (L2: 0 to 4); the extra cells come only from the relock refusal's JSON (refused: 'signer', peers[].to); never pinned hash, last checked or the card's signer.",
     "evidence": [
-      "src/core/types.ts:316-338",
-      "src/watch/external.ts:96-130",
-      "src/watch/decide.ts:224-300",
-      "docs/gate-and-watch.md:94-99",
-      "l2-transcripts/inv-03.md",
-      "l2-transcripts/04-rotates.json",
-      "l2-transcripts/16-after-card-dropped.json"
+      "shots/tomasz-recert/t/inv.md",
+      "shots/tomasz-recert/t/inventory.mjs",
+      "shots/tomasz-recert/t/26-watch-final.json"
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
     "resolution": "open",
     "l2_priority": "Recertify by re-running the same inventory script over the same acts.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "inv.md (UAT-17 not built)",
     "rank": 18
   },
   {
@@ -1646,21 +1745,20 @@
     },
     "dimension": "trust",
     "title": "The CLI's --relock, run where it cannot contact the sellers, replaces every pin and the Agent Card with pending or nothing, and exits 0",
-    "expected": "A relock that cannot re-capture a pinned peer or card keeps its previous record (or refuses), so accepting one change never destroys the rest of the inventory.",
-    "got": "Real CLI 'watch --root site --relock' on the marketplace lock pinned through the harness (staged sellers on http): 'added pending' x4, 'removed peer' x4, 'removed external ...agent-card.json', five warns '(the address is not https)', exit 0; lock after: 0 peers, 4 pending, 0 external. Every pending line then advises 'run watch --relock once it answers', which is this command. The same happens to any lock if a relock runs during an egress outage. I ran it once by accident; recovery needed a lock copy I happened to have.",
+    "expected": "A relock that cannot re-capture a pinned peer or card keeps its previous record and says so.",
+    "got": "Recertify, real CLI on a copy of the week's lock: 'no ref changed', four 'could not be re-read (it is not an https address), so the lock keeps its earlier pin' warns and one 'keeps its earlier record' for the card; lock after: 4 peers with their kids, 0 pending, 1 external.",
     "evidence": [
-      "src/watch/capture.ts:144-185",
-      "src/watch/index.ts:98-121",
-      "src/watch/decide.ts:327",
-      "l2-transcripts/06-cli-relock.json",
-      "l2-transcripts/06-after-cli-relock.lock.json",
-      "l2-transcripts/06-pre-drop.lock.json"
+      "shots/tomasz-recert/t/15-cli-relock-reaches-none.txt",
+      "shots/tomasz-recert/t/15-cli-relock-reaches-none.lock-after.json"
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Real CLI. Recertify: the same relock on the same lock keeps each previous record and says so.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "ceiling": "It still exits 0 with 'relock: wrote' when it re-read nothing; the card's reason reads '(it could not be read)' beside the peers' '(it is not an https address)' (TOM-RC-5); a kept pin is as fresh as its date.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "15-cli-relock-reaches-none (real CLI)",
     "rank": 18
   },
   {
@@ -1677,20 +1775,21 @@
     },
     "dimension": "trust",
     "title": "verify (CLI and Desk) gives a swapped signer the same verdict as a seller never met, and the Desk offers 'First contact: trust this publisher?' while another key is trusted for that origin",
-    "expected": "When the trust file holds a different key for the origin, verify says so ('this origin's trusted key is X; this signature is by Y, with no rotation from X') and does not frame it as first contact.",
-    "got": "brackenfold (trust list holds da6b4cd40dd30fdd for http://127.0.0.1:4502, now signed by 8d80d8e4c1567c52): Desk 'UNVERIFIABLE ... You have not met this signer yet, or the site publishes no signature.' with 'First contact: trust this publisher?' and a 'Trust this publisher for this origin' button, the trusted key visible on the same screen; dovetail, never trusted, renders the same text and the same offer. CLI verify --json: the same detail for both, exit 1. Code: verify only looks up (kid, origin); no branch for 'another key is trusted for this origin'.",
+    "expected": "verify says this origin's trusted key is X and this signature is by Y with no rotation from X, and does not frame it as first contact.",
+    "got": "Recertify: CLI verify --json detail 'This origin's trusted key is 94b090a84b42fb09; this signature is by 08825631fb57f303, with no rotation from 94b090a84b42fb09: a different key signing for an origin you trust is not a first contact, ...'; Desk 'A different key signed this site than the one you trust for its address, and no rotation you can check links them: this is not a first contact.' with 0 first-contact panels.",
     "evidence": [
-      "src/core/verify.ts:236-262",
-      "shots/tomasz/tom-l2-desk-verify-4502.png",
-      "shots/tomasz/tom-l2-desk-verify-4504.png",
-      "l2-transcripts/21-verify-4502.json",
-      "l2-transcripts/21-verify-4504.json"
+      "shots/tomasz-recert/t/06-verify-4502.json",
+      "shots/tomasz-recert/tom-rc-desk-verify-4502.png",
+      "shots/tomasz-recert/t/30-desk.json"
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Desk (Chromium) + real CLI.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "ceiling": "The distinction is in the detail text only; no JSON field names it (UAT-17).",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "06-verify-4502 (real CLI); 30-desk expectMatch 'different key signed this site' and 'not a first contact', 0 panels",
     "rank": 18
   },
   {
@@ -1811,6 +1910,12 @@
     "resolution": "open",
     "l2_priority": "Done.",
     "source": "marta-hollis--j1-price-changed.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Not built (UAT-29). rooms-no-cors: 'A grounding source could not be checked: it could not be fetched (the browser could not read it).'; /Access-Control-Allow-Origin|CORS|ask your host/ FAILED.",
+      "shots/marta-recert/rc-17-raise-nocors-drift.png",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-nocors.json"
+    ],
     "rank": 12
   },
   {
@@ -1837,9 +1942,18 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Done.",
     "source": "marta-hollis--j1-price-changed.md",
+    "ceiling": "Every new browser or device reads 'Signed lock, by a key you have not trusted: until you trust that key, the host could rewrite it.' until she compares the 16-character key id with Jonas out of band.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Fresh profile: 'Drift read: 1 finding, Warning. Lock signed by a key you have not trusted.'; after trust: 'Signed lock: covered by a signature that verified under a publisher you trust.'",
+      "shots/marta-recert/rc-02-setup-drift.png",
+      "shots/marta-recert/rc-10-raise-drift-phone.png",
+      "shots/marta-recert/rc-15-raise-drift-after-trust.png",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-setup.json"
+    ],
     "rank": 12
   },
   {
@@ -1867,9 +1981,51 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l1_missed": "L1 traced the relock to a clean issue but not the signature state after an unsigned merge.",
     "l2_priority": "Recertify: arm W (relock-pr, merge without signing), assert the next run is not clean or says the signature no longer covers the lock.",
+    "source": "marta-hollis--j1-price-changed.md",
+    "ceiling": "The coverage finding is the checkout watch's only (the Desk labels the lock 'does not hold' through verify); on an unsigned site there is no signature to break, so only the kept stale fact holds the issue open; the close comment now says 'the site's signature, if it has one, still covers its files'.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "W4 v4-after-merge: issue #1 kept open, comment '**A new `block` finding.** ... The site's signature no longer covers its files: 1 of 3 signed files differs ... (plumbline.lock.json) ...'",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v4.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.v4-after-merge.md",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w4/gh-state.arm-W.json",
+      "shots/marta-recert/rc-40-W-after-merge-drift.png",
+      "shots/marta-recert/rc-41-W-after-merge-verify.png"
+    ],
+    "rank": 12
+  },
+  {
+    "id": "MAR-RC-2",
+    "journey": "j1-price-changed",
+    "character": "marta-hollis",
+    "cert_level": "L2",
+    "type": "confusion",
+    "severity": "minor",
+    "impact": {
+      "frequency": "med",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "clarity",
+    "title": "The right fix is announced as the loudest event of the journey: a comment headed 'A new `block` finding. Look before the next release.', and the Desk says of her own site 'the host may have rewritten it'",
+    "expected": "When the network is corrected to what the page states, the owner is told the stale fact is gone and that one step remains (the developer re-locks and signs), without block or stranger-danger wording about her own site.",
+    "got": "fix-network committed before the developer re-signs (the world's act): run r2 comments (notifies) '**A new `block` finding.** Look before the next release. ... block grounding plumbline.signature.json: The site's signature no longer covers its files ... verifiers now answer invalid (tampered) ...'; the Desk: 'The signature over this lock does not hold (verify says why): the host may have rewritten it.'; verify: 'INVALID ... Do not treat these files as the publisher's.' At L2 the same moment was a warn comment.",
+    "evidence": [
+      "action/report.mjs:242",
+      "site/strings.js:95",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/gh-state.main-path.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.r2-fix.md",
+      "shots/marta-recert/rc-20-fix-drift.png",
+      "shots/marta-recert/rc-21-fix-verify.png"
+    ],
+    "code_check": "by-design",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "l1_missed": "Born of UAT-2's signature-coverage finding (correct and useful for the developer), read from the owner's side.",
+    "l2_priority": "Read the r2 comment and the Desk after fix-network; a fix, relock and sign in one commit avoids it, so record whether the issue tells the developer to do them together.",
     "source": "marta-hollis--j1-price-changed.md",
     "rank": 12
   },
@@ -2110,18 +2266,18 @@
     },
     "dimension": "trust",
     "title": "adopt --json without --yes lists the successor under 'adopted' although nothing was adopted",
-    "expected": "'adopted' only when added is true; a separate field for what would be added.",
-    "got": "Live: {\"added\":false,\"alreadyTrusted\":false,\"adopted\":[\"e5e0ace512a8c3bf\"]}, exit 1; with --yes the same key list and \"added\":true.",
+    "expected": "'adopted' only when added is true.",
+    "got": "Recertify: unchanged, {\"added\":false,\"alreadyTrusted\":false,\"adopted\":[\"56f28eb50f669067\"]}, exit 1.",
     "evidence": [
-      "src/cli/trust-command.ts:276-306",
-      "docs/signature-format.md:498",
-      "l2-transcripts/05-adopt-4501.json"
+      "shots/tomasz-recert/t/06-adopt-4501.json"
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
     "resolution": "open",
     "l2_priority": "Real CLI.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "06-adopt-4501 (UAT-17 not built)",
     "rank": 12
   },
   {
@@ -2138,15 +2294,12 @@
     },
     "dimension": "missing",
     "title": "The checkout watch cannot be rehearsed against staged (non-https) sellers, and its refusal sentence says the checkout is read from disk when it also fetches peers",
-    "expected": "A local rehearsal path for staging sellers (as gate, verify, trust and adopt have), or a refusal that names why peers are https-only.",
-    "got": "Live: every seller and card event of the week was reachable only through the test harness (uat/driver/local-cli.mjs). The real CLI: onboarded left all four sellers pending; --external refused http; watch --root called each pinned seller 'could not be reached (the address is not https)'. A platform team that stages sellers before production cannot pin, watch or accept them with the product. Widened by TOM-L2-01: the CLI's relock on such a lock destroys it.",
+    "expected": "A local rehearsal path for staging sellers.",
+    "got": "Recertify: unchanged; every seller and card event again needed the harness. The CLI now says 'was not contacted: it is not an https address' consistently (TOM-L2-05) and its relock keeps every pin (TOM-L2-01), so here the CLI is no longer destructive, only blind.",
     "evidence": [
-      "src/cli/watch-command.ts:92",
-      "src/watch/external.ts:141",
-      "src/net/safe-fetch.ts:81",
-      "src/watch/lock.ts:15-18",
-      "l2-transcripts/00-watch.json",
-      "l2-transcripts/03-baseline.cli.json"
+      "shots/tomasz-recert/t/01-onboarded-cli.txt",
+      "shots/tomasz-recert/t/04-baseline-cli.txt",
+      "shots/tomasz-recert/t/31-cli-accept-flags.txt"
     ],
     "code_check": "by-design",
     "verdict": "confirmed",
@@ -2159,6 +2312,8 @@
       "reachability": "high",
       "trust_erosion": "med"
     },
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "01, 04-baseline-cli, 31 (UAT-21 not built)",
     "rank": 12
   },
   {
@@ -2175,18 +2330,20 @@
     },
     "dimension": "trust",
     "title": "--drop <peer url> says the peer 'was not in the lock' (it was) and then accepts it with everything else",
-    "expected": "--drop either takes a peer out (with a line saying so) or refuses a peer address with a reason that names what --drop takes; never a false statement about the lock.",
-    "got": "'local-cli watch --relock --drop http://127.0.0.1:4502/brackenfold_shop': 'changed peer ...ashgrove_studio', 'changed peer ...brackenfold_shop', 'info grounding http://127.0.0.1:4502/brackenfold_shop: This ref was not in the lock, so there was nothing to drop.', exit 0. brackenfold's swapped signer was accepted. The code compares the drop list with grounding refs and externals only.",
+    "expected": "--drop takes a peer out with a line, or refuses with what --drop takes; never a false statement.",
+    "got": "Recertify, real CLI and harness: exit 2, '--drop takes a grounding ref or an external definition the lock holds; http://127.0.0.1:4502/brackenfold_shop is a peer, which leaves the lock when no network names it: remove it from the site's network (or links.json), then relock'; lock unchanged.",
     "evidence": [
-      "src/watch/index.ts:104-118",
-      "docs/gate-and-watch.md:299-301",
-      "l2-transcripts/06-pre-drop.lock.json"
+      "shots/tomasz-recert/t/25-drop-peer-cli.txt",
+      "shots/tomasz-recert/t/25-drop-peer-har.txt"
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Harness arm (the same code path runs in the CLI; the CLI could not reach the sellers here).",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "ceiling": "It refuses rather than drops; following its advice (remove from the network, relock) and later relisting the seller pins whatever key the seller then has, with no signer line (TOM-RC-4).",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "25-drop-peer-cli (real CLI), 25-drop-peer-har",
     "rank": 12
   },
   {
@@ -2203,20 +2360,20 @@
     },
     "dimension": "trust",
     "title": "The Desk's drift view calls a signed lock 'Unsigned lock: the host can rewrite it' whenever the visitor has not trusted its signer",
-    "expected": "A signed lock whose signer the visitor does not trust reads as 'signed by a key you have not trusted' (unverifiable), not 'unsigned'.",
-    "got": "Kiln Row's lock, signed by 53db8504e12da0b0: with Tomasz's seller trust list, 'Drift read: 5 findings, the worst Warning. Unsigned lock: the host can rewrite it.'; control arm, same lock with Kiln Row's key imported: 'Signed lock: covered by a signature that verified under a publisher you trust.' Every shopper's browser, which has never trusted Kiln Row, sees 'unsigned'. The consequence sentence is right; the word folds unverifiable into unsigned.",
+    "expected": "A signed lock whose signer the visitor does not trust reads 'signed by a key you have not trusted'.",
+    "got": "Recertify: Kiln Row's lock, signed by c8c0f280b50e432d, with a visitor who trusts only the sellers: status 'Drift read: 5 findings, the worst Warning. Lock signed by a key you have not trusted.'; body 'Signed lock, by a key you have not trusted: until you trust that key, the host could rewrite it.'",
     "evidence": [
-      "site/desk.js:577-584",
-      "site/strings.js:90,112",
-      "shots/tomasz/tom-l2-desk-drift-kilnrow.png",
-      "shots/tomasz/tom-l2-desk-drift-kilnrow-trusted.png",
-      "l2-transcripts/23-desk-control.json"
+      "shots/tomasz-recert/tom-rc-desk-drift-kilnrow.png",
+      "shots/tomasz-recert/t/30-desk.json"
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Desk (Chromium), with its control arm.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "ceiling": "The Desk's drift reader still contacts no loopback seller (five 'was not contacted' warns), so here it says nothing about the sellers' states.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "30-desk expectMatch 'signed by a key you have not trusted'",
     "rank": 12
   },
   {
@@ -2337,6 +2494,11 @@
     "resolution": "open",
     "l2_priority": "Uncertain: notification reach needs real GitHub. Fixture that closes it: a scratch GitHub repository the owner creates, with Marta's account watching (or not) the repository.",
     "source": "marta-hollis--j1-price-changed.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Not built (UAT-30). The workflow init wrote for the world: cron \"17 6 * * *\" and workflow_dispatch only; no assignee input. Notification reach still uncertain without real GitHub.",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w1/world-cli.log"
+    ],
     "rank": 9
   },
   {
@@ -2364,6 +2526,11 @@
     "resolution": "open",
     "l1_missed": "Visual; L1 read strings, not the layout.",
     "source": "marta-hollis--j1-price-changed.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Not built (UAT-29). expectMatch matched 'Passed' and 'Take a fix' on the landing.",
+      "shots/marta-recert/rc-01-setup-overview.png"
+    ],
     "rank": 9
   },
   {
@@ -2465,22 +2632,19 @@
     },
     "dimension": "trust",
     "title": "watch --init --external (and --source) on an existing lock does nothing and says nothing, and watch --init never says whether it wrote or kept the lock",
-    "expected": "Either the card is added, or a refusal names --relock (as init does for --source: 'Not added: a lock was already there').",
-    "got": "Live, real CLI on the kiln-row marketplace: 'watch --root site --init --external a2a-card=https://tidewater-studio.example/.well-known/agent-card.json' printed a plain watch; lock sha256 756204dc... before and after; the world served 0 requests; --json {lockState: found, findings}. Exit 1 here only because of four unrelated pending warns (on a clean lock the same path exits 0, as L1 measured). With the card's real http address the CLI refuses with a reason, exit 2. On a fresh folder 'watch --init --json' printed an object whose only key is findings.",
+    "expected": "Either the card is added, or a refusal names --relock.",
+    "got": "Recertify, real CLI: lock sha256 b6cb1619cfcbc798 before and after, 0 requests served, a plain watch printed, --json {lockState: found, findings}; exit 1 only from the pending warns.",
     "evidence": [
-      "src/watch/index.ts:58-70",
-      "src/cli/watch-command.ts:103,128-135",
-      "src/cli/init-command.ts:132-136",
-      "docs/gate-and-watch.md:94",
-      "docs/gate-and-watch.md:264",
-      "l2-transcripts/01b-init-external.json",
-      "l2-transcripts/25-init-fresh.json"
+      "shots/tomasz-recert/t/02-init-external-https.txt",
+      "shots/tomasz-recert/t/02-init-external-https.json"
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
     "resolution": "open",
     "l2_priority": "Real CLI. Matches the accepted-gaps known-defect hypothesis.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "02-init-external-https: unchanged (UAT-14 not built)",
     "rank": 9
   },
   {
@@ -2497,20 +2661,20 @@
     },
     "dimension": "trust",
     "title": "A signed seller whose signature file errors during a relock is silently locked as unsigned",
-    "expected": "A signature that could not be read at capture is a finding, and the peer is pending (or keeps its previous kid).",
-    "got": "Constructed live: (a) a 500 on ashgrove's plumbline.signature.json injected through WatchDeps.fetch (the product's safeFetch for every other URL; runRelock unchanged) and (b) a 404 through the world's notFound control. Both: relock 'changed peer ...ashgrove_studio', findings []; ashgrove's record {sha256, links, outline, checkedAt} with no kid; next watch with the file back: info 'A peer that was unsigned when locked now publishes a signature; re-lock to record its key.', exit 0. ashgrove had just been adopted.",
+    "expected": "A signature that could not be read at capture is a finding, and the peer keeps its previous kid.",
+    "got": "Recertify: a 500 (constructed through WatchDeps.fetch) gives 'A peer's signature could not be read at capture (its signature request answered HTTP 500), so the lock keeps the key it recorded before', kid kept. A 404 (the world's notFound) gives 'A peer the lock recorded as signed publishes no signature now; the new lock records it as unsigned.', kid dropped, relock exit 0.",
     "evidence": [
-      "src/watch/capture.ts:147-156",
-      "src/watch/decide.ts:193-206",
-      "src/watch/decide.ts:287-288",
-      "src/watch/observe.ts:67-75",
-      "l2-transcripts/20-arm500.txt"
+      "shots/tomasz-recert/t/27-arm500.txt",
+      "shots/tomasz-recert/t/11-B1-2-plain-relock-404.txt",
+      "src/watch/capture.ts:209-224"
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "fixed",
     "l2_priority": "Constructed arm. A world act that serves a 500 for one path (serve.mjs has no such behaviour) would make it a fixture.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "Landed for 5xx (constructed arm: kid kept, with a line). The 404 arm is no longer silent but still drops the kid, which does not unblock his job: it is how the signer hold is erased (TOM-RC-1).",
     "rank": 9
   },
   {
@@ -2527,19 +2691,84 @@
     },
     "dimension": "missing",
     "title": "The card's signer column is always empty: JWS signatures are counted only in the 'changed' sentence and never written to the lock",
-    "expected": "The lock records the card's signature count (or signer key ids).",
-    "got": "Live: the world's card carries one JWS signature; the lock's entry was {kind, sha256, parts, checkedAt}; the count appeared only in the card-skills-change sentence ('it carries 1 JWS signature, not verified here').",
+    "expected": "The lock records the card's signature count.",
+    "got": "Recertify: the card entry after the add and after card-skills-change is {kind, sha256, parts, checkedAt}.",
     "evidence": [
-      "src/core/types.ts:212-222",
-      "src/watch/external.ts:65,120",
-      "src/watch/capture.ts:184",
-      "l2-transcripts/02-relock-add-card.lock-after.json",
-      "l2-transcripts/13-card-change.json"
+      "shots/tomasz-recert/t/03-relock-add-card.lock-after.json",
+      "shots/tomasz-recert/t/22-accept-card.lock-after.json"
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
     "resolution": "open",
     "l2_priority": "Harness lock.",
+    "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "03 and 22 locks (UAT-17 not built)",
+    "rank": 9
+  },
+  {
+    "id": "TOM-RC-1",
+    "journey": "j5-vetting-sellers",
+    "character": "tomasz-wieczorek",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "low",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "A held signer change is erased by any relock that runs while the seller's signature is absent; the swapped key then returns as 'newly signed' info, and the next plain relock, by hand or by the Action, pins it with the watch clean",
+    "expected": "A signer the lock recorded is never forgotten because a signature is missing for a while: the relock keeps the recorded kid (as it does for a 5xx) or refuses, and a key that later differs from the last recorded kid is a signer change that needs --accept-signer.",
+    "got": "brackenfold was held (block, 'a different key, with no rotation published'). Its plumbline.signature.json answered 404 (the world's notFound): watch warn 'no longer shows a usable signature (none is published)'. A plain relock was not refused: exit 0, 'changed peer ...brackenfold_shop' and warn 'A peer the lock recorded as signed publishes no signature now; the new lock records it as unsigned.'; the kid was gone. The signature came back under 08825631fb57f303: info 'A peer that was unsigned when locked now publishes a signature; re-lock to record its key.' (a signed site's watch exits 0). A plain relock: exit 0, 'changed peer', no signer line. The watch, with and without --trust: exit 0. Through the Action (run-action --harness --relock-pr true): r1 during the 404 opened draft PR #2, which drops the kid; after a merge, r3 closed issue #1 as clean; r4 (an unrelated card-offline) opened draft PR #4, whose lock pins 08825631fb57f303 under 'changed peer'. No one named brackenfold with --accept-signer.",
+    "evidence": [
+      "shots/tomasz-recert/t/11-B1-1-watch-404.txt",
+      "shots/tomasz-recert/t/11-B1-2-plain-relock-404.txt",
+      "shots/tomasz-recert/t/11-B1-3-watch-back.txt",
+      "shots/tomasz-recert/t/11-B1-4-plain-relock-back.txt",
+      "shots/tomasz-recert/t/11-B1-5-watch-final-trust.txt",
+      "shots/tomasz-recert/t/action-r1/relock.json",
+      "shots/tomasz-recert/t/43-action-r3.json",
+      "shots/tomasz-recert/t/action-r4/relock.json",
+      "shots/tomasz-recert/t/44-gh-state.json",
+      "src/watch/capture.ts:209-224",
+      "src/watch/index.ts:185-188",
+      "src/watch/decide.ts:369-370"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "suggested_acceptance": "kiln-row: seller-signer-swapped, brackenfold held, its signature 404, a plain relock, the signature back, a plain relock: the lock still records 94b090a84b42fb09 (or the first relock refuses), and the second relock refuses naming brackenfold. The same through run-action --harness --relock-pr true opens no PR that removes or replaces the kid.",
+    "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "rank": 9
+  },
+  {
+    "id": "TOM-RC-2",
+    "journey": "j5-vetting-sellers",
+    "character": "tomasz-wieczorek",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "low",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "The Action's relock pull request lists a recorded signer it removes under 'What this relock does not accept, or keeps as it was (these keep reporting after a merge)'",
+    "expected": "A relock that removes or replaces a recorded kid says so under what the pull request changes ('brackenfold: the lock no longer records its signer 94b090a84b42fb09'), never under what keeps reporting.",
+    "got": "Draft PR #2 (r1, during brackenfold's signature 404): 'What the new lock changes: changed peer ...brackenfold_shop' and, under 'What this relock does not accept, or keeps as it was (these keep reporting after a merge)', 'warn ... the new lock records it as unsigned.' After the merge nothing about it reports again: r3 closed the issue as clean. r1's issue comment said 'No longer reported: block peer ...brackenfold_shop'.",
+    "evidence": [
+      "shots/tomasz-recert/t/action-r1/body.md",
+      "shots/tomasz-recert/t/41-action-r1.json",
+      "shots/tomasz-recert/t/43-action-r3.json",
+      "action/report.mjs:342-346"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "suggested_acceptance": "In the TOM-RC-1 Action arm, the pull request body says the relock removes brackenfold's recorded signer, outside the 'keeps reporting after a merge' table (or no pull request is opened).",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
     "rank": 9
   },
@@ -2937,6 +3166,42 @@
     "resolution": "open",
     "l2_priority": "Done.",
     "source": "marta-hollis--j1-price-changed.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Not built (UAT-29). A fresh context on #/drift?target=http://127.0.0.1:4100/: driftVisible false, field empty; the issue body has no Desk link.",
+      "shots/marta-recert/rc-12-deeplink-fresh.png",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-trust1.json"
+    ],
+    "rank": 6
+  },
+  {
+    "id": "MAR-RC-3",
+    "journey": "j1-price-changed",
+    "character": "marta-hollis",
+    "cert_level": "L2",
+    "type": "confusion",
+    "severity": "minor",
+    "impact": {
+      "frequency": "med",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "clarity",
+    "title": "While the issue is open, every later edit of the page (wording included) comments 'New:' with the same stale-fact sentence, so a notification cannot say whether anything new is stale",
+    "expected": "A comment says what is new: a finding whose sentence did not change is either not re-announced, or announced as 'the page changed again; the same stale fact is still reported'.",
+    "got": "W2: c2 (raise on the open cosmetic issue) commented correctly; c3 (a breakfast wording edit, the price still stale) commented again (notifies) 'New: - **warn** grounding `rooms.html`: ... 1 of 7 facts ... is no longer on it, and the network still states it (1 price) ...', word for word the c2 comment. The digest carries the page hash, so every edit is new evidence.",
+    "evidence": [
+      "action/report.mjs:84-101",
+      "action/report.mjs:251",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.c3.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/gh-state.escalation.json"
+    ],
+    "code_check": "by-design",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "l1_missed": "A consequence of UAT-6's evidence choice (each finding's actual), which MAR-L1-04's fix needed.",
+    "l2_priority": "Two wording edits on an open stale-price issue; read both comments.",
+    "source": "marta-hollis--j1-price-changed.md",
     "rank": 6
   },
   {
@@ -3036,18 +3301,18 @@
     },
     "dimension": "clarity",
     "title": "adopt on a seller that published no rotation exits 2 (usage or I/O error), the most important policy signal in the journey",
-    "expected": "'No rotation published: this signer change is not a rotation' as a verdict, exit 1, with a JSON field.",
-    "got": "Live: 'plumbline adopt: plumbline-rotation.json not found in http://127.0.0.1:4502/', exit 2; --json {\"error\":\"plumbline-rotation.json not found in http://127.0.0.1:4502/\"}.",
+    "expected": "A verdict, exit 1, with a JSON field.",
+    "got": "Recertify: unchanged, 'plumbline adopt: plumbline-rotation.json not found in http://127.0.0.1:4502/', exit 2, {\"error\":...}.",
     "evidence": [
-      "src/cli/trust-command.ts:86-91",
-      "src/cli/trust-command.ts:242",
-      "l2-transcripts/05-adopt-4502.json"
+      "shots/tomasz-recert/t/06-adopt-4502.json"
     ],
     "code_check": "by-design",
     "verdict": "confirmed",
     "resolution": "open",
     "l2_priority": "Real CLI.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "06-adopt-4502 (UAT-17 not built)",
     "rank": 6
   },
   {
@@ -3065,20 +3330,18 @@
     "dimension": "missing",
     "title": "The pre-load check his shoppers' browsers would rely on runs on the Desk only for its own two partners; its lockFindings are computed and never shown",
     "expected": "A documented way to run checkPeerBeforeLoad over a site's own peers, and the Desk showing what differs.",
-    "got": "Live: the Desk's partner section has 0 inputs (shot tom-l2-desk-partners); the only way to ask about Kiln Row's sellers was to import /lib/plumbline/browser/preload.js in the page by hand.",
+    "got": "Recertify: the Desk's partner section still has 0 inputs.",
     "evidence": [
-      "site/desk.js:60",
-      "site/desk.js:1314-1336",
-      "src/browser/preload.ts:151-189",
-      "package.json:22-24",
-      "shots/tomasz/tom-l2-desk-partners.png",
-      "l2-transcripts/22-desk.json"
+      "shots/tomasz-recert/tom-rc-desk-partners.png",
+      "shots/tomasz-recert/t/30-desk.json"
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
     "resolution": "open",
     "l2_priority": "Desk (Chromium).",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "30-desk partners_inputs 0 (UAT-26 not built)",
     "rank": 6
   },
   {
@@ -3095,20 +3358,80 @@
     },
     "dimension": "clarity",
     "title": "The pending line drops why a seller could not be captured and says 'once it answers' of sellers that answer; a refused address uses the offline template in watch --root",
-    "expected": "The pending line carries the capture reason; a seller refused by the address rule reads the same on every surface ('was not contacted: it is not an https address').",
-    "got": "init: '... pending ... (the address is not https).' Every later watch: '... pending since 2026-11-18), so it is not watched; run watch --relock once it answers.' for four sellers that were answering. For pinned loopback sellers, watch --root: 'A peer could not be reached (the address is not https), so it was not checked.' (the template an offline seller gets: '(the connection failed)'); watch --url and the Desk: 'A peer in this lock was not contacted: it is not an https address, ...'. One situation, two sentences.",
+    "expected": "The pending line carries the capture reason; a refused seller reads the same on every surface.",
+    "got": "Recertify, real CLI: pending '... so it is not watched; it was not contacted now either: it is not an https address, an address Plumbline does not contact.'; pinned loopback sellers 'A peer in this lock was not contacted: it is not an https address, ... so it was not checked.', the sentence the Desk prints.",
     "evidence": [
-      "src/watch/decide.ts:237-238",
-      "src/watch/decide.ts:327",
-      "src/watch/decide.ts:446-447",
-      "l2-transcripts/00-watch.json",
-      "l2-transcripts/03-baseline.cli.json",
-      "l2-transcripts/21-watch-url.json"
+      "shots/tomasz-recert/t/01-onboarded-cli.txt",
+      "shots/tomasz-recert/t/04-baseline-cli.txt",
+      "shots/tomasz-recert/tom-rc-desk-drift-kilnrow.png"
+    ],
+    "code_check": "present-but-missed",
+    "verdict": "confirmed",
+    "resolution": "resolved-verified",
+    "l2_priority": "Real CLI.",
+    "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "ceiling": "The reason is asked again at each watch, not stored from capture time; the published reader's (watch --url, Desk) pending wording was not re-walked this week.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "01-onboarded-cli, 04-baseline-cli (real CLI), Desk drift",
+    "rank": 6
+  },
+  {
+    "id": "TOM-RC-3",
+    "journey": "j5-vetting-sellers",
+    "character": "tomasz-wieczorek",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "minor",
+    "impact": {
+      "frequency": "low",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "trust",
+    "title": "The refused relock's suggested command accepts every refused peer in one line, a swap with no rotation included, and runs without --trust",
+    "expected": "One command per peer (or none composed for 'a different key, with no rotation published'), carrying --trust when the refusal could check a rotation, so following the rotated seller cannot also accept the swapped one.",
+    "got": "First refusal: 'run: plumbline watch --root ... --relock --accept-signer http://127.0.0.1:4501/ashgrove_studio --accept-signer http://127.0.0.1:4502/brackenfold_shop'. Pasted on a copy: exit 0, both accepted, brackenfold '(a different key, with no rotation published; not checked: no --trust file given)'. The Action's issue and pull request text have the same shape.",
+    "evidence": [
+      "shots/tomasz-recert/t/07-plain-relock.txt",
+      "shots/tomasz-recert/t/10-B2-paste-refusal-command.txt",
+      "src/cli/watch-command.ts:188",
+      "action/report.mjs:198,324"
     ],
     "code_check": "present-but-missed",
     "verdict": "confirmed",
     "resolution": "open",
-    "l2_priority": "Real CLI.",
+    "suggested_acceptance": "After seller-rotates and seller-signer-swapped, no single command the refusal prints accepts both sellers.",
+    "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "rank": 6
+  },
+  {
+    "id": "TOM-RC-4",
+    "journey": "j5-vetting-sellers",
+    "character": "tomasz-wieczorek",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "minor",
+    "impact": {
+      "frequency": "low",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "trust",
+    "title": "A relock records a peer's first key, or a relisted peer's key, with only 'changed peer' or 'added peer': no signer line, even with --trust given",
+    "expected": "Every kid a relock writes that the previous lock did not hold for that peer is printed as a signer line, with its backing when --trust is given; a relisted peer is compared with the kid it last had.",
+    "got": "dovetail's first key c195cf32f3013c23 with '--accept <dovetail> --trust': 'changed peer ...dovetail_loom' only. copperwick's first key with --trust: 'changed peer' only. brackenfold delisted, relocked ('removed peer'), relisted and relocked: 'added peer ...brackenfold_shop', pinned 08825631fb57f303, watch with --trust exit 0. The --drop refusal advises exactly this delist path.",
+    "evidence": [
+      "shots/tomasz-recert/t/17-accept-D.txt",
+      "shots/tomasz-recert/t/24-accept-C.txt",
+      "shots/tomasz-recert/t/12-B3-1-relock-delisted.txt",
+      "shots/tomasz-recert/t/12-B3-3-relock-relisted.txt",
+      "shots/tomasz-recert/t/12-B3-4-watch-final.txt",
+      "src/watch/index.ts:185-188"
+    ],
+    "code_check": "present-but-missed",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "suggested_acceptance": "--accept <a seller signing for the first time> --trust prints 'signer peer <url>: (none) -> <kid> (...; not backed by your trust file)'; a relisted peer's relock says it had another kid before.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
     "rank": 6
   },
@@ -3162,9 +3485,17 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "resolved-verified",
     "l2_priority": "Done.",
     "source": "marta-hollis--j1-price-changed.md",
+    "ceiling": "Proved against a local bare remote with the Action's own step text: three consecutive pushes to the existing branch, each exit 0, the branch lock following the network €89 -> €95 -> €89. relock-pr is opt-in; a real runner, GitHub and branch protection are not exercised.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "branch plumbline/relock: d972990 (raise), 491049a (network €95), fea0321 (network €89 again)",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v1.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v2.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v3.json"
+    ],
     "rank": 4
   },
   {
@@ -3195,6 +3526,12 @@
     "l1_missed": "A rendering defect L1 could not see.",
     "l2_priority": "Recertify: trust from the verify view, read #verify-status.",
     "source": "marta-hollis--j1-price-changed.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Not built (UAT-32). After Trust: the card 'VERIFIED ... the verdict above is the new one.'; #verify-status 'Verify finished: Unverifiable.'",
+      "shots/marta-recert/rc-14-raise-verify-after-trust.png",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-trust2.json"
+    ],
     "rank": 4
   },
   {
@@ -3293,6 +3630,12 @@
       "reachability": "low",
       "trust_erosion": "med"
     },
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Not built (UAT-31; DC-3). 'Assistant needs your AI provider key.' The live read_drift result carries lockCover, the label and the corrected summary ('(1 price) ... old fact'), so the L2 widening (a keyed assistant would repeat a false all-clear) no longer holds on her page; no lock sources or kinds (check FAILED). Grounding 5/6, additions 0/2.",
+      "shots/marta-recert/rc-16-assistant.png",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-raise-laptop.json"
+    ],
     "rank": 3
   },
   {
@@ -3322,6 +3665,11 @@
     "resolution": "open",
     "l2_priority": "Low.",
     "source": "marta-hollis--j1-price-changed.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "One part fixed: '1 of 1 fact the lock watches on it (facts the network states) is no longer on it'. Open: init step 3 says 'To watch those too, name the pages that state them' when 'facts not watched on any page: none'; lockSummary is mentioned in site/drift.js comments only and rendered nowhere (grep of site/*.js and site/*.html).",
+      "Recertify journal: mini/one (real CLI init and watch)"
+    ],
     "rank": 3
   },
   {
@@ -3365,21 +3713,20 @@
     },
     "dimension": "clarity",
     "title": "Doc drift: the relock change labels omit 'external', and 'every report carries lockState' does not hold for watch --init",
-    "expected": "The docs list the 'external' label the code emits; the --init report carries lockState or the doc says it does not.",
-    "got": "Live: relocks printed 'added external', 'removed external' and 'changed external'; docs/gate-and-watch.md:295 lists grounding, runtime, peer, pending, runtime commit, runtime via. 'watch --init --json' on a fresh folder: keys = findings only.",
+    "expected": "The docs list the labels the code emits; the --init report carries lockState or the doc says it does not.",
+    "got": "Recertify: docs/gate-and-watch.md:346-347 still lists grounding, runtime, peer, pending, runtime commit, runtime via (no 'external', and not the new 'signer' line); watch --init --json on a fresh folder has the keys findings and facts.",
     "evidence": [
-      "docs/gate-and-watch.md:94",
-      "docs/gate-and-watch.md:295",
-      "src/watch/decide.ts:459-460,479-480",
-      "src/watch/index.ts:66",
-      "l2-transcripts/14-accept-card.txt",
-      "l2-transcripts/25-init-fresh.json"
+      "docs/gate-and-watch.md:346-347",
+      "shots/tomasz-recert/t/29-watch-init-fresh.json",
+      "shots/tomasz-recert/t/08b-accept-A.txt"
     ],
     "code_check": "present-but-missed",
     "verdict": "confirmed",
     "resolution": "open",
     "l2_priority": "None.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "29, docs read (UAT-14 not built)",
     "rank": 3
   },
   {
@@ -3450,19 +3797,45 @@
     },
     "dimension": "missing",
     "title": "The pre-load check cannot tell staged sellers apart: four states, one sentence, and no way to rehearse it before production",
-    "expected": "A rehearsal path (as verify --allow-local has) so the platform team can see what shoppers' browsers will be told for a signed, rotated, swapped and unsigned seller before going live.",
-    "got": "Live in Chromium (shipped module): all four sellers 'The peer was not contacted: it is not an https address.' (driver expect failed, exit 2). The https alias arm reaches them but every signed seller then reads 'the signature names a different origin' by design. Only the unsigned answer could be observed per state.",
+    "expected": "A rehearsal path so the platform team can see what shoppers' browsers will be told per seller state.",
+    "got": "Recertify: src/browser/preload.ts is unchanged in the range; it returns 'The peer was not contacted: it is not an https address.' before any fetch for every loopback seller.",
     "evidence": [
-      "src/browser/preload.ts:151-162",
-      "src/watch/decide.ts:436-443",
-      "l2-transcripts/22-desk.json"
+      "src/browser/preload.ts:151-162"
     ],
     "code_check": "by-design",
     "verdict": "uncertain",
     "resolution": "open",
     "l2_priority": "Not exercisable here for signed/rotated/swapped sellers. Fixture that closes it: kiln-row sellers served over https on loopback with a local CA the test browser trusts (or world sellers signed for https://<port>.seller.example origins and routed with page.route), then the same four pre-load calls.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "git diff 15af680..HEAD -- src/browser is empty (UAT-21, UAT-26 not built)",
     "rank": 2
+  },
+  {
+    "id": "TOM-RC-5",
+    "journey": "j5-vetting-sellers",
+    "character": "tomasz-wieczorek",
+    "cert_level": "L2",
+    "type": "confusion",
+    "severity": "polish",
+    "impact": {
+      "frequency": "low",
+      "reachability": "low",
+      "trust_erosion": "low"
+    },
+    "dimension": "clarity",
+    "title": "One relock, one situation, two reasons: a peer refused by the address rule 'could not be re-read (it is not an https address)', the card refused by the same rule '(it could not be read)'",
+    "expected": "The same reason words for a peer and a card that the address rule refused.",
+    "got": "Real CLI relock reaching no seller: four peers '... could not be re-read (it is not an https address), so the lock keeps its earlier pin ...' and the card 'An external agent definition could not be re-read (it could not be read), so the lock keeps its earlier record ...'.",
+    "evidence": [
+      "shots/tomasz-recert/t/15-cli-relock-reaches-none.txt"
+    ],
+    "code_check": "present-but-missed",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "suggested_acceptance": "The same relock names the address rule for the card as it does for the peers.",
+    "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "rank": 1
   },
   {
     "id": "DEV-L1-S1",
@@ -3634,10 +4007,16 @@
       "src/watch/anchors.ts:90"
     ],
     "code_check": "n-a",
-    "verdict": "refuted",
-    "resolution": "n-a",
+    "verdict": "confirmed",
+    "resolution": "resolved-verified",
     "l2_priority": "n-a",
     "source": "marta-hollis--j1-price-changed.md",
+    "ceiling": "Restored on her unchanged page (issue, Desk, tool result); not on a page that states the changed value elsewhere too (MAR-RC-1).",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.r1-raise.md",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.c1-cosmetic.md"
+    ],
     "rank": 9
   },
   {
@@ -3871,21 +4250,19 @@
     "dimension": "trust",
     "title": "Unreachable and refused are never green on the day they happen",
     "expected": "An unreachable seller or card is not clean.",
-    "got": "Live: offline seller warn, offline card warn, both exit 1; watch --url and the Desk drift: five warns 'not contacted: it is not an https address' plus a 'Not checked from ...' line; the pre-load module never called an uncontacted seller verified and never refused it. Ceiling: after a relock on that day, the card reads clean (TOM-L1-04) and the seller's pin is gone (TOM-L1-03).",
+    "got": "Recertify: seller-offline warn, card-offline warn (still warn after a relock), refused addresses 'was not contacted', all exit 1.",
     "evidence": [
-      "src/watch/decide.ts:229-241",
-      "src/watch/external.ts:101-112",
-      "src/watch/published.ts:146-147",
-      "l2-transcripts/09-offline.json",
-      "l2-transcripts/15-card-offline.json",
-      "l2-transcripts/21-watch-url.json",
-      "shots/tomasz/tom-l2-desk-drift-kilnrow.png"
+      "shots/tomasz-recert/t/13-offline.txt",
+      "shots/tomasz-recert/t/19-watch-card-still-down.txt",
+      "shots/tomasz-recert/t/04-baseline-cli.txt"
     ],
     "code_check": "n-a",
     "verdict": "confirmed",
     "resolution": "n-a",
     "l2_priority": "Guardrail: any fix to TOM-L1-03/04 must keep this.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "not regressed",
     "rank": 9
   },
   {
@@ -4002,6 +4379,12 @@
     "l2_priority": "Confirm on the served Desk against larch-house.",
     "source": "marta-hollis--j1-price-changed.md",
     "ceiling": "Honest about what it did not read; silent about what the lock never watched.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Held, not regressed: address in, reading out at 1280 and 390 px; rooms-no-cors reads 'could not be checked'; 'Not checked from a browser: ...' under every result.",
+      "shots/marta-recert/rc-10-raise-drift-phone.png",
+      "shots/marta-recert/rc-17-raise-nocors-drift.png"
+    ],
     "rank": 6
   },
   {
@@ -4033,6 +4416,42 @@
     "l2_priority": "Quote both from the gh stub's recorded calls.",
     "source": "marta-hollis--j1-price-changed.md",
     "ceiling": "The words are careful; the clean close after an unsigned merge is not.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": [
+      "Held, not regressed: close comment '(Clean is not safe: it means nothing locked has drifted.)'; PR '**Not signed.** ... It stays a draft until then. Nothing is accepted until a person merges this.'",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/gh-state.main-path.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/pr-body.v1-raise.md"
+    ],
+    "rank": 6
+  },
+  {
+    "id": "MAR-RC-4",
+    "journey": "j1-price-changed",
+    "character": "marta-hollis",
+    "cert_level": "L2",
+    "type": "trust",
+    "strength": true,
+    "severity": "polish",
+    "impact": {
+      "frequency": "med",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "trust",
+    "title": "Strength: nothing accepts a stale fact: the relock keeps it ('Not accepted ...'), the PR lists it first under 'does not accept', no PR is offered when it is the only change, and an unsigned merge leaves the issue open with a block",
+    "expected": "No accept path ends in a clean report while the assistant states a fact the page no longer does.",
+    "got": "CLI relock: 'no ref changed' and 'Not accepted: the network still states 1 fact this page no longer states (1 price) ...'; W3 pr-plan none; W4 PR body opens 'What this relock does not accept'; after the unsigned merge, issue #1 open with the stale price and a block.",
+    "evidence": [
+      "src/watch/capture.ts:175",
+      "action/report.mjs:509-512",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.w2cli.json",
+      "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v4.json"
+    ],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "resolution": "n-a",
+    "ceiling": "`--drop <page>` still removes a page and its alert; that is a deliberate developer act, not an accept.",
+    "source": "marta-hollis--j1-price-changed.md",
     "rank": 6
   },
   {
@@ -4079,18 +4498,18 @@
     "dimension": "senior-quality",
     "title": "A changed Agent Card or seller is counted in stated units, without quoting the stranger",
     "expected": "What changed, in counts with units.",
-    "got": "Live: 'In outline: skills: 1 added, 0 removed, 1 changed; it carries 1 JWS signature, not verified here.' and 'In outline: agents: 1 added, 0 removed, 1 changed; outbound hosts: 0 added, 0 removed; front agent: unchanged.' No skill or agent name was quoted.",
+    "got": "Recertify: 'skills: 1 added, 0 removed, 1 changed; it carries 1 JWS signature' and 'agents: 1 added, 0 removed, 1 changed; outbound hosts: 0 added, 0 removed; front agent: unchanged'.",
     "evidence": [
-      "src/watch/external.ts:88-93,116-121",
-      "src/watch/outline.ts:141-147",
-      "l2-transcripts/13-card-change.json",
-      "l2-transcripts/11-control-pin-kept.json"
+      "shots/tomasz-recert/t/21-card-change.txt",
+      "shots/tomasz-recert/t/16-back-changed.txt"
     ],
     "code_check": "n-a",
     "verdict": "confirmed",
     "resolution": "n-a",
     "l2_priority": "Guardrail.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "not regressed",
     "rank": 6
   },
   {
@@ -4109,18 +4528,19 @@
     "dimension": "trust",
     "title": "adopt follows a rotation only through a key already trusted, names each hop, and needs --yes; verify's text hint names the exact adopt command",
     "expected": "Following a rotation is the verifier's decision, never automatic.",
-    "got": "Live: 'rotation 302c8e65a27575a0 -> e5e0ace512a8c3bf ... verified ... A key this verifier already trusts for this origin named its successor. ... nothing adopted: adopting a successor is your decision; rerun with --yes to add it'; then verify 'verified'. The Desk's trust import likewise listed each entry and needed 'Add these 3 to my trust list'.",
+    "got": "Recertify: adopt without --yes: 'nothing adopted: adopting a successor is your decision; rerun with --yes to add it', trust file byte-identical; with --yes the key is added; the Desk's trust import needed its confirm.",
     "evidence": [
-      "src/cli/trust-command.ts:260-291",
-      "src/cli/commands.ts:621-627",
-      "l2-transcripts/05-adopt-4501.json",
-      "shots/tomasz/tom-l2-desk-trust-import-offer.png"
+      "shots/tomasz-recert/t/06-adopt-4501.txt",
+      "shots/tomasz-recert/t/08-adopt-yes-4501.json",
+      "shots/tomasz-recert/tom-rc-desk-trust-import-offer.png"
     ],
     "code_check": "n-a",
     "verdict": "confirmed",
     "resolution": "n-a",
     "l2_priority": "Guardrail.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "not regressed",
     "rank": 6
   },
   {
@@ -4139,18 +4559,19 @@
     "dimension": "clarity",
     "title": "The relock prints every changed ref, including removals, with the re-sign reminder",
     "expected": "Nothing leaves the lock without a line.",
-    "got": "Live: every relock listed its added, removed and changed refs, including 'removed external' and 'added pending', and ended with the re-sign reminder. Ceiling: 'changed peer' never says that a signer changed (TOM-L1-01).",
+    "got": "Recertify: every relock listed its refs and the reminder, and an accepted signer now adds a 'signer peer ... (how; backing)' line. Ceiling: a peer's first key, or a key that returns after the lock recorded the peer unsigned, gets only 'changed peer' (TOM-RC-1, TOM-RC-4).",
     "evidence": [
-      "src/watch/decide.ts:462-490",
-      "src/cli/watch-command.ts:116-123",
-      "l2-transcripts/10-relock-while-D-down.txt",
-      "l2-transcripts/16-relock-card-down.json"
+      "shots/tomasz-recert/t/08b-accept-A.txt",
+      "shots/tomasz-recert/t/17-accept-D.txt",
+      "shots/tomasz-recert/t/11-B1-4-plain-relock-back.txt"
     ],
     "code_check": "n-a",
     "verdict": "confirmed",
     "resolution": "n-a",
     "l2_priority": "Guardrail; TOM-L1-01/03 ask it to say more (signer words), not less.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "not regressed",
     "rank": 6
   },
   {
@@ -4257,15 +4678,17 @@
     "dimension": "clarity",
     "title": "init is honest where watch --init is not: on an existing lock it says 'kept' and turns each --source into a 'Not added' line",
     "expected": "A flag that cannot act says so.",
-    "got": "Not re-run at L2 (init --source on the existing lock). Live only: 'init --external' is refused with 'unknown argument --external', exit 2, which is honest. L1's executed evidence stands.",
+    "got": "Recertify, real CLI on kiln-row's lock: 'init: kept the plumbline.lock.json that is there (accept changes with watch --relock after a review)' and 'info grounding index.html: Not added: a lock was already there, and init never rewrites one; add it with watch --relock --source after a review.'; lock unchanged.",
     "evidence": [
-      "src/cli/init-command.ts:132-136,171"
+      "shots/tomasz-recert/t/28-init-source-existing.txt"
     ],
     "code_check": "n-a",
-    "verdict": "uncertain",
+    "verdict": "confirmed",
     "resolution": "n-a",
     "l2_priority": "Re-run 'plumbline init --root site --source index.html' on kiln-row's onboarded lock at the next L2.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "confirmed live (uncertain at L2)",
     "rank": 3
   },
   {
@@ -4284,16 +4707,17 @@
     "dimension": "trust",
     "title": "The pre-load check reads an unsigned peer as unverifiable in plain words and does not refuse it",
     "expected": "Unsigned is unverifiable, neither good nor bad.",
-    "got": "Live in Chromium (the shipped module, alias arm): {verdict: unverifiable, signed: false, refuse: false, detail: 'The peer publishes no signature, so who published its definition cannot be told.'}. On live loopback addresses: unverifiable 'The peer was not contacted: it is not an https address.', refuse false.",
+    "got": "Recertify: src/browser/preload.ts is unchanged in the range; L2's live evidence stands.",
     "evidence": [
-      "src/browser/preload.ts:82,151-162,187",
-      "l2-transcripts/22-desk.json"
+      "src/browser/preload.ts:82,151-162"
     ],
     "code_check": "n-a",
     "verdict": "confirmed",
     "resolution": "n-a",
     "l2_priority": "Guardrail; the target for TOM-L1-06's other surfaces.",
     "source": "tomasz-wieczorek--j5-vetting-sellers.md",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": "code unchanged; not re-driven",
     "rank": 2
   }
 ]

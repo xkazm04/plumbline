@@ -1,0 +1,13 @@
+{
+  "lockState": "found",
+  "findings": [
+    {
+      "kind": "runtime",
+      "severity": "info",
+      "ref": "cognizant-ai-labs/agentic-web",
+      "expected": "7ee54a3",
+      "actual": "997c4fb",
+      "summary": "Upstream is ahead: the runtime folder in cognizant-ai-labs/agentic-web changed after the copy (copied at 7ee54a3; the folder's newest commit is 997c4fb)."
+    }
+  ]
+}

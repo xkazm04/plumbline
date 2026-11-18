@@ -1,0 +1,11 @@
+await goto(BASE_URL + '#/drift');
+await waitFor('#drift-target');
+await fill('#drift-target', 'http://127.0.0.1:4100/');
+await click('#drift-run');
+await waitUntil(() => /Drift read|could not/i.test(document.querySelector('#drift-status')?.textContent || ''), { label: 'drift settles', timeout: 60000 });
+await waitUntil(() => (document.querySelector('#drift-result')?.textContent || '').length > 20, { label: 'result', timeout: 30000 });
+await snap('rc-17-raise-nocors-drift');
+const res = await page.locator('#drift-result').innerText();
+note('status', await page.locator('#drift-status').innerText()); note('result', res);
+expectMatch('names the header or CORS to ask the host for', res, /Access-Control-Allow-Origin|\bCORS\b|ask your host/i);
+expectMatch('not green: could not be checked', res, /could not be (checked|fetched)[^.]*/);

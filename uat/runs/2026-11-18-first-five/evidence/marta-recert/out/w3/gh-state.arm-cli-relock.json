@@ -1,0 +1,64 @@
+{
+  "next": 2,
+  "issues": [
+    {
+      "number": 1,
+      "title": "Plumbline drift",
+      "body": "Plumbline watch found drift since `plumbline.lock.json` was written.\n\n| Severity | Kind | Ref | What |\n| --- | --- | --- | --- |\n| warn | grounding | rooms.html | A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact. |\n\n`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. After reviewing a change you accept, in a clone of xkazm04/plumbline at the commit this workflow pins, run `node dist/cli/index.js watch --root <path to your site> --relock`, sign the site again (the lock is a signed file) and commit both. The next clean run closes this issue.\n\n\nA clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.\n\n<!-- plumbline:digest [[\"warn\",\"grounding\",\"rooms.html\",\"fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\"]] -->\n",
+      "state": "open",
+      "comments": [],
+      "history": [
+        {
+          "run": "w1-relockpr-at-raise",
+          "did": "created"
+        }
+      ]
+    }
+  ],
+  "prs": [],
+  "calls": [
+    {
+      "run": "w0-setup",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "w0-setup",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    },
+    {
+      "run": "w1-relockpr-at-raise",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "w1-relockpr-at-raise",
+      "call": "issue create --title Plumbline drift --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-u0wiol/_uat/tmp/w1-relockpr-at-raise/plumbline-issue.md",
+      "what": "issue create",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "w1-relockpr-at-raise",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    },
+    {
+      "run": "w2-after-cli-relock",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "w2-after-cli-relock",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    }
+  ]
+}

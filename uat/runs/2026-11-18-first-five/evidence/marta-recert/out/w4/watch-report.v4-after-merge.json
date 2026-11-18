@@ -1,0 +1,25 @@
+{
+  "lockState": "found",
+  "findings": [
+    {
+      "kind": "grounding",
+      "severity": "warn",
+      "ref": "rooms.html",
+      "expected": "87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee",
+      "actual": "fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12",
+      "summary": "A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact."
+    },
+    {
+      "kind": "runtime",
+      "severity": "info",
+      "ref": "cognizant-ai-labs/agentic-web",
+      "summary": "Could not check upstream: GitHub rate-limited the request until epoch 1795013413."
+    },
+    {
+      "kind": "grounding",
+      "severity": "block",
+      "ref": "plumbline.signature.json",
+      "summary": "The site's signature no longer covers its files: 1 of 3 signed files differs from the signed version or is missing (plumbline.lock.json), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign)."
+    }
+  ]
+}

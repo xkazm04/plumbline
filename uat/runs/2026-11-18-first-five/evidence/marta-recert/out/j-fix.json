@@ -1,0 +1,74 @@
+{
+  "ok": false,
+  "exit": 2,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert",
+  "checks": [
+    {
+      "label": "no stale-fact sentence after the fix",
+      "pass": true,
+      "pattern": "/no stale fact is left[^.]*/",
+      "match": "no stale fact is left: review the change, then re-lock (watch --relock)",
+      "context": " network no longer states it either, so no stale fact is left: review the change, then re-lock (watch --relock). locked 87b52e6f251d7602dbb2cf220d211c"
+    },
+    {
+      "label": "the old-fact warning is gone (must NOT match)",
+      "pass": true,
+      "pattern": "/^(?![\\s\\S]*old fact)[\\s\\S]*$/",
+      "match": "Lock read from http://127.0.0.1:4100/plumbline.lock.json\n\nThe signature over this lock does not hold (verify says why): the host may have rewritten it.\n\nGROUNDING (2)\n!\nWARNING\nlarch_house.network.json\n\nA grounding source changed since the lock was written; the agent now answers from different facts: review the change, then re-lock (watch --relock).\n\nlocked af65d05e709de774cfc0dd8dd44e154f45d7e23092a03f9c53f0941634c1e489 · now 09c35b8d4813be73049252ea49425f6b0aa595ebc411c13f048a592eeab3d43c\n\n!\nWARNING\nrooms.html\n\nA grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network no longer states it either, so : review the change, then re-lock (watch --relock).\n\nlocked 87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee · now fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\n\nPEERS (1)\n!\nWARNING\nhttp://127.0.0.1:4101/fellside_bikes\n\nA peer in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked.\n\nNot checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub).",
+      "context": "Lock read from http://127.0.0.1:4100/plumbline.lock.json The signature over this lock does not hold (verify says why): the host may have rewritten it. GROUNDING (2) ! WARNING larch_house.network.json A grounding source changed since the lock was written; the agent now answers from different facts: review the change, then re-lock (watch --relock). locked af65d05e709de774cfc0dd8dd44e154f45d7e23092a03f9c53f0941634c1e489 · now 09c35b8d4813be73049252ea49425f6b0aa595ebc411c13f048a592eeab3d43c ! WARNING rooms.html A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network no longer states it either, so : review the change, then re-lock (watch --relock). locked 87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee · now fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12 PEERS (1) ! WARNING http://127.0.0.1:4101/fellside_bikes A peer in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked. Not checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub)."
+    },
+    {
+      "label": "the Desk names the broken signature (watch-only per UAT-2 ceiling?)",
+      "pass": false,
+      "pattern": "/signature no longer covers|signature does not hold|invalid/i",
+      "match": null
+    }
+  ],
+  "snaps": [
+    {
+      "name": "rc-20-fix-drift",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-20-fix-drift.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-20-fix-drift.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-20-fix-drift.txt"
+    },
+    {
+      "name": "rc-21-fix-verify",
+      "url": "http://127.0.0.1:4199/#/verify",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-21-fix-verify.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-21-fix-verify.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-21-fix-verify.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "status": "Drift read: 3 findings, the worst Warning. The lock's signature does not hold.",
+    "result": "Lock read from http://127.0.0.1:4100/plumbline.lock.json\n\nThe signature over this lock does not hold (verify says why): the host may have rewritten it.\n\nGROUNDING (2)\n!\nWARNING\nlarch_house.network.json\n\nA grounding source changed since the lock was written; the agent now answers from different facts: review the change, then re-lock (watch --relock).\n\nlocked af65d05e709de774cfc0dd8dd44e154f45d7e23092a03f9c53f0941634c1e489 · now 09c35b8d4813be73049252ea49425f6b0aa595ebc411c13f048a592eeab3d43c\n\n!\nWARNING\nrooms.html\n\nA grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network no longer states it either, so no stale fact is left: review the change, then re-lock (watch --relock).\n\nlocked 87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee · now fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\n\nPEERS (1)\n!\nWARNING\nhttp://127.0.0.1:4101/fellside_bikes\n\nA peer in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked.\n\nNot checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub).",
+    "verify": "✕\nINVALID: A SIGNED FILE CHANGED, OR IS MISSING\nhttp://127.0.0.1:4100/\n\nSomething is wrong: a signed file changed or is missing, the signature expired, it does not check out under the key you trust, or that key has been revoked. Do not treat these files as the publisher's.\n\nA signed file differs from the version that was signed: larch_house.network.json.\n\nSigner key id\n768793a9a535e8df\nSigned for origin\nhttp://127.0.0.1:4100\nFiles fetched from\nhttp://127.0.0.1:4100\nSignature valid until\n2027-02-16\nSigned files\nagent-manifest.json, larch_house.network.json, plumbline.lock.json"
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "pageErrors": []
+}

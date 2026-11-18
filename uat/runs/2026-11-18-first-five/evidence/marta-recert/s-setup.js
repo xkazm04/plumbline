@@ -1,0 +1,18 @@
+await goto(BASE_URL);
+await waitUntil(() => document.querySelectorAll('#portlist-items li').length >= 5, { label: 'ports rendered' });
+const ov = await snap('rc-01-setup-overview');
+const ovText = await page.locator('body').innerText();
+note('overviewHead', ovText.slice(0, 900));
+expectMatch('landing shows a Passed example card', ovText, /\bPassed\b/);
+expectMatch('landing still uses the nautical subtitles', ovText, /Set and drift|Take a fix/);
+await goto(BASE_URL + '#/drift');
+await waitFor('#drift-target');
+await fill('#drift-target', 'http://127.0.0.1:4100/');
+await click('#drift-run');
+await waitUntil(() => /Drift read|could not|No drift|finding/i.test(document.querySelector('#drift-status')?.textContent || ''), { label: 'drift status settles', timeout: 60000 });
+await waitUntil(() => (document.querySelector('#drift-result')?.textContent || '').length > 20, { label: 'drift result rendered', timeout: 30000 });
+await snap('rc-02-setup-drift');
+const st = await page.locator('#drift-status').innerText();
+const res = await page.locator('#drift-result').innerText();
+note('driftStatus', st); note('driftResult', res);
+expectMatch('setup drift status (record)', st, /Drift read[^\n]*/);

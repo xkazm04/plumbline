@@ -1,0 +1,18 @@
+await goto(BASE_URL + '#/drift');
+await waitFor('#drift-target');
+await fill('#drift-target', 'http://127.0.0.1:4100/');
+await click('#drift-run');
+await waitUntil(() => /Drift read|could not/i.test(document.querySelector('#drift-status')?.textContent || ''), { label: 'drift settles', timeout: 60000 });
+await waitUntil(() => (document.querySelector('#drift-result')?.textContent || '').length > 20, { label: 'result', timeout: 30000 });
+await snap('rc-40-W-after-merge-drift');
+const res = await page.locator('#drift-result').innerText();
+note('status', await page.locator('#drift-status').innerText()); note('result', res);
+expectMatch('after the merge the Desk still reports the stale price on rooms.html', res, /rooms\.html[\s\S]{0,40}[\s\S]*?network still states it \(1 price\)/);
+expectMatch('the Desk labels the lock signature as not holding', res, /does not hold[^.]*/);
+await goto(BASE_URL + '#/verify');
+await waitFor('#verify-target');
+await fill('#verify-target', 'http://127.0.0.1:4100/');
+await click('#verify-run');
+await waitUntil(() => /finished/i.test(document.querySelector('#verify-status')?.textContent || ''), { label: 'verify settles', timeout: 60000 });
+await snap('rc-41-W-after-merge-verify');
+note('verify', (await page.locator('#verify-result').innerText()).slice(0, 500));

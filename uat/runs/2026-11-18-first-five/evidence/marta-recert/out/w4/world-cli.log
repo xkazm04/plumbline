@@ -1,0 +1,27 @@
+$ (cd <world>) plumbline keygen --out <world>/keys/larch-house
+kid 3ccba46594c09979
+private key: C:\Users\kazda\AppData\Local\Temp\plumbline-uat-larch-house-eLX3bt\keys\larch-house\plumbline.private.json
+public record: C:\Users\kazda\AppData\Local\Temp\plumbline-uat-larch-house-eLX3bt\keys\larch-house\.well-known\plumbline-key.json
+WARNING: Back up the private key file and never commit it: key loss is identity loss, and a leaked key lets anyone sign as you.
+WARNING: A key held in browser memory is exposed to every script running on that origin; keep signing keys out of the page.
+[exit 0]
+
+$ (cd <world>/larch-house) plumbline init --root site --source rooms.html --workflow
+init: wrote plumbline.lock.json (3 grounding sources, 4 runtime files, 0 peers, 1 pending)
+facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+facts rooms.html: watches 7 (3 prices, 2 times, 1 phone number, 1 e-mail address); not on it: 2 (2 times: 07:00, 22:00)
+facts not watched on any page: 2 (2 times: 07:00, 22:00); a change to them is not seen until a --source page states them
+warn  peer http://127.0.0.1:4101/fellside_bikes: A peer could not be captured, so the lock holds it as pending and every watch reports it (it is not an https address).
+init: wrote .github/workflows/plumbline-watch.yml (root: site)
+next:
+  1. Commit plumbline.lock.json and .github/workflows/plumbline-watch.yml. The watch needs nothing else: no key, no trust file.
+  2. The workflow runs daily and keeps one drift issue (it needs issues: write).
+  3. The "facts" lines above say which facts your network states each page watches, and which no page states. To watch those too, name the pages that state them (or write them there in a form the watch reads): plumbline watch --root site --relock --source <page>.
+  4. Upgrade, when you are ready: sign the agent files. plumbline keygen --out <a folder outside the site>, then plumbline sign --root site --key <that folder>/plumbline.private.json --origin <https origin>. The lock is a signed file: sign again after every --relock.
+[exit 1]
+
+$ (cd <world>) plumbline sign --root <world>/larch-house/site --key <world>/keys/larch-house/plumbline.private.json --origin http://127.0.0.1:4100
+signed 3 files as 3ccba46594c09979 for http://127.0.0.1:4100, expires 2027-02-16T14:04:26.837Z
+wrote C:\Users\kazda\AppData\Local\Temp\plumbline-uat-larch-house-eLX3bt\larch-house\site\plumbline.signature.json
+[exit 0]
+

@@ -1,0 +1,103 @@
+{
+  "label": "v0-setup",
+  "harness": true,
+  "issues": "true",
+  "relockPr": "true",
+  "repoName": "larchhouse/larchhouse-site",
+  "root": "site",
+  "failedStep": null,
+  "steps": [
+    {
+      "id": "inputs",
+      "name": "Check the inputs",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {}
+    },
+    {
+      "id": "run",
+      "name": "Run plumbline",
+      "code": 0,
+      "stdoutTail": "{\n  \"lockState\": \"found\",\n  \"findings\": [\n    {\n      \"kind\": \"runtime\",\n      \"severity\": \"info\",\n      \"ref\": \"cognizant-ai-labs/agentic-web\",\n      \"summary\": \"Could not check upstream: GitHub rate-limited the request until epoch 1795013413.\"\n    },\n    {\n      \"kind\": \"peer\",\n      \"severity\": \"warn\",\n      \"ref\": \"http://127.0.0.1:4101/fellside_bikes\",\n      \"summary\": \"A peer could not be captured when the lock was written (pending since 2026-11-18), so it is not watched; it answers now: review it, then run watch --relock to capture it.\"\n    }\n  ]\n}\n",
+      "stderrTail": "local-cli: TEST HARNESS (uat/driver/local-cli.mjs): the built Plumbline modules with allowLocal; the product's CLI cannot do this run against a loopback site\n",
+      "outputs": {
+        "report": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v0-setup/plumbline-watch.json",
+        "findings": "1",
+        "issue-body": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v0-setup/plumbline-issue.md"
+      }
+    },
+    {
+      "id": "issue-plan",
+      "name": "Decide on the drift issue",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {
+        "action": "create",
+        "number": "",
+        "comment": ""
+      }
+    },
+    {
+      "id": "issue-do",
+      "name": "Open, edit or close the drift issue",
+      "code": 0,
+      "stdoutTail": "https://github.com/stub/stub/issues/1\n",
+      "stderrTail": "",
+      "outputs": {}
+    },
+    {
+      "id": "pr-plan",
+      "name": "Decide on the pull request",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "Switched to a new branch 'plumbline/relock'\nlocal-cli: TEST HARNESS (uat/driver/local-cli.mjs): the built Plumbline modules with allowLocal; the product's CLI cannot do this run against a loopback site\n",
+      "outputs": {
+        "action": "create",
+        "number": "",
+        "draft": "true",
+        "title": "Plumbline: accept the drift (relock)",
+        "branch": "plumbline/relock",
+        "body": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v0-setup/plumbline-pr/body.md",
+        "comment": ""
+      }
+    },
+    {
+      "id": "pr-do",
+      "name": "Open, update or close the pull request",
+      "code": 0,
+      "stdoutTail": "https://github.com/stub/stub/pull/2\n",
+      "stderrTail": "",
+      "outputs": {}
+    }
+  ],
+  "ghCallsThisRun": [
+    {
+      "run": "v0-setup",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "v0-setup",
+      "call": "issue create --title Plumbline drift --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v0-setup/plumbline-issue.md",
+      "what": "issue create",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "v0-setup",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    },
+    {
+      "run": "v0-setup",
+      "call": "pr create --draft --head plumbline/relock --title Plumbline: accept the drift (relock) --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v0-setup/plumbline-pr/body.md",
+      "what": "pr create",
+      "notifies": true,
+      "number": 2
+    }
+  ]
+}

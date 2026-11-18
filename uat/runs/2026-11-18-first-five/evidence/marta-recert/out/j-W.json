@@ -1,0 +1,68 @@
+{
+  "ok": true,
+  "exit": 0,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert",
+  "checks": [
+    {
+      "label": "after the merge the Desk still reports the stale price on rooms.html",
+      "pass": true,
+      "pattern": "/rooms\\.html[\\s\\S]{0,40}[\\s\\S]*?network still states it \\(1 price\\)/",
+      "match": "rooms.html\n\nA grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price)",
+      "context": " rewritten it. GROUNDING (1) ! WARNING rooms.html A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an ol"
+    },
+    {
+      "label": "the Desk labels the lock signature as not holding",
+      "pass": true,
+      "pattern": "/does not hold[^.]*/",
+      "match": "does not hold (verify says why): the host may have rewritten it",
+      "context": "lock.json The signature over this lock does not hold (verify says why): the host may have rewritten it. GROUNDING (1) ! WARNING rooms.html A"
+    }
+  ],
+  "snaps": [
+    {
+      "name": "rc-40-W-after-merge-drift",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-40-W-after-merge-drift.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-40-W-after-merge-drift.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-40-W-after-merge-drift.txt"
+    },
+    {
+      "name": "rc-41-W-after-merge-verify",
+      "url": "http://127.0.0.1:4199/#/verify",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-41-W-after-merge-verify.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-41-W-after-merge-verify.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-41-W-after-merge-verify.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "status": "Drift read: 2 findings, the worst Warning. The lock's signature does not hold.",
+    "result": "Lock read from http://127.0.0.1:4100/plumbline.lock.json\n\nThe signature over this lock does not hold (verify says why): the host may have rewritten it.\n\nGROUNDING (1)\n!\nWARNING\nrooms.html\n\nA grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.\n\nlocked 87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee · now fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\n\nPEERS (1)\n!\nWARNING\nhttp://127.0.0.1:4101/fellside_bikes\n\nA peer in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked.\n\nNot checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub).",
+    "verify": "✕\nINVALID: A SIGNED FILE CHANGED, OR IS MISSING\nhttp://127.0.0.1:4100/\n\nSomething is wrong: a signed file changed or is missing, the signature expired, it does not check out under the key you trust, or that key has been revoked. Do not treat these files as the publisher's.\n\nA signed file differs from the version that was signed: plumbline.lock.json.\n\nSigner key id\n3ccba46594c09979\nSigned for origin\nhttp://127.0.0.1:4100\nFiles fetched from\nhttp://127.0.0.1:4100\nSignature valid until\n2027-02-16\nSi"
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "pageErrors": []
+}

@@ -1,0 +1,298 @@
+{
+  "next": 3,
+  "issues": [
+    {
+      "number": 1,
+      "title": "Plumbline drift",
+      "body": "Plumbline watch found drift since `plumbline.lock.json` was written.\n\n| Severity | Kind | Ref | What |\n| --- | --- | --- | --- |\n| warn | grounding | rooms.html | A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact. |\n| block | grounding | plumbline.signature.json | The site's signature no longer covers its files: 1 of 3 signed files differs from the signed version or is missing (plumbline.lock.json), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign). |\n\n`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. After reviewing a change you accept, in a clone of xkazm04/plumbline at the commit this workflow pins, run `node dist/cli/index.js watch --root <path to your site> --relock`, sign the site again (the lock is a signed file) and commit both. The next clean run closes this issue.\n\n\nA clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.\n\n<!-- plumbline:digest [[\"block\",\"grounding\",\"plumbline.signature.json\"],[\"warn\",\"grounding\",\"rooms.html\",\"fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\"]] -->\n",
+      "state": "open",
+      "comments": [
+        {
+          "run": "v1-raise",
+          "body": "Plumbline watch's findings changed as of https://github.com/larchhouse/larchhouse-site/actions/runs/v1-raise. The table in the issue body is up to date.\n\nNew:\n\n- **warn** grounding `rooms.html`: A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.\n"
+        },
+        {
+          "run": "v2-fix-temp",
+          "body": "**A new `block` finding.** Look before the next release.\n\nPlumbline watch's findings changed as of https://github.com/larchhouse/larchhouse-site/actions/runs/v2-fix-temp. The table in the issue body is up to date.\n\nNew:\n\n- **block** grounding `plumbline.signature.json`: The site's signature no longer covers its files: 1 of 3 signed files differs from the signed version or is missing (larch_house.network.json), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign).\n- **warn** grounding `larch_house.network.json`: A grounding source changed since the lock was written; the agent now answers from different facts: review the change, then re-lock (watch --relock).\n"
+        },
+        {
+          "run": "v3b-rolled-back",
+          "body": "Plumbline watch's findings changed as of https://github.com/larchhouse/larchhouse-site/actions/runs/v3b-rolled-back. The table in the issue body is up to date.\n\nNo longer reported:\n\n- **block** grounding `plumbline.signature.json`\n- **warn** grounding `larch_house.network.json`\n"
+        },
+        {
+          "run": "v4-after-merge",
+          "body": "**A new `block` finding.** Look before the next release.\n\nPlumbline watch's findings changed as of https://github.com/larchhouse/larchhouse-site/actions/runs/v4-after-merge. The table in the issue body is up to date.\n\nNew:\n\n- **block** grounding `plumbline.signature.json`: The site's signature no longer covers its files: 1 of 3 signed files differs from the signed version or is missing (plumbline.lock.json), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign).\n\nNo longer reported:\n\n- **warn** peer `http://127.0.0.1:4101/fellside_bikes`\n"
+        }
+      ],
+      "history": [
+        {
+          "run": "v0-setup",
+          "did": "created"
+        },
+        {
+          "run": "v1-raise",
+          "did": "body edited"
+        },
+        {
+          "run": "v1-raise",
+          "did": "commented"
+        },
+        {
+          "run": "v2-fix-temp",
+          "did": "body edited"
+        },
+        {
+          "run": "v2-fix-temp",
+          "did": "commented"
+        },
+        {
+          "run": "v3b-rolled-back",
+          "did": "body edited"
+        },
+        {
+          "run": "v3b-rolled-back",
+          "did": "commented"
+        },
+        {
+          "run": "v4-after-merge",
+          "did": "body edited"
+        },
+        {
+          "run": "v4-after-merge",
+          "did": "commented"
+        }
+      ]
+    }
+  ],
+  "prs": [
+    {
+      "number": 2,
+      "title": "Plumbline: accept the drift (relock)",
+      "head": "plumbline/relock",
+      "body": "Plumbline watch found drift as of https://github.com/larchhouse/larchhouse-site/actions/runs/v3b-rolled-back, and this pull request accepts it: `plumbline watch --relock` rewrote `plumbline.lock.json` from the current state.\n\n**What the new lock changes:**\n\n- added `peer http://127.0.0.1:4101/fellside_bikes`\n- removed `pending http://127.0.0.1:4101/fellside_bikes`\n\n**What this relock does not accept, or keeps as it was** (these keep reporting after a merge):\n\n| Severity | Kind | Ref | What |\n| --- | --- | --- | --- |\n| warn | grounding | rooms.html | Not accepted: the network still states 1 fact this page no longer states (1 price), and no other locked page states it, so the agent may answer with an old fact. The lock keeps its earlier record of this page, so every watch still reports it: correct the network (or the page), then re-lock, or take the page out with --drop. |\n\n**The findings this accepts** (review each before merging; a `block` is changed code):\n\n| Severity | Kind | Ref | What |\n| --- | --- | --- | --- |\n| warn | peer | http://127.0.0.1:4101/fellside_bikes | A peer could not be captured when the lock was written (pending since 2026-11-18), so it is not watched; it answers now: review it, then run watch --relock to capture it. |\n\n**Not signed.** The lock is a signed file, so the site's signature reads invalid (tampered) until it is signed again. Check out this branch, run `plumbline sign` with your key, push, and mark this pull request ready. It stays a draft until then.\n\nNothing is accepted until a person merges this. A clean watch closes it.\n\n<!-- plumbline:digest [[\"warn\",\"grounding\",\"rooms.html\",\"fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\"],[\"warn\",\"peer\",\"http://127.0.0.1:4101/fellside_bikes\"]] -->\n",
+      "isDraft": false,
+      "state": "merged",
+      "comments": [],
+      "history": [
+        {
+          "run": "v0-setup",
+          "did": "created"
+        },
+        {
+          "run": "v1-raise",
+          "did": "body edited"
+        },
+        {
+          "run": "v1-raise",
+          "did": "made draft"
+        },
+        {
+          "run": "v2-fix-temp",
+          "did": "body edited"
+        },
+        {
+          "run": "v2-fix-temp",
+          "did": "made draft"
+        },
+        {
+          "run": "v3b-rolled-back",
+          "did": "body edited"
+        },
+        {
+          "run": "v3b-rolled-back",
+          "did": "made draft"
+        },
+        {
+          "run": "marta-merge",
+          "did": "made ready, merged (GitHub merge button)"
+        }
+      ]
+    }
+  ],
+  "calls": [
+    {
+      "run": "v0-setup",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "v0-setup",
+      "call": "issue create --title Plumbline drift --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v0-setup/plumbline-issue.md",
+      "what": "issue create",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "v0-setup",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    },
+    {
+      "run": "v0-setup",
+      "call": "pr create --draft --head plumbline/relock --title Plumbline: accept the drift (relock) --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v0-setup/plumbline-pr/body.md",
+      "what": "pr create",
+      "notifies": true,
+      "number": 2
+    },
+    {
+      "run": "v1-raise",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "v1-raise",
+      "call": "issue edit 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v1-raise/plumbline-issue.md",
+      "what": "issue edit",
+      "notifies": false,
+      "number": 1
+    },
+    {
+      "run": "v1-raise",
+      "call": "issue comment 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v1-raise/plumbline-issue-comment.md",
+      "what": "issue comment",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "v1-raise",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    },
+    {
+      "run": "v1-raise",
+      "call": "pr edit 2 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v1-raise/plumbline-pr/body.md",
+      "what": "pr edit",
+      "notifies": false,
+      "number": 2
+    },
+    {
+      "run": "v1-raise",
+      "call": "pr ready 2 --undo",
+      "what": "pr ready",
+      "notifies": false,
+      "number": 2
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "issue edit 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v2-fix-temp/plumbline-issue.md",
+      "what": "issue edit",
+      "notifies": false,
+      "number": 1
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "issue comment 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v2-fix-temp/plumbline-issue-comment.md",
+      "what": "issue comment",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "pr edit 2 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v2-fix-temp/plumbline-pr/body.md",
+      "what": "pr edit",
+      "notifies": false,
+      "number": 2
+    },
+    {
+      "run": "v2-fix-temp",
+      "call": "pr ready 2 --undo",
+      "what": "pr ready",
+      "notifies": false,
+      "number": 2
+    },
+    {
+      "run": "v3-rolled-back",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "v3-rolled-back",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    },
+    {
+      "run": "v3b-rolled-back",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "v3b-rolled-back",
+      "call": "issue edit 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v3b-rolled-back/plumbline-issue.md",
+      "what": "issue edit",
+      "notifies": false,
+      "number": 1
+    },
+    {
+      "run": "v3b-rolled-back",
+      "call": "issue comment 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v3b-rolled-back/plumbline-issue-comment.md",
+      "what": "issue comment",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "v3b-rolled-back",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    },
+    {
+      "run": "v3b-rolled-back",
+      "call": "pr edit 2 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v3b-rolled-back/plumbline-pr/body.md",
+      "what": "pr edit",
+      "notifies": false,
+      "number": 2
+    },
+    {
+      "run": "v3b-rolled-back",
+      "call": "pr ready 2 --undo",
+      "what": "pr ready",
+      "notifies": false,
+      "number": 2
+    },
+    {
+      "run": "v4-after-merge",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "v4-after-merge",
+      "call": "issue edit 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v4-after-merge/plumbline-issue.md",
+      "what": "issue edit",
+      "notifies": false,
+      "number": 1
+    },
+    {
+      "run": "v4-after-merge",
+      "call": "issue comment 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-eLX3bt/_uat/tmp/v4-after-merge/plumbline-issue-comment.md",
+      "what": "issue comment",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "v4-after-merge",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    }
+  ]
+}

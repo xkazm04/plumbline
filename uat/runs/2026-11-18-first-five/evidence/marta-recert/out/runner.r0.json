@@ -1,0 +1,59 @@
+{
+  "label": "r0-setup",
+  "harness": true,
+  "issues": "true",
+  "relockPr": "false",
+  "repoName": "larchhouse/larchhouse-site",
+  "root": "site",
+  "failedStep": null,
+  "steps": [
+    {
+      "id": "inputs",
+      "name": "Check the inputs",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {}
+    },
+    {
+      "id": "run",
+      "name": "Run plumbline",
+      "code": 0,
+      "stdoutTail": "{\n  \"lockState\": \"found\",\n  \"findings\": [\n    {\n      \"kind\": \"runtime\",\n      \"severity\": \"info\",\n      \"ref\": \"cognizant-ai-labs/agentic-web\",\n      \"expected\": \"7ee54a3\",\n      \"actual\": \"997c4fb\",\n      \"summary\": \"Upstream is ahead: the runtime folder in cognizant-ai-labs/agentic-web changed after the copy (copied at 7ee54a3; the folder's newest commit is 997c4fb).\"\n    }\n  ]\n}\n",
+      "stderrTail": "local-cli: TEST HARNESS (uat/driver/local-cli.mjs): the built Plumbline modules with allowLocal; the product's CLI cannot do this run against a loopback site\n",
+      "outputs": {
+        "report": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-SGcTDe/_uat/tmp/r0-setup/plumbline-watch.json",
+        "findings": "0",
+        "issue-body": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-SGcTDe/_uat/tmp/r0-setup/plumbline-issue.md"
+      }
+    },
+    {
+      "id": "issue-plan",
+      "name": "Decide on the drift issue",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {
+        "action": "none",
+        "number": "",
+        "comment": ""
+      }
+    },
+    {
+      "id": "issue-do",
+      "name": "Open, edit or close the drift issue",
+      "code": 0,
+      "stdoutTail": "The drift issue needs nothing.\n",
+      "stderrTail": "",
+      "outputs": {}
+    }
+  ],
+  "ghCallsThisRun": [
+    {
+      "run": "r0-setup",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    }
+  ]
+}

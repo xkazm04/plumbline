@@ -1,0 +1,188 @@
+{
+  "ok": false,
+  "exit": 2,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert",
+  "checks": [
+    {
+      "label": "fresh deep link opens drift with the address filled in",
+      "pass": false,
+      "extra": {
+        "hash": "#/drift?target=http://127.0.0.1:4100/",
+        "driftVisible": false,
+        "value": ""
+      }
+    }
+  ],
+  "snaps": [
+    {
+      "name": "rc-12-deeplink-fresh",
+      "url": "http://127.0.0.1:4199/#/drift?target=http://127.0.0.1:4100/",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-12-deeplink-fresh.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-12-deeplink-fresh.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-12-deeplink-fresh.txt"
+    },
+    {
+      "name": "rc-13-raise-verify-before-trust",
+      "url": "http://127.0.0.1:4199/#/verify",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-13-raise-verify-before-trust.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-13-raise-verify-before-trust.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta-recert\\rc-13-raise-verify-before-trust.txt"
+    }
+  ],
+  "probes": [
+    {
+      "url": "http://127.0.0.1:4199/#/verify",
+      "items": [
+        {
+          "tag": "a",
+          "name": "Skip to the Desk",
+          "href": "#main"
+        },
+        {
+          "tag": "a",
+          "name": "1. Check a site",
+          "href": "#/check"
+        },
+        {
+          "tag": "a",
+          "name": "2. Read drift",
+          "href": "#/drift"
+        },
+        {
+          "tag": "a",
+          "name": "3. Verify a signature",
+          "href": "#/verify"
+        },
+        {
+          "tag": "a",
+          "name": "4. Make a publisher key",
+          "href": "#/key"
+        },
+        {
+          "tag": "a",
+          "name": "5. Sign a site's files",
+          "href": "#/sign"
+        },
+        {
+          "tag": "button",
+          "name": "Export plumbline.trust.json",
+          "id": "trust-export",
+          "type": "button"
+        },
+        {
+          "tag": "input",
+          "name": "Import a plumbline.trust.json (you confirm what it adds)",
+          "id": "trust-import",
+          "type": "file"
+        },
+        {
+          "tag": "input",
+          "name": "The site whose signature to verify",
+          "id": "verify-target",
+          "type": "url"
+        },
+        {
+          "tag": "button",
+          "name": "Verify",
+          "id": "verify-run",
+          "type": "submit"
+        },
+        {
+          "tag": "input",
+          "name": "I compared this key id, character by character, with one the publisher gave me through another channel.",
+          "id": "trust-compared",
+          "type": "checkbox"
+        },
+        {
+          "tag": "button",
+          "name": "Trust this publisher for this origin",
+          "id": "trust-button",
+          "type": "button"
+        },
+        {
+          "tag": "button",
+          "name": "Back to the Desk",
+          "type": "button"
+        },
+        {
+          "tag": "a",
+          "name": "The Desk",
+          "href": "#/"
+        },
+        {
+          "tag": "button",
+          "name": "Back to the Desk",
+          "id": "home-compass",
+          "type": "button"
+        },
+        {
+          "tag": "button",
+          "name": "Assistant",
+          "id": "dock-tab",
+          "type": "button"
+        }
+      ]
+    }
+  ],
+  "notes": {
+    "deepLinkFresh": {
+      "hash": "#/drift?target=http://127.0.0.1:4100/",
+      "driftVisible": false,
+      "value": ""
+    },
+    "verifyStatusBefore": "Verify finished: Unverifiable.",
+    "verifyResultBefore": "?\nUNVERIFIABLE\nhttp://127.0.0.1:4100/\n\nYou have not met this signer yet, or the site publishes no signature. The files may be fine, but nothing here can vouch for them until you trust the publisher's key yourself.\n\nThe signature is internally consistent but the signer is unknown: this verifier has no trust entry for the key, so it proves nothing about who published the files.\n\nSigner key id\n768793a9a535e8df\nSigned for origin\nhttp://127.0.0.1:4100\nFiles fetched from\nhttp://127.0.0.1:4100\nSignature valid until\n2027-02-16\nSigned files\nagent-manifest.json, larch_house.network.json, plumbline.lock.json\nFirst contact: trust this publisher?\n\nTrust is a decision you make, not something a site can announce about itself. Before you trust this key:\n\nLearn the publisher's key id through a channel that is not this site: in person, on a call, in a signed message or in a repository you already trust.\nCompare it with the key id below, character by character.\nSkipping this turns your trust store into a rubber stamp for whoever controls the site right now, which is exactly the attacker a signature is meant to exclude.\nKey id the site publishes\n768793a9a535e8df\nPublic key\nqkAjdyqWvCaerw3mWngip6N9-BUrKz3SVM7ehlScI5g\nI compared this key id, character by character, with one the publisher gave me through another channel.\nTrust this publisher for this origin",
+    "probeVerify": [
+      {
+        "tag": "a",
+        "name": "4. Make a publisher key",
+        "href": "#/key"
+      },
+      {
+        "tag": "button",
+        "name": "Export plumbline.trust.json",
+        "id": "trust-export",
+        "type": "button"
+      },
+      {
+        "tag": "input",
+        "name": "Import a plumbline.trust.json (you confirm what it adds)",
+        "id": "trust-import",
+        "type": "file"
+      },
+      {
+        "tag": "input",
+        "name": "I compared this key id, character by character, with one the publisher gave me through another channel.",
+        "id": "trust-compared",
+        "type": "checkbox"
+      },
+      {
+        "tag": "button",
+        "name": "Trust this publisher for this origin",
+        "id": "trust-button",
+        "type": "button"
+      }
+    ]
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "pageErrors": []
+}

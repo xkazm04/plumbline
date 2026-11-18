@@ -1234,3 +1234,573 @@ she changes a price. That's still what I do.
 - **Teardown:** `world.mjs down larch-house`: `stopped: true`, `portsStillInUse: []`, `folderGone: true`,
   `leftovers: []`; no `plumbline-uat-larch-house*` folder or state file remains; `netstat` shows only TIME_WAIT/FIN_WAIT
   sockets with PID 0 on 4199, nothing LISTENING on 4100, 4101 or 4199.
+
+---
+
+## Recertify 2026-11-18
+
+Independent recertifier (did not write the fixes). Range under test: `15af680..c9f6a3b` (36 commits; the ones that
+touch J1 are UAT-1 `a2d1e1c`, UAT-2 `bc0064b` `6468e3d`, UAT-3 `010120a`, UAT-5 `a8599e6`, UAT-6 `68c35d2`, UAT-7
+`5e699b5` `da9f3ce`, and the template pins). The fixer's `- State:` lines in `docs/BACKLOG.md` were read as hypotheses.
+Shots: `uat/runs/2026-11-18-first-five/shots/marta-recert/rc-*`. Everything else the walk produced (runner journals,
+issue and PR bodies, the stub's state per arm, browser journals, probes, the break-arm script and its output, each
+world's `cli.log`) is in `uat/runs/2026-11-18-first-five/evidence/marta-recert/` (`out/`).
+
+### Freshness and fixture checks
+
+- **Freshness.** HEAD `c9f6a3b`, committed 2026-11-18 14:53:09 +0100. `npm run build` exit 0, `npm run build:site`
+  "28 browser modules in site/lib/plumbline/" exit 0; `dist/cli/index.js` and `dist/watch/anchors.js` 14:55:32, the
+  browser modules 14:55:33. `dist/` is newer than the last commit. The Desk served by every world is this checkout's
+  `site/` (read-only).
+- **Fixtures untouched.** `git diff 15af680..HEAD --stat -- uat/fixtures uat/characters uat/journeys uat/rubric.md`
+  printed nothing (exit 0). The product was not made to pass by changing the world, the Character, the journey or the
+  rubric. `uat/fixtures/README.md`'s "Confirmed" sentences for larch-house still describe the old product ("all 5
+  facts ... still on it"); they were not used as current.
+- **Arms and worlds.** Four fresh `larch-house` worlds, one after another: W1 main path (setup, raise-price,
+  rooms-no-cors, fix-network, Jonas closes), W2 control (cosmetic-edit, then raise-price on the open issue, then a
+  second wording edit), W3 the issue's own remedy (raise-price, relock without fix-network, sign), W4 arm W with a real
+  pull request (setup as the world leaves it, raise-price, a temporary fix-network rolled back, Marta merges the
+  unsigned draft). Each `down` reported `portsStillInUse: []`, `folderGone: true`, `leftovers: []`.
+- **Signing.** The brief forbids using any key under a `keys/` folder, so the world's own `keys/larch-house` was never
+  used. In W1 to W3 Jonas's baseline is the original L2's (a harness relock to pin the loopback bike peer, a world rule)
+  signed with a throwaway key made by `plumbline keygen --out <world>/jonas-recert` (outside `keys/`), whose public
+  record replaced the site's `.well-known/plumbline-key.json`; its private file was passed to `sign --key` and never
+  read. W4 was not re-signed (the world's own `setup` signature only). Each world's baseline run was clean (`findings=0`,
+  plan `none`) except W4, which keeps the pending peer on purpose.
+
+### Journal
+
+*As at L2: **Marta** paragraphs are her surfaces (the Desk, the issue and pull request pages); **Jonas** paragraphs are
+what he has to do for her.*
+
+**Setup.** **Marta.** The landing is unchanged: "PASSED ... VALIDATOR PORT Passed AGENT ATLAS Passed AGENT CUSTOMS
+Passed ... EXAMPLE · AGENT CUSTOMS", then "FIVE PORTS OF CALL 1. Check a site Take a fix 2. Read drift Set and drift"
+(`rc-01-setup-overview`; `expectMatch` matched "Passed" and "Take a fix"). "Read drift" with my address: "Drift read: 1
+finding, Warning. **Lock signed by a key you have not trusted.**" and "Signed lock, by a key you have not trusted: until
+you trust that key, the host could rewrite it." (`rc-02-setup-drift`). It no longer calls my site unsigned. **Jonas.**
+`init --root site --source rooms.html --workflow` (the world's setup, `out/w1/world-cli.log`) now prints what it
+watches:
+
+```
+facts the network states: 9 (3 prices, 4 times, 1 phone number, 1 e-mail address)
+facts rooms.html: watches 7 (3 prices, 2 times, 1 phone number, 1 e-mail address); not on it: 2 (2 times: 07:00, 22:00)
+facts not watched on any page: 2 (2 times: 07:00, 22:00); a change to them is not seen until a --source page states them
+```
+
+and its step 3 points at those lines. It names the literals it does NOT watch (the quiet hours), and only the kinds of
+those it does.
+
+**Act `raise-price`.** **Jonas, real CLI:** `warn grounding rooms.html: A grounding source changed since the lock was
+written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still
+states it (1 price), so the agent may now answer with an old fact.` **Marta, the issue** (run `r1-raise`, `gh issue
+create`, notifies; `out/issue-body.r1-raise.md`): the same sentence in the rooms.html row, under the unchanged first
+line "Plumbline watch found drift since `plumbline.lock.json` was written." and the unchanged next step "in a clone of
+xkazm04/plumbline ... run `node dist/cli/index.js watch --root <path to your site> --relock`, sign the site again". 167
+words; 22 of the 28 counted terms outside her vocabulary (`evidence/marta-recert/jargon.mjs`; the L2 body: 143 words,
+21 on the same list). **Marta, the Desk** at 1280 px and 390 px (`rc-10-raise-drift-laptop`, `rc-10-raise-drift-phone`;
+`scrollWidth` 1280 and 390): "Drift read: 2 findings, the worst Warning. Lock signed by a key you have not trusted.",
+then "GROUNDING (1) · WARNING · rooms.html" with the sentence above (`expectMatch` matched "1 of 7 facts the lock watches
+on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now
+answer with an old fact"). Three checks FAILED, as findings, not driver faults: no price with a currency is named
+(`/€\s?(89|95)\b|\b(89|95)\s?€|EUR\s?(89|95)/`, match null), the two 64-character hashes are still in the default view
+("locked 87b52e6f…7fbee · now fb8204b4…0c12"), and no next step is named (`/forward|send this|ask .. developer|re-?lock|
+whoever maintains/`, match null). **The assistant's tool result** (`App.page.readDrift` called in the live page, as
+`read_drift` calls it; `j-raise-laptop.json` notes): `lockCover: "untrusted"`, the label above, and the rooms.html
+summary with "(1 price) ... old fact" (matched); a check for what the lock watches (`"watched"|"sources"|"coverage"`)
+FAILED: the lock's sources and kinds are still not in it.
+
+So the price change is now visible as a fact, on the unchanged fixture, on every surface I can reach. I still can't
+tell from it which price, and "network" and "agent" are still not my words; but I know it's my rooms page and that the
+chat may now quote an old price. I'd forward it to Jonas, though nothing tells me to.
+
+**Deep link (MAR-L1-11).** A fresh context on `#/drift?target=http://127.0.0.1:4100/` shows the overview: `driftVisible:
+false, value: ""` (`rc-12-deeplink-fresh`; FAILED). (The same-page attempt `rc-11-deeplink` showed a filled field only
+because the previous step had typed it: not evidence of a prefill.)
+
+**Trusting Jonas's key (MAR-L1-10, MAR-L2-04).** Verify before trust: "UNVERIFIABLE ... You have not met this signer
+yet" (`rc-13-raise-verify-before-trust`). After ticking "I compared this key id" and "Trust this publisher for this
+origin", the card reads "VERIFIED ... Trusted. The site was verified again under your trust store: the verdict above is
+the new one." while `#verify-status` (aria-live) still reads "**Verify finished: Unverifiable.**"
+(`rc-14-raise-verify-after-trust`; `expectMatch` FAILED, match null). Read drift again: "Signed lock." / "Signed lock:
+covered by a signature that verified under a publisher you trust." (`rc-15-raise-drift-after-trust`). A new browser
+starts at "a key you have not trusted" again (the next script's fresh context did). **The assistant button**: "Assistant
+needs your AI provider key. Add it in AI model settings below." (`rc-16-assistant`).
+
+**Act `rooms-no-cors`.** `curl -I`: no `Access-Control-Allow-Origin` on `/rooms.html`, `*` on the lock. **Marta, Desk**
+(`rc-17-raise-nocors-drift`): "A grounding source could not be checked: it could not be fetched (the browser could not
+read it)." Not green (matched); names no header (`/Access-Control-Allow-Origin|CORS|ask your host/`, FAILED). Then
+`rooms-cors`.
+
+**Act `fix-network` (the right fix).** **Jonas, real CLI**: network "the agent now answers from different facts: review
+the change, then re-lock (watch --relock)."; rooms.html "... 1 of 7 facts ... is no longer on it, and the network no
+longer states it either, so no stale fact is left: review the change, then re-lock (watch --relock)."; and `block
+grounding plumbline.signature.json: The site's signature no longer covers its files: 1 of 3 signed files differs from
+the signed version or is missing (larch_house.network.json), so verifiers now answer invalid (tampered) until the site
+is signed again (plumbline sign).` **Marta, the issue** (`r2-fix`: `issue edit` and `issue comment`, notifies;
+`out/issue-body.r2-fix.md`). The comment opens:
+
+> **A new `block` finding.** Look before the next release.
+>
+> New:
+> - **block** grounding `plumbline.signature.json`: The site's signature no longer covers its files: ...
+> - **warn** grounding `larch_house.network.json`: ... the agent now answers from different facts: review the change, then re-lock (watch --relock).
+
+**Marta, Desk** (`rc-20-fix-drift`): "Drift read: 3 findings, the worst Warning. The lock's signature does not hold.",
+"The signature over this lock does not hold (verify says why): the host may have rewritten it.", the rooms.html
+"no stale fact is left" (matched) and no "old fact" anywhere (negative check passed). Verify (`rc-21-fix-verify`):
+"INVALID: A SIGNED FILE CHANGED, OR IS MISSING ... Do not treat these files as the publisher's." The false sentence is
+gone. The day Jonas fixes my chat thing, I get the loudest message of the whole journey.
+
+**Jonas closes it.** Real CLI `watch --root site --relock`: "changed grounding larch_house.network.json / changed
+grounding rooms.html", the facts lines, and "A peer could not be re-read (it is not an https address), so the lock
+keeps its earlier pin (recorded 2026-11-18)" (the real CLI's relock no longer drops the harness-pinned peer: 1 peer
+before and after). `sign`, commit, push; `r3-closed`: `issue close` with "Plumbline watch is clean ... and the site's
+signature, if it has one, still covers its files. Closing. (Clean is not safe: it means nothing locked has drifted.)"
+For one price change Jonas still does: read the forwarded issue, edit the network JSON, relock, sign, commit, push,
+dispatch or wait (about 6 commands and a file edit).
+
+**Control arm, fresh world W2: `cosmetic-edit`.** Real CLI and issue #1 (`c1-cosmetic`, created, notifies): "... all 7
+facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does
+not watch." `diff` against the raise-price body: the rooms.html row differs, nothing else. Desk (`rc-30-cosmetic-drift`):
+the same sentence (matched), no "old fact" (negative passed). **The two acts now read differently.** It is still a
+Warning, still an issue, still a Jonas cycle to close.
+
+**Escalation on an open issue (MAR-L1-04), W2.** `raise-price` on top: `c2-raise-on-open` = `issue edit` + `issue
+comment` (notifies): "New: - **warn** grounding `rooms.html`: ... 1 of 7 facts ... is no longer on it, and the network
+still states it (1 price), so the agent may now answer with an old fact." **Then a second wording-only edit** (breakfast
+"eggs, bacon and honey", a page-editor change): `c3-second-wording` = `issue edit` + `issue comment` (notifies), "New:"
+and **the same sentence again**: nothing new is stale, but I am told "New". (`out/gh-state.escalation.json`.)
+
+**The issue's own remedy, W3 (MAR-L1-01, CLI).** Raise-price, `r1` opens issue #1; with `relock-pr: true` the PR plan
+is `none`: the relock would change nothing ("What the new lock changes: no ref changed (only the capture times)",
+`out/w3/pr-body-planned-not-opened.w1.md`), so no "accept the drift" pull request is offered at all. Jonas follows the
+issue's own instruction with the real CLI, network still €89:
+
+```
+relock: wrote plumbline.lock.json (the previous lock was found)
+no ref changed
+facts rooms.html: watches 6 (2 prices, 2 times, 1 phone number, 1 e-mail address); not on it: 3 (1 price, 2 times: EUR 89, 07:00, 22:00)
+warn  grounding rooms.html: Not accepted: the network still states 1 fact this page no longer states (1 price), and no other locked page states it, so the agent may answer with an old fact. The lock keeps its earlier record of this page, so every watch still reports it: correct the network (or the page), then re-lock, or take the page out with --drop.
+```
+
+He signs, commits, pushes: the next real CLI watch still says "1 of 7 ... (1 price) ... old fact" (exit 1), and the
+Action's next run keeps issue #1 open (plan `none`, no close). Following the alert's own advice no longer ends in a false
+clean.
+
+**Arm W with a real pull request, W4.** The site as `setup` leaves it (peer pending), `relock-pr: true`. `v0`: issue #1
+and draft PR #2 "Plumbline: accept the drift (relock)" (both notify; the relock captures the peer). `raise-price`, `v1`:
+PR #2 edited, branch pushed to the existing branch (`d972990`), every step exit 0. Its body now opens with:
+
+> **What this relock does not accept, or keeps as it was** (these keep reporting after a merge):
+> | warn | grounding | rooms.html | Not accepted: the network still states 1 fact this page no longer states (1 price), and no other locked page states it, so the agent may answer with an old fact. ... |
+
+and rooms.html is not under "The findings this accepts" (only the peer). Temporary `fix-network`, `v2-fix-temp`: PR #2
+edited, branch moved to `491049a`, whose network says "double room costs €95" (MAR-L1-13: the push the L2 saw rejected
+"stale info" now succeeds). Rolled back (`git revert`), `v3b-rolled-back`: branch `fea0321`, network €89 again, body
+back to "Not accepted". **Marta presses the merge button** (merged unsigned into `main`; the stub PR marked merged as
+GitHub would). `v4-after-merge`: **issue #1 stays open**, comment (notifies) "**A new `block` finding.** ... block
+grounding `plumbline.signature.json`: The site's signature no longer covers its files: 1 of 3 signed files differs ...
+(plumbline.lock.json) ..."; the body still carries the rooms.html stale price. Desk after the merge
+(`rc-40-W-after-merge-drift`): rooms.html "... network still states it (1 price)" (matched) and "The signature over
+this lock does not hold" (matched); verify INVALID (`rc-41-W-after-merge-verify`). The green button is no longer a trap.
+
+**Trying to break it (Jonas's setup, then the page Marta edits).** All in the world folder, real CLI (`init --root site
+--source rooms.html`, edit, `watch --root site`), each a copy of the pristine fixture site
+(`evidence/marta-recert/mini.mjs`, output `out/mini.out.txt`); and the built anchor functions over more forms
+(`probe2.mjs`, `out/probe2.out.txt`). The L2 probe re-run (`out/anchor-probe.recert.txt`): **36 of 36 forms anchored
+and counted** (L2: 23).
+
+| Arm | What Marta's page does | init (Jonas's terminal) | watch after the edit |
+| --- | --- | --- | --- |
+| M1 | a twin room at the same €89; she raises the double only | "watches 7 (3 prices ...)": no hint | **"all 7 facts ... are still on it, so what changed is something the lock does not watch."** (false: the double's €89 was watched; the twin's €89 hides the change) |
+| M2 | a winter offer: `<del>€89</del> €79 per night this winter` | "watches 7" | **the same false all-clear** (the struck price is still "on" the page) |
+| M3 | control: check-in 15:00 rewritten "3pm" | "watches 7" | "all 7 ... still on it, so what changed is something the lock does not watch" (right: same fact) |
+| M4 | the intro also says "Doubles from €89"; she changes the table | "watches 7" | **the same false all-clear** |
+| M5 | `EUR89` (no space) | "not on it: 3 (1 price, 2 times: EUR 89, 07:00, 22:00)" | "all 6 ... still on it, so what changed is something the lock does not watch" (true; named at setup) |
+| M6 | "eighty-nine euros a night" | names EUR 89 as not on it | as M5 |
+| M7 | "from 3 o'clock" | names 15:00 as not on it | as M5 |
+| M8 | phone "01632 96 04 18" | names "the phone number ending 960418" | as M5 |
+| M9 | prices filled in by a script (empty cells) | names EUR 89 | as M5 |
+| zero | a page with none of the network's facts | `warn grounding rooms.html: No fact is watched on this page: none of the 9 facts ...` (init exit 1) | "the lock watches no fact the network states on it, so whether the network now states an old fact is not checked" (honest) |
+
+Probe2, 29 more forms: 15 anchored and counted (`€ 89`, `89€`, `89,- €`, `89 Euro`, `<sup>€</sup>89`, `€89pp`, two
+season ranges, `€&nbsp;89`, `&#8364;89`, a booking-form `<option>`, `+44 (0) 1632 960 418`, `01632-960-418`,
+`(01632) 960418`, `Tel 01632960418`); 13 not anchored, which init names by value as not on the page (`EUR89`, `Euro 89`,
+"eighty-nine euros", JSON-LD only, an image's alt, `3 o'clock`, `from 3`, `3-6pm` (read as 18:00 only), `15 Uhr`, `noon`,
+a bare `15.00` cell, `1500 hrs`, `01632 96 04 18`); 1 anchored but **not counted**: the struck-through offer. **What setup tells Jonas now:** per page, the count and kinds
+it watches, and by value what the network states that the page does not (and that no page watches). It does not say
+which prices are watched, and it cannot see that one value stands for two facts (M1).
+
+### Per-finding table
+
+"Reachable" is for Marta's surface binding (the Desk, the issue and pull request pages); a CLI-only change is reachable
+only through Jonas.
+
+| Id | Landed | Reachable for Marta | Unblocks her job | Resolution | Ceiling / what is missing |
+| --- | --- | --- | --- | --- | --- |
+| MAR-L2-01 (blocker) | yes (`a2d1e1c`) | yes: issue, Desk 1280 and 390 px, tool result | yes: on her unchanged page she is told a price is no longer on rooms.html and the chat may quote an old one; cosmetic reads differently | **resolved-verified** | the price is a kind ("1 price"), never a value; a value that stays elsewhere on the page hides the change (MAR-RC-1); a fact written in a form the watch does not read is named only to Jonas at setup |
+| MAR-L2-02 | yes | the anchoring yes; the "not watched" list only in Jonas's terminal | yes, for the forms on her page | **resolved-verified** | 36/36 L2 forms and 15/29 new forms anchor and count; 13 do not and are named by value at init; once set up, a change to an unwatched fact reads "something the lock does not watch" on her surfaces |
+| MAR-L1-01 | yes (`bc0064b`, `6468e3d`) | yes: the PR page; the issue stays open | yes: the relock and the PR refuse to accept the stale price; no PR is offered when it is the only change | **resolved-verified** | `--relock --drop rooms.html` still removes the page and its alert; the PR is still titled "accept the drift" |
+| MAR-L1-02 | yes | yes | yes: "no stale fact is left: review the change, then re-lock" on the issue and the Desk | **resolved-verified** | the right fix is now announced as "A new `block` finding" (MAR-RC-2), and the Desk and verify say "the host may have rewritten it" / "Do not treat these files as the publisher's" about her own site until Jonas signs |
+| MAR-L1-03 | yes | yes | yes: "89 euros" anchors; zero-anchor pages read "is not checked"; init warns at zero | **resolved-verified** | a network written entirely in words prints "facts the network states: 0 (none)" at init with no warning; number words ("eighty-nine") never anchor |
+| MAR-L1-04 | yes (`68c35d2`) | yes (the comment notifies) | yes | **resolved-verified** | every later edit while the issue is open is announced "New:" with the same sentence (MAR-RC-3) |
+| MAR-L1-05 | partly: the kind and count ("1 price") | yes | partly: she can infer the double from "1 price" only because she just changed it | **open** | no surface names 95 or 89 (the currency-anchored check FAILED on the Desk; the issue body has none) |
+| MAR-L1-06 | no (UAT-29 not built) | n-a | no | **open** | issue 167 words, 22 terms; Desk 9 terms plus two 64-character hashes; landing unchanged |
+| MAR-L1-07 | no (declined, DC-1) | n-a | no | **open** | cosmetic still opens a notifying warn issue only Jonas can close; it now reads differently from a price change |
+| MAR-L1-08 | no (UAT-30 not built) | n-a | no | **open** (reach uncertain) | the written workflow: `cron: "17 6 * * *"` and `workflow_dispatch` only |
+| MAR-L1-09 | no (UAT-29) | n-a | no | **open** | "could not be fetched (the browser could not read it)", no header named |
+| MAR-L1-10 | yes (`da9f3ce`) | yes | yes: her signed site is never "unsigned" | **resolved-verified** | every new browser starts at "signed by a key you have not trusted ... the host could rewrite it" until she compares 16 characters with Jonas |
+| MAR-L1-11 | no (UAT-29) | n-a | no | **open** | fresh deep link: overview, empty field |
+| MAR-L1-12 | no (UAT-31; DC-3) | n-a | no | **open** | needs her key; the tool result has no lock sources or kinds (grounding 5/6). Its L2 widening is reversed: the tool's evidence is no longer the false all-clear |
+| MAR-L1-13 | yes (`a8599e6`) | yes: the PR page shows the latest lock | yes | **resolved-verified** | `relock-pr` is opt-in; a real runner and branch protection are not exercised |
+| MAR-L1-14 | one of three parts | yes | n-a | **open** | "1 of 1 fact ... is" fixed; init step 3 still says "To watch those too" when "facts not watched on any page: none"; `lockSummary` still reaches no Desk view or tool result |
+| MAR-L2-03 | yes (`bc0064b`) | yes: the issue stays open, the Desk labels the lock | yes | **resolved-verified** | the coverage finding is the checkout watch's only; on an unsigned site only the kept stale fact holds the issue open |
+| MAR-L2-04 | no (UAT-32 not built) | n-a | no | **open** | `#verify-status` still "Verify finished: Unverifiable." after trust |
+| MAR-L2-05 | no (UAT-29) | n-a | no | **open** | landing unchanged |
+| MAR-L1-15 (refuted strength) | yes | yes | n-a | **resolved-verified** (restored on her page) | not on the M1, M2, M4 layouts |
+
+Counts over the 19 findings (strength rows apart): **9 resolved-verified, 0 fixed-only, 10 open, 0 regressed.** The
+strengths MAR-L1-16 and MAR-L1-17 held: an unread page is "could not be checked", the close comment still says "Clean is
+not safe", an unsigned relock is still a draft and "Nothing is accepted until a person merges".
+
+**One fixer claim contradicted in part.** UAT-2's State says that after `raise-price` "draft PR #2's body opens with
+'What this relock does not accept'". On a baseline whose peer is already pinned (W3, as the original L2 set it up) no PR
+is opened at raise-price at all (`pr-plan: none`, "no ref changed"; `action/report.mjs:509-512` wants a PR only when the
+relock changed a ref); the claim holds only when something else is accepted too (W4, the peer pending). This is safer
+than the claim, not a defect.
+
+### Criteria, re-applied
+
+| # | Criterion | Recertify | L2 | Evidence |
+| --- | --- | --- | --- | --- |
+| 1 | Only her address; an answer; no install, no key | **pass** (conditional) | pass (cond.) | `rc-02`, `rc-10` laptop and phone. Still nothing links her to the Desk, and a link cannot carry her address (`rc-12`) |
+| 2 | Every word hers, or explained where it appears | **fail** | fail | issue 22 terms; Desk 9 terms and two hashes; "network", "agent", "re-lock" in the key sentence |
+| 3 | Page changed, assistant states an old fact: told, and which page | **pass** | fail | issue, Desk and tool: "rooms.html ... 1 of 7 facts ... is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact" on the unchanged fixture. Caveat: M1, M2, M4 |
+| 4 | Told what to do next; a step she can take or forward | **fail** | fail | the issue's next step is still "in a clone ... run ... --relock"; the Desk names no step (FAILED check); nothing says "forward this" |
+| 5 | Never reassuring for something not checked | **pass** (conditional) | fail | on her page: told at raise, not silenced by a relock, not clean after an unsigned merge, cosmetic says "something the lock does not watch", no-CORS "could not be checked", zero anchors "is not checked". Conditional: a twin at the same price, a struck-through offer or a repeated intro price gives "all 7 facts ... still on it" (MAR-RC-1) |
+| 6 | Notification to knowing what to do in under 3 minutes | **fail** | fail | daily cron; 167 words with 22 unknown terms; no step of hers |
+| 7 | Rather this than asking the chat five questions | **pass** (narrowly) | fail | it remembers for her and is now right on her page; she still forwards to Jonas and pays for each wording edit |
+
+**4 of 7** (L1: 2 of 7; L2: 1 of 7).
+
+### Her ten stops (S1 to S10 of her L2 report)
+
+| Stop | Still stops her? | Now |
+| --- | --- | --- |
+| S1 notification "Plumbline drift", next day | **yes** | unchanged title and daily trigger |
+| S2 issue first line | **yes** | "Plumbline watch found drift since `plumbline.lock.json` was written." unchanged |
+| S3 the false all-clear | **no** (resolved) | "1 of 7 ... no longer on it ... (1 price) ... old fact" on every surface she reaches. Returns on the M1, M2, M4 layouts |
+| S4 "run ... in a clone" | **yes** | unchanged |
+| S5 getting to the Desk | **yes** | no link; the deep link opens the overview |
+| S6 Desk landing | **yes** | the Passed example and nautical subtitles unchanged |
+| S7 Desk result | **yes, narrower** | "unsigned" is gone ("signed by a key you have not trusted"); the hashes, the nsdeploy note and the header-less CORS sentence remain |
+| S8 assistant key | **yes** | unchanged; its evidence is now correct |
+| S9 after Jonas's right fix | **yes, louder** | the old-fact sentence is gone, but the comment opens "A new `block` finding. Look before the next release.", and the Desk and verify say "the host may have rewritten it" / "Do not treat these files as the publisher's" |
+| S10 the "accept the drift" PR | **no** (its harm resolved) | not offered when the stale page is the only change; when offered it opens "Not accepted: ... (1 price)"; merged unsigned, the issue stays open with a `block`. The title is unchanged |
+
+Eight of ten stops remain. The two that were detection and acceptance failures (S3, S10) are gone; the rest are
+comprehension, reach and cost, which the backlog deliberately puts after correctness (MC-6).
+
+### Time saved, re-measured
+
+Against her 15 minutes of asking the chat after a price change (and forgetting most times). On her page now: she reads
+the issue (about 3 to 5 minutes; 167 words she mostly skips to "rooms.html" and "old fact"), knows the chat may quote an
+old price for that page, and forwards the link; she does not need to ask the chat which page. Saved about **10 minutes
+per price change**, about 80 minutes a year over eight changes, plus the real value, never forgetting to check, which is
+not in minutes. Against that: the news comes up to a day late, every wording edit is an issue and a paid Jonas cycle
+(relock, sign, commit, push), and the right fix is announced as a `block`. On the M1, M2 and M4 layouts: none (back to
+the L2 failure). **Confidence: medium** (live on the fixture, one host; reading time estimated; notification reach not
+measured). L2: none, and worse than none. Grounding of the assistant: 5/6 (unchanged; the lock's contents still absent);
+Marta additions 0/2 (the kind of the stale fact now reaches the tool's summary; no value does).
+
+### Verdict
+
+**Conditional.** The blocker MAR-L2-01 is resolved on her unchanged page, with live evidence on every surface she can
+reach; the false clean is gone on both accept paths; nothing regressed. Majors remain: the price is never named
+(MAR-L1-05), there is no plain-words line (MAR-L1-06), each wording edit needs Jonas (MAR-L1-07), and a page that states
+the same value twice still hides a change (MAR-RC-1). She finishes the job only by forwarding the link to Jonas.
+
+## Character feedback (recertify)
+
+I changed the double to 95 again, and this time the note said the rooms page no longer has one of the prices the chat
+gives, and that the chat may now be quoting an old one. That's the sentence I asked for. It didn't say 89 or 95, but I'd
+just changed the double, so I knew. When I fixed a typo the week after, it said something different: all the facts are
+still there, and what changed isn't something it watches. I could tell the two apart, which I couldn't before.
+
+The button that scared me isn't a trap any more. If nobody fixes the chat, the warning doesn't go away, even if somebody
+merges the thing it calls "accept the drift". Good. I trust it more than last time, because last time it told me
+something false in a calm voice, and on my page it doesn't now.
+
+But I still had to read a hundred and sixty words, twenty-odd of them ones I don't use, to get there. The note still
+tells me to "run" something "in a clone", and it still doesn't say "send this to Jonas". When Jonas fixed the chat
+properly, I got the loudest message of the lot, "a new block finding", and the checking page told me not to treat my own
+files as mine. Every wording change still opens a note only Jonas can close, and every later change while it's open
+pings me again with the same sentence marked "New".
+
+Then I tried it on a page like my neighbour's, where the twin and the double are both 89. She raises the double, and it
+tells her all the facts are still there. So it's right on my page and wrong on hers.
+
+Would I adopt it? Yes, if Jonas sets it up, because it remembers when I don't and it's no longer wrong about my price.
+Would I tell the woman up the valley? I'd tell her it works if every price on her page is different, and to make Jonas
+read the "facts" lines when he sets it up.
+
+## Findings (recertify)
+
+```json
+[
+  {
+    "id": "MAR-L2-01", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L2", "type": "trust", "severity": "blocker",
+    "title": "On her real rooms page the price change is invisible as a fact: every surface says 'all 5 facts the network states from it are still on it' while the assistant still quotes €89",
+    "resolution": "resolved-verified",
+    "ceiling": "The stale fact is named by kind and count ('1 price'), never by value; a value that still appears elsewhere on the page (a twin at the same price, a struck-through offer, an intro 'from €89') hides the change (MAR-RC-1); a fact written in a form the watch does not read is named only in the developer's terminal at setup.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Unchanged fixture, four fresh worlds. raise-price: '1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.' on the real CLI, issue #1 (run r1-raise), the Desk at 1280 and 390 px and the live read_drift result; cosmetic-edit: 'all 7 facts ... are still on it, so what changed is something the lock does not watch.'", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.r1-raise.md", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.c1-cosmetic.md", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-raise-laptop.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-raise-phone.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-cos.json", "shots/marta-recert/rc-10-raise-drift-laptop.png", "shots/marta-recert/rc-10-raise-drift-phone.png", "shots/marta-recert/rc-30-cosmetic-drift.png"]
+  },
+  {
+    "id": "MAR-L2-02", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L2", "type": "quality-gap", "severity": "major",
+    "title": "Many common ways a real page writes a price, time or phone number are never anchored, and nothing tells the publisher which facts are watched",
+    "resolution": "resolved-verified",
+    "ceiling": "36 of 36 L2 forms anchor; of 29 further forms 15 anchor and count, 13 do not (EUR89, 'Euro 89', number words, JSON-LD only, an image alt, \"3 o'clock\", 'from 3', '3-6pm', '15 Uhr', 'noon', a bare '15.00' cell, '1500 hrs', '01632 96 04 18') and init names each by value as not on the page, 1 anchors but is not counted (MAR-RC-1). The list reaches the developer's terminal only; once set up, a change to an unwatched fact reads 'something the lock does not watch' on her surfaces; init names the facts it does NOT watch by value and only the kinds of those it does.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["uat/runs/2026-11-18-first-five/evidence/marta-recert/out/anchor-probe.recert.txt", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/probe2.out.txt", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/mini.out.txt", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w1/world-cli.log"]
+  },
+  {
+    "id": "MAR-L1-01", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "trust", "severity": "major",
+    "title": "The only remedy the alert offers (relock) silences a stale price without fixing it, and the issue then closes as clean",
+    "resolution": "resolved-verified",
+    "ceiling": "A relock keeps the stale page record ('Not accepted ... (1 price)'), the next watch and the Action keep the issue open, and with nothing else to accept no relock PR is offered; but `--relock --drop rooms.html` still removes the page and its alert, and the PR is still titled 'accept the drift'.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["W3: real CLI relock with the network at €89 printed 'no ref changed' and 'Not accepted: the network still states 1 fact this page no longer states (1 price) ...'; after sign and push the next run kept issue #1 open (plan none); the relock-pr plan was none. W4: PR #2 body opens 'What this relock does not accept'; merged unsigned, issue #1 stayed open.", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.w1.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.w2cli.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w3/gh-state.arm-cli-relock.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w3/pr-body-planned-not-opened.w1.md", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/pr-body.v1-raise.md", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v4.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w4/gh-state.arm-W.json", "shots/marta-recert/rc-40-W-after-merge-drift.png"]
+  },
+  {
+    "id": "MAR-L1-02", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "trust", "severity": "major",
+    "title": "After the right fix (network corrected to 95) the alert gets louder and still says the network may state an old fact",
+    "resolution": "resolved-verified",
+    "ceiling": "After fix-network no surface says 'old fact': rooms.html reads '... the network no longer states it either, so no stale fact is left: review the change, then re-lock (watch --relock).' But the fix is announced louder than before: a comment headed 'A new `block` finding' (the signature no longer covers the network) and the Desk and verify say 'the host may have rewritten it' / 'Do not treat these files as the publisher's' about her own site until the developer signs (MAR-RC-2).",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.r2-fix.md", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/gh-state.main-path.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-fix.json", "shots/marta-recert/rc-20-fix-drift.png", "shots/marta-recert/rc-21-fix-verify.png"]
+  },
+  {
+    "id": "MAR-L1-03", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "trust", "severity": "major",
+    "title": "A price written '89 euros' is never anchored, init says nothing, and a changed page then reads 'the agent now answers from different facts' (the opposite of the truth)",
+    "resolution": "resolved-verified",
+    "ceiling": "'89 euros' anchors on page and network; a page with no anchored fact is a warn at init ('No fact is watched on this page ...', exit 1) and a change to it reads '... whether the network now states an old fact is not checked'. A network that states its facts only in words prints 'facts the network states: 0 (none)' with no warning; number words ('eighty-nine') never anchor.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["uat/runs/2026-11-18-first-five/evidence/marta-recert/out/anchor-probe.recert.txt", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/mini.out.txt", "Recertify journal: mini/zero (a network in words: init 'facts the network states: 0 (none)', exit 0) and mini/zero2 (the fixture network, a page with no fact: init warn, exit 1); both watches read 'is not checked'."]
+  },
+  {
+    "id": "MAR-L1-04", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "broken-flow", "severity": "major",
+    "title": "A real price change on an issue already open for a cosmetic edit is a silent body edit: no comment, no notification",
+    "resolution": "resolved-verified",
+    "ceiling": "The raise after a cosmetic edit comments (notifies) with the stale-fact sentence; every later page edit while the issue is open comments 'New:' with the same sentence again (MAR-RC-3).",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["W2 c2-raise-on-open: issue edit + issue comment (notifies) 'New: - **warn** grounding `rooms.html`: ... 1 of 7 facts ... (1 price) ...'", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.c2.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/gh-state.escalation.json"]
+  },
+  {
+    "id": "MAR-L1-05", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "missing-feature", "severity": "major",
+    "title": "The alert never names the stale fact ('page says 95, assistant says 89'), only '1 of 6 facts'",
+    "resolution": "open",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Narrowed, not resolved: the kind and count reach every surface ('(1 price)'). No value: the Desk check /€\\s?(89|95)\\b|\\b(89|95)\\s?€|EUR\\s?(89|95)/ FAILED (match null) at 1280 and 390 px; the issue body and the tool result hold no price.", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-raise-laptop.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.r1-raise.md"]
+  },
+  {
+    "id": "MAR-L1-06", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "confusion", "severity": "major",
+    "title": "No plain-words layer for a site owner: the issue title, body and Desk speak only drift/lock/grounding/network/relock/sign and show hex hashes",
+    "resolution": "open",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Not built (UAT-29). The issue at raise-price: 167 words, 22 of 28 counted terms outside her vocabulary (the L2 body: 143 words, 21 on the same list); the Desk reading: 9 terms plus two 64-character hashes; the landing unchanged.", "uat/runs/2026-11-18-first-five/evidence/marta-recert/jargon.mjs", "shots/marta-recert/rc-10-raise-drift-laptop.png", "shots/marta-recert/rc-01-setup-overview.png"]
+  },
+  {
+    "id": "MAR-L1-07", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "missing-feature", "severity": "major",
+    "title": "Every edit of the rooms page, cosmetic included, opens a warning only Jonas can clear: 'needs Jonas every time'",
+    "resolution": "open",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Declined for now (DC-1). cosmetic-edit still opens issue #1 (notifies), severity warn; it now reads differently from a price change ('... so what changed is something the lock does not watch'). Closing still takes relock, sign, commit, push.", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.c1.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.c1-cosmetic.md"]
+  },
+  {
+    "id": "MAR-L1-08", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "missing-feature", "severity": "minor",
+    "title": "The news reaches her up to a day late (daily cron, no push trigger) and through a notification she may never get",
+    "resolution": "open",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Not built (UAT-30). The workflow init wrote for the world: cron \"17 6 * * *\" and workflow_dispatch only; no assignee input. Notification reach still uncertain without real GitHub.", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w1/world-cli.log"]
+  },
+  {
+    "id": "MAR-L1-09", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "missing-feature", "severity": "minor",
+    "title": "On an ordinary host the Desk cannot read the rooms page (no CORS on HTML pages), and nothing tells the publisher a --source page needs it",
+    "resolution": "open",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Not built (UAT-29). rooms-no-cors: 'A grounding source could not be checked: it could not be fetched (the browser could not read it).'; /Access-Control-Allow-Origin|CORS|ask your host/ FAILED.", "shots/marta-recert/rc-17-raise-nocors-drift.png", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-nocors.json"]
+  },
+  {
+    "id": "MAR-L1-10", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "trust", "severity": "minor",
+    "title": "The Desk calls her own signed lock 'unsigned lock: the host can rewrite it' until she trusts her own key",
+    "resolution": "resolved-verified",
+    "ceiling": "Every new browser or device reads 'Signed lock, by a key you have not trusted: until you trust that key, the host could rewrite it.' until she compares the 16-character key id with Jonas out of band.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Fresh profile: 'Drift read: 1 finding, Warning. Lock signed by a key you have not trusted.'; after trust: 'Signed lock: covered by a signature that verified under a publisher you trust.'", "shots/marta-recert/rc-02-setup-drift.png", "shots/marta-recert/rc-10-raise-drift-phone.png", "shots/marta-recert/rc-15-raise-drift-after-trust.png", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-setup.json"]
+  },
+  {
+    "id": "MAR-L1-11", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "missing-feature", "severity": "minor",
+    "title": "Nothing leads a site owner to the Desk: no address in README, the issue or init's output, and no link with her address filled in",
+    "resolution": "open",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Not built (UAT-29). A fresh context on #/drift?target=http://127.0.0.1:4100/: driftVisible false, field empty; the issue body has no Desk link.", "shots/marta-recert/rc-12-deeplink-fresh.png", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-trust1.json"]
+  },
+  {
+    "id": "MAR-L1-12", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "missing-feature", "severity": "minor",
+    "title": "The assistant, the one surface that could translate, needs her own model key; even keyed it is told to repeat the jargon and cannot see which facts are locked (grounding 5/6, Marta additions 0/2)",
+    "resolution": "open",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Not built (UAT-31; DC-3). 'Assistant needs your AI provider key.' The live read_drift result carries lockCover, the label and the corrected summary ('(1 price) ... old fact'), so the L2 widening (a keyed assistant would repeat a false all-clear) no longer holds on her page; no lock sources or kinds (check FAILED). Grounding 5/6, additions 0/2.", "shots/marta-recert/rc-16-assistant.png", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-raise-laptop.json"]
+  },
+  {
+    "id": "MAR-L1-13", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "broken-flow", "severity": "minor",
+    "title": "Known defect confirmed: once a relock PR is open, the next run cannot update it (push rejected 'stale info'), so a PR accepting the stale price outlives the fix",
+    "resolution": "resolved-verified",
+    "ceiling": "Proved against a local bare remote with the Action's own step text: three consecutive pushes to the existing branch, each exit 0, the branch lock following the network €89 -> €95 -> €89. relock-pr is opt-in; a real runner, GitHub and branch protection are not exercised.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["branch plumbline/relock: d972990 (raise), 491049a (network €95), fea0321 (network €89 again)", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v1.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v2.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v3.json"]
+  },
+  {
+    "id": "MAR-L1-14", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "quality-gap", "severity": "polish",
+    "title": "Wiring and wording papercuts: lockSummary never shown; '1 of 1 fact ... are'; init's next step tells you to add --source after you already gave one",
+    "resolution": "open",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["One part fixed: '1 of 1 fact the lock watches on it (facts the network states) is no longer on it'. Open: init step 3 says 'To watch those too, name the pages that state them' when 'facts not watched on any page: none'; lockSummary is mentioned in site/drift.js comments only and rendered nowhere (grep of site/*.js and site/*.html).", "Recertify journal: mini/one (real CLI init and watch)"]
+  },
+  {
+    "id": "MAR-L1-15", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "trust", "strength": true, "severity": "polish",
+    "title": "Strength: with no model, the watch tells a price change apart from a wording change",
+    "verdict": "confirmed",
+    "resolution": "resolved-verified",
+    "ceiling": "Restored on her unchanged page (issue, Desk, tool result); not on a page that states the changed value elsewhere too (MAR-RC-1).",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.r1-raise.md", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.c1-cosmetic.md"]
+  },
+  {
+    "id": "MAR-L1-16", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "trust", "strength": true, "severity": "polish",
+    "title": "Strength: the Desk's drift view needs no key and no install, and never calls an unread thing clean",
+    "resolution": "n-a",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Held, not regressed: address in, reading out at 1280 and 390 px; rooms-no-cors reads 'could not be checked'; 'Not checked from a browser: ...' under every result.", "shots/marta-recert/rc-10-raise-drift-phone.png", "shots/marta-recert/rc-17-raise-nocors-drift.png"]
+  },
+  {
+    "id": "MAR-L1-17", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L1", "type": "trust", "strength": true, "severity": "polish",
+    "title": "Strength: the issue and the pull request refuse to oversell: 'clean is not safe', 'nothing is accepted until a person merges', an unsigned relock is a draft",
+    "resolution": "n-a",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Held, not regressed: close comment '(Clean is not safe: it means nothing locked has drifted.)'; PR '**Not signed.** ... It stays a draft until then. Nothing is accepted until a person merges this.'", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/gh-state.main-path.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/pr-body.v1-raise.md"]
+  },
+  {
+    "id": "MAR-L2-03", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L2", "type": "trust", "severity": "minor",
+    "title": "After an unsigned relock is merged, the watch is clean and closes the issue while every verifier reads the site invalid (tampered); nothing in the watch or the close comment says so",
+    "resolution": "resolved-verified",
+    "ceiling": "The coverage finding is the checkout watch's only (the Desk labels the lock 'does not hold' through verify); on an unsigned site there is no signature to break, so only the kept stale fact holds the issue open; the close comment now says 'the site's signature, if it has one, still covers its files'.",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["W4 v4-after-merge: issue #1 kept open, comment '**A new `block` finding.** ... The site's signature no longer covers its files: 1 of 3 signed files differs ... (plumbline.lock.json) ...'", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v4.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.v4-after-merge.md", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/w4/gh-state.arm-W.json", "shots/marta-recert/rc-40-W-after-merge-drift.png", "shots/marta-recert/rc-41-W-after-merge-verify.png"]
+  },
+  {
+    "id": "MAR-L2-04", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L2", "type": "trust", "severity": "minor",
+    "title": "After she trusts the key, the Verify card says VERIFIED but the status line (aria-live) still says 'Verify finished: Unverifiable.'",
+    "resolution": "open",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Not built (UAT-32). After Trust: the card 'VERIFIED ... the verdict above is the new one.'; #verify-status 'Verify finished: Unverifiable.'", "shots/marta-recert/rc-14-raise-verify-after-trust.png", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/j-trust2.json"]
+  },
+  {
+    "id": "MAR-L2-05", "journey": "j1-price-changed", "character": "marta-hollis", "cert_level": "L2", "type": "confusion", "severity": "polish",
+    "title": "The Desk's landing shows a large green 'Passed' (an example about another site) and a second, nautical vocabulary before she has checked anything",
+    "resolution": "open",
+    "recertified_in": "15af680..c9f6a3b",
+    "recertify_evidence": ["Not built (UAT-29). expectMatch matched 'Passed' and 'Take a fix' on the landing.", "shots/marta-recert/rc-01-setup-overview.png"]
+  },
+  {
+    "id": "MAR-RC-1",
+    "journey": "j1-price-changed",
+    "character": "marta-hollis",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": { "frequency": "med", "reachability": "high", "trust_erosion": "high" },
+    "dimension": "trust",
+    "title": "A changed price that still appears elsewhere on the page is invisible: a twin at the same price, a struck-through offer or an intro 'from €89' gives 'all 7 facts ... are still on it, so what changed is something the lock does not watch'",
+    "expected": "When the page no longer states a fact where it stated it (the double room's €89), the watch either counts it as gone or says the value is still found elsewhere on the page so it cannot tell; it never says 'what changed is something the lock does not watch' about a value the lock watches. init says when one value on the page stands for more than one fact the network states, or appears more than once.",
+    "got": "Real CLI on copies of the fixture site: M1 (a twin room at €89; the double raised to €95), M2 ('<del>€89</del> €79 per night this winter') and M4 (intro 'Doubles from €89'; the table raised) each read 'warn grounding rooms.html: A grounding source changed since the lock was written; all 7 facts the lock watches on it (facts the network states) are still on it, so what changed is something the lock does not watch.' while the network still says €89 for the double. init printed 'watches 7 (3 prices ...)' each time, with no hint. An anchor is the presence of a value anywhere on the page, not the fact at its place.",
+    "evidence": ["src/watch/anchors.ts:376-381", "src/watch/anchors.ts:466-471", "src/watch/decide.ts:148-149", "uat/runs/2026-11-18-first-five/evidence/marta-recert/mini.mjs", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/mini.out.txt", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/probe2.out.txt"],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "l1_missed": "The fix's own probe (36 forms) changes one value per page; no form states the same value twice.",
+    "l2_priority": "Next recertify: add M1, M2 and M4 to MC-1's grounding regression (the fixture plus these three copies) and assert none reads 'something the lock does not watch'."
+  },
+  {
+    "id": "MAR-RC-2",
+    "journey": "j1-price-changed",
+    "character": "marta-hollis",
+    "cert_level": "L2",
+    "type": "confusion",
+    "severity": "minor",
+    "impact": { "frequency": "med", "reachability": "high", "trust_erosion": "med" },
+    "dimension": "clarity",
+    "title": "The right fix is announced as the loudest event of the journey: a comment headed 'A new `block` finding. Look before the next release.', and the Desk says of her own site 'the host may have rewritten it'",
+    "expected": "When the network is corrected to what the page states, the owner is told the stale fact is gone and that one step remains (the developer re-locks and signs), without block or stranger-danger wording about her own site.",
+    "got": "fix-network committed before the developer re-signs (the world's act): run r2 comments (notifies) '**A new `block` finding.** Look before the next release. ... block grounding plumbline.signature.json: The site's signature no longer covers its files ... verifiers now answer invalid (tampered) ...'; the Desk: 'The signature over this lock does not hold (verify says why): the host may have rewritten it.'; verify: 'INVALID ... Do not treat these files as the publisher's.' At L2 the same moment was a warn comment.",
+    "evidence": ["action/report.mjs:242", "site/strings.js:95", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/gh-state.main-path.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/issue-body.r2-fix.md", "shots/marta-recert/rc-20-fix-drift.png", "shots/marta-recert/rc-21-fix-verify.png"],
+    "code_check": "by-design",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "l1_missed": "Born of UAT-2's signature-coverage finding (correct and useful for the developer), read from the owner's side.",
+    "l2_priority": "Read the r2 comment and the Desk after fix-network; a fix, relock and sign in one commit avoids it, so record whether the issue tells the developer to do them together."
+  },
+  {
+    "id": "MAR-RC-3",
+    "journey": "j1-price-changed",
+    "character": "marta-hollis",
+    "cert_level": "L2",
+    "type": "confusion",
+    "severity": "minor",
+    "impact": { "frequency": "med", "reachability": "high", "trust_erosion": "low" },
+    "dimension": "clarity",
+    "title": "While the issue is open, every later edit of the page (wording included) comments 'New:' with the same stale-fact sentence, so a notification cannot say whether anything new is stale",
+    "expected": "A comment says what is new: a finding whose sentence did not change is either not re-announced, or announced as 'the page changed again; the same stale fact is still reported'.",
+    "got": "W2: c2 (raise on the open cosmetic issue) commented correctly; c3 (a breakfast wording edit, the price still stale) commented again (notifies) 'New: - **warn** grounding `rooms.html`: ... 1 of 7 facts ... is no longer on it, and the network still states it (1 price) ...', word for word the c2 comment. The digest carries the page hash, so every edit is new evidence.",
+    "evidence": ["action/report.mjs:84-101", "action/report.mjs:251", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.c3.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/gh-state.escalation.json"],
+    "code_check": "by-design",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "l1_missed": "A consequence of UAT-6's evidence choice (each finding's actual), which MAR-L1-04's fix needed.",
+    "l2_priority": "Two wording edits on an open stale-price issue; read both comments."
+  },
+  {
+    "id": "MAR-RC-4",
+    "journey": "j1-price-changed",
+    "character": "marta-hollis",
+    "cert_level": "L2",
+    "type": "trust",
+    "strength": true,
+    "severity": "polish",
+    "impact": { "frequency": "med", "reachability": "high", "trust_erosion": "low" },
+    "dimension": "trust",
+    "title": "Strength: nothing accepts a stale fact: the relock keeps it ('Not accepted ...'), the PR lists it first under 'does not accept', no PR is offered when it is the only change, and an unsigned merge leaves the issue open with a block",
+    "expected": "No accept path ends in a clean report while the assistant states a fact the page no longer does.",
+    "got": "CLI relock: 'no ref changed' and 'Not accepted: the network still states 1 fact this page no longer states (1 price) ...'; W3 pr-plan none; W4 PR body opens 'What this relock does not accept'; after the unsigned merge, issue #1 open with the stale price and a block.",
+    "evidence": ["src/watch/capture.ts:175", "action/report.mjs:509-512", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.w2cli.json", "uat/runs/2026-11-18-first-five/evidence/marta-recert/out/runner.v4.json"],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "resolution": "n-a",
+    "ceiling": "`--drop <page>` still removes a page and its alert; that is a deliberate developer act, not an accept."
+  }
+]
+```
+
+Rank (low=1, med=2, high=3): MAR-RC-1 18 (major); MAR-RC-2 12 (minor); MAR-RC-3 6 (minor).
+
+### Recertify residue
+
+Four `larch-house` worlds, each `down` with `folderGone: true`, `portsStillInUse: []`, `leftovers: []` (`netstat`
+showed only a PID 0 `LISTENING` line on 4101 after the last one, the Windows TIME_WAIT residue `uat/env.md` describes).
+Written outside the worlds: `dist/` and `site/lib/plumbline/` (rebuilt, git-ignored), `shots/marta-recert/` (16 stems),
+`evidence/marta-recert/` (the scripts and `out/`), and scratch copies in the session scratchpad. No key under the
+repository or any `keys/` folder was read or used; the throwaway `jonas-recert` keys lived and died in the world
+folders, and their private files were only passed to `sign --key`. Public services: the runtime upstream check of each
+`watch --root` (GitHub API) only; the Desk's check view was not run; no model provider was called.
+`collect-findings.mjs` was not run (the orchestrator runs it).
