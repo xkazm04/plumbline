@@ -65,9 +65,52 @@ is new. An unchanged run writes nothing. The next clean run closes the issue wit
 `issue-action` says which it did: `create`, `edit`, `close` or `none`. Without `issues: true` the Action touches no
 issue, and you can keep your own with `findings` and `issue-body`.
 
+**Accepting drift in one review** (`relock-pr: true`, watch only). On `warn` or `block` findings the Action runs
+`watch --relock` on the branch `plumbline/relock` (made from the commit the job checked out) and keeps ONE pull request
+from it, titled `Plumbline: accept the drift (relock)`. Its body lists what the new lock changes (`added`, `removed`,
+`changed`, as `--relock` prints them) and the findings it accepts, whose summaries carry the counts (what changed in a
+peer, how many facts a page no longer states, how many skills a card added). With `signing-key` (a secret holding the
+JSON of `plumbline.private.json`) and `origin`, it also signs, and the body names the kid; without a key, the body says
+to sign locally and the pull request stays a draft. A person merges; the run accepts nothing. A relock that changes no
+ref opens nothing; a body that has not changed pushes nothing; the next run with nothing to accept closes the pull
+request with a comment. Output `pr-action`: `create`, `edit`, `close` or `none`. The job needs `contents: write` and
+`pull-requests: write`, and the branch is the Action's own (it is replaced on each push, `--force-with-lease`).
+
+```yaml
+- uses: xkazm04/plumbline/action@COMMIT_SHA
+  with:
+    command: watch
+    root: site
+    issues: true
+    relock-pr: true
+    signing-key: ${{ secrets.PLUMBLINE_SIGNING_KEY }}   # optional: without it, a draft to sign locally
+    origin: https://example.org                          # with signing-key
+```
+
+**Renewing the signature** (`renew: true`, watch only, needs `signing-key` and `origin`). When the watch reports that
+the site's signature expires within 14 days, or has expired, the Action signs the same files again on the branch
+`plumbline/renew` and keeps ONE pull request `Plumbline: renew the signature`. `action/templates/plumbline-renew.yml`
+runs it weekly. The key reaches the CLI as an environment variable only (`plumbline sign --key-env`): it is never an
+argument, never written to disk and never printed; the CLI's notes on CI custody are printed with the signature.
+
+**Forwarding the drift issue to a chat** needs no new code: the `issue-body` output is the path of the issue's Markdown.
+For example, after the Action step (`id: watch`), with a webhook URL in a secret:
+
+```yaml
+- name: Tell the team
+  if: steps.watch.outputs.findings != '0'
+  shell: bash
+  env:
+    WEBHOOK: ${{ secrets.CHAT_WEBHOOK_URL }}
+    BODY: ${{ steps.watch.outputs.issue-body }}
+  run: jq -Rs '{text: .}' "$BODY" | curl -fsS -X POST -H 'content-type: application/json' --data @- "$WEBHOOK"
+```
+
+The body holds Plumbline's sentences, the findings' refs and the digest marker; a site's own words are never in it.
+
 **Refusals.** Before the build, the Action refuses a `command` other than `gate` or `watch`, a gate without `target`, a
 `fail-on` other than `fail` or `unavailable`, an `issues` other than `true` or `false`, `issues: true` with the gate,
-and a watch `root` that is not a folder in the workspace. Each fails the step with its reason.
+a watch `root` that is not a folder in the workspace, a `relock-pr` or `renew` other than `true` or `false` or with the gate, both together, `renew` without `signing-key`, a `signing-key` without an https `origin`, and a `signing-key` with neither. Each fails the step with its reason.
 
 Every decision is in `action/report.mjs` (plain Node, no dependencies): the input check, the one read of the report, and
 what to do with the drift issue; the Action's shell only carries them out. `node --test "action/*.test.mjs"` tests them,

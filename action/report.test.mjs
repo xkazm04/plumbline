@@ -389,3 +389,153 @@ test("a report whose lock is not found is never clean: no lock keeps the issue o
   assert.equal(openFindings({ findings: [], lockState: "found" }).length, 0, "a found lock with no findings is clean");
 });
 
+
+// ---- D10: the publisher's loop: one pull request that accepts drift (relock-pr) or renews the signature (renew) ----
+
+const { PR_BRANCHES, PR_TITLES, prBody, prPlan, renewNeeded, signedKid } = await import("./report.mjs");
+const relockOut = { relocked: true, previous: "found", changes: { added: ["peer https://new.example/p"], removed: [], changed: ["grounding pages/prices.html"] }, findings: [] };
+const peerChange = {
+  kind: "peer",
+  severity: "block",
+  ref: "https://peer.example/a",
+  summary:
+    "A peer's network definition changed since the lock was written; it runs in the visitor's browser, so a changed one is changed code. In outline: agents: 1 added, 0 removed, 0 changed; outbound hosts: 1 added, 0 removed; front agent: unchanged.",
+};
+const expiring = { kind: "grounding", severity: "warn", ref: "plumbline.signature.json", summary: "The site's signature expires on 2026-12-01, in 9 days; sign the site again before then." };
+
+test("pull request inputs: relock-pr and renew with watch only, never both; renew and signing need a key and an https origin", () => {
+  const ok = { command: "watch", target: "", failOn: "fail", issues: "false", rootIsFolder: true };
+  assert.equal(inputProblem({ ...ok, relockPr: "true" }), null, "relock-pr without a key: a draft to sign locally");
+  assert.equal(inputProblem({ ...ok, relockPr: "true", signingKey: true, origin: "https://example.org" }), null);
+  assert.equal(inputProblem({ ...ok, renew: "true", signingKey: true, origin: "https://example.org" }), null);
+  const cases = [
+    [{ ...ok, relockPr: "yes" }, /relock-pr must be true or false/],
+    [{ ...ok, renew: "1" }, /renew must be true or false/],
+    [{ ...ok, command: "gate", target: "https://x.example/", relockPr: "true" }, /watch only/],
+    [{ ...ok, relockPr: "true", renew: "true", signingKey: true, origin: "https://example.org" }, /separate workflows/],
+    [{ ...ok, renew: "true" }, /renew: true needs signing-key/],
+    [{ ...ok, relockPr: "true", signingKey: true, origin: "http://example.org" }, /signing needs origin/],
+    [{ ...ok, relockPr: "true", signingKey: true, origin: "https://example.org/" }, /signing needs origin/],
+    [{ ...ok, signingKey: true, origin: "https://example.org" }, /signing-key goes with relock-pr or renew/],
+  ];
+  for (const [input, message] of cases) assert.match(inputProblem(input) ?? "", message, JSON.stringify(input));
+});
+
+test("renewNeeded reads the signature-expiry finding; signedKid takes only a kid in its pattern", () => {
+  assert.equal(renewNeeded({ findings: [expiring] }), true);
+  assert.equal(renewNeeded({ findings: [{ ...expiring, severity: "block", summary: "The site's signature expired on 2026-11-01; verifiers now answer invalid (expired)." }] }), true);
+  assert.equal(renewNeeded({ findings: [warn, block] }), false);
+  assert.equal(renewNeeded({ findings: [{ ...expiring, summary: "The site's signature file has no readable expiry, so the watch cannot say when it lapses." }] }), false, "an unreadable expiry is the issue's, not a renewal");
+  assert.equal(signedKid({ kid: "0123456789abcdef" }), "0123456789abcdef");
+  assert.equal(signedKid({ kid: "<b>" }), null);
+  assert.equal(signedKid(null), null);
+});
+
+test("the relock body: what the new lock changes, the findings it accepts with their counts, and the signing state", () => {
+  const signed = prBody({ mode: "relock", report: { findings: [peerChange, drift.findings[2]] }, relock: relockOut, kid: "0123456789abcdef", runUrl });
+  assert.match(signed, /^- added `peer https:\/\/new\.example\/p`$/m);
+  assert.match(signed, /^- changed `grounding pages\/prices\.html`$/m);
+  assert.match(signed, /In outline: agents: 1 added/);
+  assert.doesNotMatch(signed, /Upstream is ahead/, "info stays out");
+  assert.match(signed, /Signed in this run with the key in the workflow's secret \(kid `0123456789abcdef`\)/);
+  assert.match(signed, /Nothing is accepted until a person merges this/);
+  const unsigned = prBody({ mode: "relock", report: { findings: [peerChange] }, relock: relockOut, kid: null, runUrl });
+  assert.match(unsigned, /\*\*Not signed\.\*\* .*It stays a draft until then\./);
+  const renew = prBody({ mode: "renew", report: { findings: [expiring, warn] }, relock: null, kid: "0123456789abcdef", runUrl });
+  assert.match(renew, /expires on 2026-12-01/);
+  assert.doesNotMatch(renew, /peer\.example/, "a renewal lists the expiry only");
+});
+
+test("the pull request decision: create (a draft when unsigned), none for the same body, edit, close when nothing is wanted", () => {
+  const body = prBody({ mode: "relock", report: { findings: [peerChange] }, relock: relockOut, kid: null, runUrl });
+  assert.deepEqual(prPlan({ mode: "relock", wanted: true, body, signed: false, open: [], runUrl }), { action: "create", draft: true, title: PR_TITLES.relock, branch: PR_BRANCHES.relock });
+  assert.equal(prPlan({ mode: "relock", wanted: true, body, signed: true, open: [], runUrl }).draft, false);
+  // the same body from a later run (another run address): nothing is pushed, nobody is notified
+  const later = body.replace(runUrl, "https://github.com/o/r/actions/runs/8");
+  assert.deepEqual(prPlan({ mode: "relock", wanted: true, body: later, signed: false, open: [{ number: 3, body, isDraft: true }], runUrl }), { action: "none", number: 3, draft: true });
+  // a new change, or now signed: edit (pushed again), with the draft state it must be in
+  const more = prBody({ mode: "relock", report: { findings: [peerChange, block] }, relock: relockOut, kid: null, runUrl });
+  assert.deepEqual(prPlan({ mode: "relock", wanted: true, body: more, signed: false, open: [{ number: 3, body, isDraft: true }], runUrl }), {
+    action: "edit",
+    number: 3,
+    draft: true,
+    branch: PR_BRANCHES.relock,
+  });
+  assert.equal(prPlan({ mode: "relock", wanted: true, body, signed: true, open: [{ number: 3, body, isDraft: true }], runUrl }).action, "edit", "signed now: ready for review");
+  const closed = prPlan({ mode: "renew", wanted: false, body, signed: true, open: [{ number: 9, body, isDraft: false }], runUrl });
+  assert.deepEqual([closed.action, closed.number], ["close", 9]);
+  assert.match(closed.comment, /no longer finds anything to renew as of https:\/\/github\.com\/o\/r\/actions\/runs\/7/);
+  assert.equal(prPlan({ mode: "relock", wanted: false, body, signed: false, open: [], runUrl }).action, "none");
+  assert.throws(() => prPlan({ mode: "merge", wanted: true, body, signed: true, open: [], runUrl }));
+});
+
+test("pr, as the Action runs it: wanted only for open drift whose relock changed a ref; outputs in GITHUB_OUTPUT; a broken report exits 2", () => {
+  const files = { "report.json": JSON.stringify({ lockState: "found", findings: [peerChange] }), "relock.json": JSON.stringify(relockOut), "open.json": "[]" };
+  const r = run(["pr", "relock", "@report.json", "@relock.json", "-", "@open.json", "@body.md", "@comment.md"], files);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.output, /^action=create\nnumber=\ndraft=true\ntitle=Plumbline: accept the drift \(relock\)\nbranch=plumbline\/relock\nbody=.*body\.md\ncomment=\n$/);
+  const nothing = run(["pr", "relock", "@report.json", "@relock.json", "-", "@open.json", "@body.md", "@comment.md"], {
+    ...files,
+    "relock.json": JSON.stringify({ changes: { added: [], removed: [], changed: [] } }),
+  });
+  assert.match(nothing.output, /^action=none\n/, "a relock that changes no ref has nothing to accept");
+  const clean = run(["pr", "renew", "@report.json", "-", "-", "@open.json", "@body.md", "@comment.md"], { ...files, "report.json": JSON.stringify({ lockState: "found", findings: [] }) });
+  assert.match(clean.output, /^action=none\n/);
+  const broken = run(["pr", "relock", "@report.json", "-", "-", "@open.json", "@body.md", "@comment.md"], { ...files, "report.json": "{}" });
+  assert.equal(broken.status, 2);
+  assert.match(broken.stderr, /cannot decide on the pull request/);
+});
+
+test(
+  "the Action's pull request step, run by bash against stub gh and git: create pushes the branch and opens a draft; close only comments",
+  { skip: !bash && "no POSIX bash (set PLUMBLINE_TEST_BASH)" },
+  () => {
+    const apply = stepScript("Open, update or close the pull request");
+    const dir = mkdtempSync(join(tmpdir(), "plumbline-pr-steps-"));
+    try {
+      const stubs = join(dir, "bin");
+      mkdirSync(stubs);
+      for (const tool of ["gh", "git"]) writeFileSync(join(stubs, tool), `#!/usr/bin/env bash\nprintf '${tool} %s\\n' "$*" >> "$TOOL_LOG"\n`, { mode: 0o755 });
+      const workspace = join(dir, "ws");
+      mkdirSync(join(workspace, "site"), { recursive: true });
+      writeFileSync(join(workspace, "site", "plumbline.lock.json"), "{}");
+      writeFileSync(join(dir, "body.md"), "body");
+      writeFileSync(join(dir, "comment.md"), "no longer needed");
+      const steps = (vars) => {
+        const log = join(dir, "tools.log");
+        writeFileSync(log, "");
+        const env = {
+          ...process.env,
+          PATH: `${stubs}${delimiter}${process.env.PATH}`,
+          TOOL_LOG: log,
+          GITHUB_WORKSPACE: workspace,
+          GH_TOKEN: "t0ken",
+          GH_REPO: "o/r",
+          TITLE: PR_TITLES.relock,
+          BRANCH: PR_BRANCHES.relock,
+          BODY: join(dir, "body.md"),
+          COMMENT: join(dir, "comment.md"),
+          PLUMBLINE_ROOT: "site",
+          NUMBER: "",
+          ...vars,
+        };
+        // Git Bash puts its own folders (with a real git) before the PATH it was given: put the stubs first inside bash
+        const prefix = 'PATH="$(cygpath -u "$STUB_DIR" 2>/dev/null || printf %s "$STUB_DIR"):$PATH"\n';
+        const r = spawnSync(bash, ["-eo", "pipefail", "-c", prefix + apply], { env: { ...env, STUB_DIR: stubs }, encoding: "utf8" });
+        assert.equal(r.status, 0, r.stderr);
+        return readFileSync(log, "utf8").trim().split("\n").filter(Boolean);
+      };
+      const created = steps({ PR_ACTION: "create", DRAFT: "true" });
+      assert.deepEqual(created.slice(0, 2), ["git add -- site/plumbline.lock.json", `git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com commit -m ${PR_TITLES.relock} --quiet`]);
+      assert.ok(created.some((l) => l.startsWith("git push --quiet --force-with-lease=refs/heads/plumbline/relock ") && l.endsWith("HEAD:refs/heads/plumbline/relock")), created.join("\n"));
+      assert.equal(created[created.length - 1], `gh pr create --draft --head plumbline/relock --title ${PR_TITLES.relock} --body-file ${join(dir, "body.md")}`);
+      const edited = steps({ PR_ACTION: "edit", DRAFT: "false", NUMBER: "3" });
+      assert.deepEqual(edited.slice(-2), [`gh pr edit 3 --body-file ${join(dir, "body.md")}`, "gh pr ready 3"]);
+      const closed = steps({ PR_ACTION: "close", DRAFT: "false", NUMBER: "3" });
+      assert.deepEqual(closed, ["gh pr close 3 --comment no longer needed"], "closing pushes nothing");
+      assert.deepEqual(steps({ PR_ACTION: "none", DRAFT: "false" }), []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);

@@ -37,6 +37,7 @@ import {
   applyRevocationText,
   generateKey,
   isAcceptableOrigin,
+  isPrivateKeyFile,
   isKid,
   isSafeSubjectPath,
   parseManifest,
@@ -65,7 +66,7 @@ export type Out = (line: string) => void;
 /** Each signing command's own usage line, printed after the message on a usage error (index.ts). */
 export const USAGE = {
   keygen: "usage: plumbline keygen --out <dir> [--now <iso>] [--json]",
-  sign: "usage: plumbline sign --root <site dir> --key <plumbline.private.json> --origin <https origin> [--days N] [--now <iso>] [--json]",
+  sign: "usage: plumbline sign --root <site dir> (--key <plumbline.private.json> | --key-env <NAME>) --origin <https origin> [--days N] [--now <iso>] [--json]",
   verify:
     "usage: plumbline verify --trust <plumbline.trust.json> (--root <site dir> [--origin <https origin>] | --url <https site base> [--allow-local] [--timeout <seconds>]) [--jws <detached JWS file>] [--now <iso>] [--json]",
   "export-jws": "usage: plumbline export-jws --root <site dir> --key <plumbline.private.json> [--out <file>] [--json]",
@@ -139,11 +140,52 @@ export async function keygen(argv: string[], out: Out): Promise<number> {
   return 0;
 }
 
+/**
+ * The warnings `sign --key-env` prints for CI: the key arrives in the environment, so its custody is the CI's secret
+ * store. Plumbline reads it once, never prints it and never writes it to disk.
+ */
+export const CI_KEY_WARNINGS = [
+  "The signing key came from the environment: keep it in the CI's secret store, give only the signing job access to it, and never echo it in a step.",
+  "A key in a CI secret can sign as you from any workflow that can read the secret: limit who can change those workflows, and revoke the key (plumbline revoke) if one was ever exposed.",
+] as const;
+
+/**
+ * The private key for `sign`: from `--key <file>` (refused when it sits in the site root) or from `--key-env <NAME>`
+ * (the JSON of a plumbline.private.json in that environment variable, for a CI secret). A refusal names the file or the
+ * variable, never its content.
+ */
+async function signingKeyOf(args: ParsedArgs, root: string): Promise<{ privateFile: PrivateKeyFile; fromEnv?: string }> {
+  const keyPath = args.values.get("key");
+  const keyEnv = args.values.get("key-env");
+  if ((keyPath === undefined) === (keyEnv === undefined)) throw new UsageError("give exactly one of --key and --key-env");
+  if (keyPath !== undefined) {
+    // A private key inside the folder that gets published is a published key (p-1c7bd9).
+    const inRoot = await privateKeyInRootProblem(root, keyPath);
+    if (inRoot !== undefined) throw new CliError(`refusing to sign: ${inRoot}`);
+    return { privateFile: await readPrivateKeyFile(keyPath) };
+  }
+  const name = keyEnv as string;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new UsageError("--key-env takes the NAME of an environment variable");
+  const text = process.env[name];
+  if (text === undefined || text.trim() === "") throw new CliError(`the environment variable ${name} is not set or is empty`);
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new CliError(`the environment variable ${name} does not hold a Plumbline private key file (it is not JSON)`);
+  }
+  if (!isPrivateKeyFile(value)) throw new CliError(`the environment variable ${name} does not hold a Plumbline private key file`);
+  // the root must still not hold a private key file of its own: a folder deploy would publish it
+  if ((await readTextIfPresent(path.join(root, PRIVATE_KEY_FILE))) !== undefined) {
+    throw new CliError(`refusing to sign: the site root ${root} holds a ${PRIVATE_KEY_FILE}, so publishing the folder publishes a private key`);
+  }
+  return { privateFile: { type: PRIVATE_KEY_TYPE, version: FORMAT_VERSION, alg: ALG, kid: value.kid, privateKey: value.privateKey }, fromEnv: name };
+}
+
 export async function sign(argv: string[], out: Out): Promise<number> {
-  const args = parseArgs(argv, ["root", "key", "origin", "days", "now"]);
+  const args = parseArgs(argv, ["root", "key", "key-env", "origin", "days", "now"]);
   const root = required(args, "root");
   const origin = required(args, "origin");
-  const keyPath = required(args, "key");
   if (!isAcceptableOrigin(origin)) throw new UsageError(ORIGIN_RULE);
   const now = nowFrom(args) ?? new Date();
   let lifetimeDays = DEFAULT_LIFETIME_DAYS;
@@ -152,10 +194,7 @@ export async function sign(argv: string[], out: Out): Promise<number> {
     lifetimeDays = Number(days);
     if (!Number.isFinite(lifetimeDays) || lifetimeDays <= 0) throw new UsageError("--days must be a positive number");
   }
-  // A private key inside the folder that gets published is a published key (p-1c7bd9).
-  const inRoot = await privateKeyInRootProblem(root, keyPath);
-  if (inRoot !== undefined) throw new CliError(`refusing to sign: ${inRoot}`);
-  const privateFile = await readPrivateKeyFile(keyPath);
+  const { privateFile, fromEnv } = await signingKeyOf(args, root);
   const keyRecord = await keyRecordOf(privateFile, now);
 
   // A key the site itself has revoked must never sign again: the publisher learns it here, not from its verifiers.
@@ -217,6 +256,7 @@ export async function sign(argv: string[], out: Out): Promise<number> {
   // First-contact verifiers fetch the site's key record: after a rotation or a new key the old one may still be there.
   const keyRecordState = await publishedKeyRecordState(root, keyRecord);
   const lines = [`signed ${signature.subjects.length} files as ${signature.kid} for ${origin}, expires ${signature.expiresAt}`, `wrote ${target}`];
+  if (fromEnv !== undefined) for (const w of CI_KEY_WARNINGS) lines.push(`NOTE: ${w}`);
   if (keyRecordState === "absent") {
     lines.push(
       `WARNING: ${root} publishes no ${KEY_FILE}; first-contact verifiers need this key's record (keygen wrote it beside the private key): publish it, unless the site serves it from elsewhere`,
@@ -236,6 +276,7 @@ export async function sign(argv: string[], out: Out): Promise<number> {
       expiresAt: signature.expiresAt,
       subjects: signature.subjects.map((s) => s.path),
       keyRecord: keyRecordState,
+      ...(fromEnv !== undefined ? { keyFrom: "env", custody: [...CI_KEY_WARNINGS] } : {}),
     },
     lines,
   );

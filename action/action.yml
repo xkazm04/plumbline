@@ -28,9 +28,25 @@ inputs:
     required: false
     default: "false"
   token:
-    description: "For `issues`, the token the drift issue is kept with. The default is the job's own token, which needs `issues: write`."
+    description: "For `issues`, `relock-pr` and `renew`, the token the drift issue and the pull request are kept with. The default is the job's own token, which needs `issues: write` (and `contents: write` and `pull-requests: write` for a pull request)."
     required: false
     default: ${{ github.token }}
+  relock-pr:
+    description: "For `watch`: `true` keeps ONE pull request on the branch `plumbline/relock` that accepts the drift: `watch --relock` rewrites the lock, and the body lists what changed and the findings. With `signing-key` it also signs; without one the body says to sign locally and the pull request is a draft. A person merges; nothing is accepted by the run. The job needs `contents: write` and `pull-requests: write`."
+    required: false
+    default: "false"
+  renew:
+    description: "For `watch`: `true` keeps ONE pull request on the branch `plumbline/renew` that signs the site again when its signature expires within 14 days or has expired. Needs `signing-key` and `origin`."
+    required: false
+    default: "false"
+  signing-key:
+    description: "For `relock-pr` and `renew`: the JSON of a plumbline.private.json, from a secret (`${{ secrets.PLUMBLINE_SIGNING_KEY }}`). It reaches the CLI through an environment variable only (`sign --key-env`), is never printed and never written to disk."
+    required: false
+    default: ""
+  origin:
+    description: "With `signing-key`: the https origin the site is published from, as `plumbline sign --origin` takes it."
+    required: false
+    default: ""
 
 outputs:
   state:
@@ -48,6 +64,9 @@ outputs:
   issue-action:
     description: "For `watch` with `issues: true`, what was done to the drift issue: create, edit, close or none."
     value: ${{ steps.issue-plan.outputs.action }}
+  pr-action:
+    description: "For `watch` with `relock-pr` or `renew`, what was done to the pull request: create, edit, close or none."
+    value: ${{ steps.pr-plan.outputs.action }}
 
 runs:
   using: composite
@@ -63,6 +82,10 @@ runs:
         PLUMBLINE_FAIL_ON: ${{ inputs.fail-on }}
         PLUMBLINE_ROOT: ${{ inputs.root }}
         PLUMBLINE_ISSUES: ${{ inputs.issues }}
+        PLUMBLINE_RELOCK_PR: ${{ inputs.relock-pr }}
+        PLUMBLINE_RENEW: ${{ inputs.renew }}
+        PLUMBLINE_SIGNING_KEY: ${{ inputs.signing-key }}
+        PLUMBLINE_ORIGIN: ${{ inputs.origin }}
       run: node "$GITHUB_ACTION_PATH/report.mjs" inputs
 
     # The code that runs is this action's own checkout: pinning the action by commit SHA pins the code, with no package
@@ -161,4 +184,90 @@ runs:
             ;;
           none) echo "The drift issue needs nothing." ;;
           *) echo "::error::no decision on the drift issue"; exit 2 ;;
+        esac
+
+    # The pull request, with `relock-pr: true` or `renew: true` (the input check allows each with watch only). The branch
+    # is made from the commit this run checked out; the relock and the signature are made by the CLI built above. The key,
+    # when given, reaches the CLI as an environment variable (`sign --key-env`), never as an argument or a file. report.mjs
+    # decides from this run's outputs and the open pull requests; the next step only carries the decision out.
+    - name: Decide on the pull request
+      id: pr-plan
+      if: inputs.relock-pr == 'true' || inputs.renew == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        MODE: ${{ inputs.relock-pr == 'true' && 'relock' || 'renew' }}
+        REPORT: ${{ steps.run.outputs.report }}
+        FINDINGS: ${{ steps.run.outputs.findings }}
+        PLUMBLINE_ROOT: ${{ inputs.root }}
+        PLUMBLINE_SIGNING_KEY: ${{ inputs.signing-key }}
+        PLUMBLINE_ORIGIN: ${{ inputs.origin }}
+      run: |
+        cli="$GITHUB_ACTION_PATH/../dist/cli/index.js"
+        pr="$RUNNER_TEMP/plumbline-pr"
+        mkdir -p "$pr"
+        branch=$(node "$GITHUB_ACTION_PATH/report.mjs" pr-branch "$MODE")
+        root="$GITHUB_WORKSPACE/$PLUMBLINE_ROOT"
+        relock="-"
+        signed="-"
+        work="false"
+        if [ "$MODE" = "relock" ] && [ "${FINDINGS:-0}" -gt 0 ]; then work="true"; fi
+        if [ "$MODE" = "renew" ] && [ "$(node "$GITHUB_ACTION_PATH/report.mjs" renew-needed "$REPORT")" = "true" ]; then work="true"; fi
+        if [ "$work" = "true" ]; then
+          git -C "$GITHUB_WORKSPACE" switch -C "$branch"
+          if [ "$MODE" = "relock" ]; then
+            node "$cli" watch --root "$root" --relock --json > "$pr/relock.json"
+            relock="$pr/relock.json"
+          fi
+          if [ -n "$PLUMBLINE_SIGNING_KEY" ]; then
+            node "$cli" sign --root "$root" --key-env PLUMBLINE_SIGNING_KEY --origin "$PLUMBLINE_ORIGIN" --json > "$pr/sign.json"
+            signed="$pr/sign.json"
+          fi
+        fi
+        gh pr list --head "$branch" --state open --json number,body,isDraft > "$pr/open.json"
+        node "$GITHUB_ACTION_PATH/report.mjs" pr "$MODE" "$REPORT" "$relock" "$signed" "$pr/open.json" "$pr/body.md" "$pr/comment.md"
+
+    - name: Open, update or close the pull request
+      if: inputs.relock-pr == 'true' || inputs.renew == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        PR_ACTION: ${{ steps.pr-plan.outputs.action }}
+        NUMBER: ${{ steps.pr-plan.outputs.number }}
+        DRAFT: ${{ steps.pr-plan.outputs.draft }}
+        TITLE: ${{ steps.pr-plan.outputs.title }}
+        BRANCH: ${{ steps.pr-plan.outputs.branch }}
+        BODY: ${{ steps.pr-plan.outputs.body }}
+        COMMENT: ${{ steps.pr-plan.outputs.comment }}
+        PLUMBLINE_ROOT: ${{ inputs.root }}
+      run: |
+        push() {
+          # Only the lock and the signature are committed. The branch is this Action's own and is rebuilt from the
+          # checked-out commit on every run, so it is replaced (--force-with-lease against what was fetched).
+          cd "$GITHUB_WORKSPACE"
+          git add -- "$PLUMBLINE_ROOT/plumbline.lock.json"
+          if [ -f "$PLUMBLINE_ROOT/plumbline.signature.json" ]; then git add -- "$PLUMBLINE_ROOT/plumbline.signature.json"; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "$TITLE" --quiet
+          git fetch --quiet "https://x-access-token:$GH_TOKEN@github.com/$GH_REPO.git" "+refs/heads/$BRANCH:refs/remotes/plumbline/$BRANCH" || true
+          git push --quiet --force-with-lease="refs/heads/$BRANCH" "https://x-access-token:$GH_TOKEN@github.com/$GH_REPO.git" "HEAD:refs/heads/$BRANCH"
+        }
+        case "$PR_ACTION" in
+          create)
+            push
+            if [ "$DRAFT" = "true" ]; then gh pr create --draft --head "$BRANCH" --title "$TITLE" --body-file "$BODY"; else gh pr create --head "$BRANCH" --title "$TITLE" --body-file "$BODY"; fi
+            ;;
+          edit)
+            push
+            gh pr edit "$NUMBER" --body-file "$BODY"
+            if [ "$DRAFT" = "true" ]; then gh pr ready "$NUMBER" --undo || true; else gh pr ready "$NUMBER" || true; fi
+            echo "Updated pull request #$NUMBER"
+            ;;
+          close)
+            gh pr close "$NUMBER" --comment "$(cat "$COMMENT")"
+            echo "Closed pull request #$NUMBER"
+            ;;
+          none) echo "The pull request needs nothing." ;;
+          *) echo "::error::no decision on the pull request"; exit 2 ;;
         esac

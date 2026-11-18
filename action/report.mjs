@@ -7,6 +7,10 @@
 //   node report.mjs title                                print the drift issue's title
 //   node report.mjs issue <findings> <issue-body.md> <open-issues.json> <comment.md>
 //                                                        what to do with the drift issue: create, edit, close or none
+//   node report.mjs pr-branch <relock|renew>             print the branch of a mode's one pull request
+//   node report.mjs renew-needed <report.json>           print true when the site's signature is near or past expiry
+//   node report.mjs pr <relock|renew> <report.json> <relock.json|-> <sign.json|-> <open-prs.json> <body.md> <comment.md>
+//                                                        what to do with the pull request: create, edit, close or none
 //
 // The report the CLI wrote is read ONCE (gate or watch). The issue step reads what that read produced: the count, and the
 // body, which carries the findings' digest in a hidden marker, so a later run can tell which findings are new.
@@ -28,16 +32,25 @@ const SEVERITY_RANK = { block: 0, warn: 1 };
  * red at once with the reason, never after a minute of npm ci, and never as a quiet run that checked nothing.
  * `rootIsFolder` says whether `root` names a folder in the workspace; only `watch` asks.
  */
-export function inputProblem({ command, target, failOn, issues, rootIsFolder }) {
+export function inputProblem({ command, target, failOn, issues, rootIsFolder, relockPr = "false", renew = "false", signingKey = false, origin = "" }) {
   if (command !== "gate" && command !== "watch") return "command must be gate or watch";
   if (issues !== "true" && issues !== "false") return "issues must be true or false";
+  if (relockPr !== "true" && relockPr !== "false") return "relock-pr must be true or false";
+  if (renew !== "true" && renew !== "false") return "renew must be true or false";
   if (command === "gate") {
     if (failOn !== "fail" && failOn !== "unavailable") return "fail-on must be fail or unavailable";
     if (!target) return "command gate needs a target";
     if (issues === "true") return "issues: true goes with command watch only (the gate keeps no drift issue)";
+    if (relockPr === "true" || renew === "true") return "relock-pr and renew go with command watch only";
     return null;
   }
   if (!rootIsFolder) return "root must name a folder in the workspace: the site folder holding plumbline.lock.json";
+  if (relockPr === "true" && renew === "true") return "relock-pr and renew are separate workflows: give one of them (action/templates/ has one for each)";
+  if (renew === "true" && !signingKey) return "renew: true needs signing-key (a secret holding plumbline.private.json): a renewal is a new signature";
+  if ((relockPr === "true" || renew === "true") && signingKey && !/^https:\/\/[^/\s]+$/.test(origin)) {
+    return "signing needs origin: the https origin the site is published from, like https://example.org";
+  }
+  if (signingKey && relockPr !== "true" && renew !== "true") return "signing-key goes with relock-pr or renew: nothing else signs";
   return null;
 }
 
@@ -213,6 +226,82 @@ export function issuePlan({ findings, body, open, runUrl }) {
   };
 }
 
+// ---- the pull request: `relock-pr: true` (accept drift) and `renew: true` (re-sign before the signature expires) ----
+
+/** One branch and one title per mode, so a repository has at most one open pull request of each. */
+export const PR_BRANCHES = { relock: "plumbline/relock", renew: "plumbline/renew" };
+export const PR_TITLES = { relock: "Plumbline: accept the drift (relock)", renew: "Plumbline: renew the signature" };
+const SIGNATURE_REF = "plumbline.signature.json";
+
+/** True when the watch report says the site's own signature expires within the warning window or has expired. */
+export function renewNeeded(report) {
+  const findings = Array.isArray(report?.findings) ? report.findings : [];
+  return findings.some((f) => f && f.ref === SIGNATURE_REF && (f.severity === "warn" || f.severity === "block") && /expire/.test(String(f.summary ?? "")));
+}
+
+/** The kid a `sign --json` output names, only in its exact pattern; null when the site was not signed in this run. */
+export function signedKid(sign) {
+  const kid = sign && typeof sign === "object" ? sign.kid : undefined;
+  return typeof kid === "string" && /^[0-9a-f]{16}$/.test(kid) ? kid : null;
+}
+
+/**
+ * The pull request's body. For a relock: the change list `watch --relock --json` printed, then the findings that led to
+ * it (their summaries carry the counts: what changed in a peer, how many facts a page no longer states). For a renewal:
+ * the expiry finding. Then the signing state: signed in this run with the key in the secret (its kid), or a sentence
+ * saying to sign locally, in which case the pull request is a draft. A person merges; nothing is accepted by this run.
+ */
+export function prBody({ mode, report, relock, kid, runUrl }) {
+  const lines = [];
+  if (mode === "relock") {
+    const changes = relock?.changes ?? {};
+    const list = (label, refs) => (Array.isArray(refs) ? refs : []).map((r) => `- ${label} \`${String(r).replace(/`/g, "'").replace(/[\r\n]+/g, " ")}\``);
+    const all = [...list("added", changes.added), ...list("removed", changes.removed), ...list("changed", changes.changed)];
+    lines.push(`Plumbline watch found drift as of ${runUrl}, and this pull request accepts it: \`plumbline watch --relock\` rewrote \`plumbline.lock.json\` from the current state.`, "");
+    lines.push("**What the new lock changes:**", "", ...(all.length > 0 ? all : ["- no ref changed (only the capture times)"]), "");
+    const findings = openFindings(report);
+    if (findings.length > 0) {
+      lines.push("**The findings this accepts** (review each before merging; a `block` is changed code):", "", "| Severity | Kind | Ref | What |", "| --- | --- | --- | --- |");
+      for (const f of findings) lines.push(`| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
+      lines.push("");
+    }
+  } else {
+    lines.push(`The site's signature is close to its expiry, or past it, as of ${runUrl}. This pull request signs the same files again with a new expiry.`, "");
+    for (const f of openFindings(report).filter((x) => x.ref === SIGNATURE_REF)) lines.push(`- **${cell(f.severity)}** ${cell(f.summary)}`);
+    lines.push("");
+  }
+  lines.push(
+    kid !== null
+      ? `Signed in this run with the key in the workflow's secret (kid \`${kid}\`). Check the kid is yours before merging.`
+      : "**Not signed.** The lock is a signed file, so the site's signature reads invalid (tampered) until it is signed again. Check out this branch, run `plumbline sign` with your key, push, and mark this pull request ready. It stays a draft until then.",
+    "",
+    "Nothing is accepted until a person merges this. A clean watch closes it.",
+  );
+  return lines.join("\n") + "\n";
+}
+
+/**
+ * What to do with the one pull request of a mode, from whether this run wants one, this run's body, whether it signed,
+ * and the open pull requests on the mode's branch (`gh pr list --head <branch> --state open --json number,body,isDraft`):
+ * - `create` when one is wanted and none is open; a draft when it was not signed;
+ * - `edit` when one is open and its body differs (the branch is pushed again), with `draft` saying which state it must be in;
+ * - `none` when the open one's body is this run's (nothing is pushed: the capture times alone are no news);
+ * - `close`, with a comment, when none is wanted (a clean run, nothing to accept or renew) and one is open.
+ */
+export function prPlan({ mode, wanted, body, signed, open, runUrl }) {
+  if (mode !== "relock" && mode !== "renew") throw new Error("the mode is relock or renew");
+  const pr = (Array.isArray(open) ? open : []).find((p) => p && Number.isInteger(p.number));
+  const draft = !signed;
+  if (!wanted) {
+    if (!pr) return { action: "none", draft };
+    return { action: "close", number: pr.number, draft, comment: `Plumbline watch no longer finds anything to ${mode === "relock" ? "accept" : "renew"} as of ${runUrl}. Closing.\n` };
+  }
+  if (!pr) return { action: "create", draft, title: PR_TITLES[mode], branch: PR_BRANCHES[mode] };
+  const same = (text) => String(text ?? "").replace(/\r\n/g, "\n").replace(/as of \S+/g, "as of <run>").trimEnd();
+  if (same(pr.body) === same(body) && Boolean(pr.isDraft) === draft) return { action: "none", number: pr.number, draft };
+  return { action: "edit", number: pr.number, draft, branch: PR_BRANCHES[mode] };
+}
+
 function readReport(file) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
@@ -239,6 +328,11 @@ function main(argv) {
       failOn: env.PLUMBLINE_FAIL_ON,
       issues: env.PLUMBLINE_ISSUES,
       rootIsFolder,
+      relockPr: env.PLUMBLINE_RELOCK_PR ?? "false",
+      renew: env.PLUMBLINE_RENEW ?? "false",
+      // only whether a key was given: its value is never read here
+      signingKey: Boolean(env.PLUMBLINE_SIGNING_KEY),
+      origin: env.PLUMBLINE_ORIGIN ?? "",
     });
     if (problem === null) return 0;
     process.stderr.write(`::error::${problem}\n`);
@@ -291,9 +385,54 @@ function main(argv) {
     output("comment", plan.comment === undefined ? "" : commentFile);
     return 0;
   }
+  if (command === "pr-branch" && argv.length === 2 && Object.hasOwn(PR_BRANCHES, argv[1])) {
+    process.stdout.write(`${PR_BRANCHES[argv[1]]}\n`);
+    return 0;
+  }
+  if (command === "renew-needed" && argv.length === 2) {
+    try {
+      process.stdout.write(`${renewNeeded(readReport(argv[1]))}\n`);
+      return 0;
+    } catch (error) {
+      process.stderr.write(`::error::cannot read the watch report ${argv[1]}: ${error.message}\n`);
+      return 2;
+    }
+  }
+  if (command === "pr" && argv.length === 8) {
+    const [, mode, reportPath, relockPath, signPath, openFile, bodyFile, commentFile] = argv;
+    const runUrl = `${env.GITHUB_SERVER_URL ?? "https://github.com"}/${env.GITHUB_REPOSITORY ?? ""}/actions/runs/${env.GITHUB_RUN_ID ?? ""}`;
+    let plan;
+    try {
+      const report = readReport(reportPath);
+      if (!Array.isArray(report?.findings)) throw new Error("the watch report has no findings list");
+      const relock = relockPath === "-" ? null : readReport(relockPath);
+      const kid = signedKid(signPath === "-" ? null : readReport(signPath));
+      // relock: wanted when there is open drift and the relock changed a ref; renew: when the signature needs it
+      const changes = relock?.changes ?? {};
+      const changed = ["added", "removed", "changed"].some((k) => Array.isArray(changes[k]) && changes[k].length > 0);
+      const wanted = mode === "relock" ? relock !== null && openFindings(report).length > 0 && changed : renewNeeded(report) && kid !== null;
+      const body = prBody({ mode, report, relock, kid, runUrl });
+      plan = prPlan({ mode, wanted, body, signed: kid !== null, open: JSON.parse(readFileSync(openFile, "utf8")), runUrl });
+      writeFileSync(bodyFile, body);
+    } catch (error) {
+      process.stderr.write(`::error::cannot decide on the pull request: ${error.message}\n`);
+      return 2;
+    }
+    if (plan.comment !== undefined) writeFileSync(commentFile, plan.comment);
+    output("action", plan.action);
+    output("number", plan.number === undefined ? "" : String(plan.number));
+    output("draft", String(plan.draft));
+    output("title", PR_TITLES[mode]);
+    output("branch", PR_BRANCHES[mode]);
+    output("body", bodyFile);
+    output("comment", plan.comment === undefined ? "" : commentFile);
+    return 0;
+  }
   process.stderr.write(
     "usage: node report.mjs inputs | gate <report.json> | watch <report.json> <issue-body.md> | title\n" +
-      "       | issue <findings> <issue-body.md> <open-issues.json> <comment.md>\n",
+      "       | issue <findings> <issue-body.md> <open-issues.json> <comment.md>\n" +
+      "       | pr-branch <relock|renew> | renew-needed <report.json>\n" +
+      "       | pr <relock|renew> <report.json> <relock.json|-> <sign.json|-> <open-prs.json> <body.md> <comment.md>\n",
   );
   return 2;
 }

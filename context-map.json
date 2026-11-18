@@ -82,6 +82,7 @@
         "src/cli/watch-command.ts",
         "src/test/cli-helpers.ts",
         "src/test/cli-init-watch-url.test.ts",
+        "src/test/cli-key-env.test.ts",
         "src/test/cli-trust.test.ts",
         "src/test/cli-verify-url.test.ts",
         "src/test/cli.test.ts",
