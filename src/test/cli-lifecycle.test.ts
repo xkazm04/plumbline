@@ -370,3 +370,81 @@ test("UAT-8: verified carries its limit and expiry; a swapped signer is named; n
   const after = run("verify", "--root", site, "--trust", trust, "--origin", ORIGIN);
   assert.doesNotMatch(after.out, /^hint:/m, "no adopt hint for a rotation from a revoked key");
 });
+
+// ---- UAT-15: guardrails at the moment of a bad-day mistake (J3's wrong-order arm: rotate A -> B, then revoke A) ----
+
+test("UAT-15 (INE-L1-02, INE-L1-13, INE-L1-05): rotate says it is for planned changes; revoke warns about A's published successor, says it is final and names the DNS step; sign with B warns", () => {
+  const { root, site, keys: a } = signedSite();
+  const b = keygen(path.join(root, "keys-b"));
+  const rotated = run("rotate", "--root", site, "--old-key", a.privateFile, "--new-key", b.privateFile);
+  assert.equal(rotated.code, 0, rotated.err);
+  assert.match(rotated.out, /^NOTE: rotate is for a planned change of key, not for a leak: after a leak, revoke the leaked key \(plumbline revoke\)/m);
+
+  const revoked = run("revoke", "--root", site, "--key", a.privateFile);
+  assert.equal(revoked.code, 0, revoked.err);
+  assert.ok(revoked.out.includes(`WARNING: plumbline-rotation.json names ${b.record.kid} as the successor of ${a.record.kid}. A verifier that adopted ${b.record.kid} through ${a.record.kid} revokes ${b.record.kid} with this revocation`), revoked.out);
+  assert.match(revoked.out, /This revocation is final: every verifier that reads it refuses [0-9a-f]{16} from then on, whatever the dates, and never trusts it again; there is no un-revoke\. Tell your verifiers directly as well/);
+  assert.match(revoked.out, /^next: .*replace the site's _plumbline TXT record so it names the new kid alone \(plumbline dns --key <the new key record> --origin <origin>\)/m);
+  const json = JSON.parse(run("revoke", "--root", scratchSiteFor(root, "json-revoke", a, b), "--key", a.privateFile, "--json").out) as { successors?: string[] };
+  assert.deepEqual(json.successors, [b.record.kid]);
+
+  // B was adopted through A at every verifier that followed the rotation: sign with B warns, and still signs
+  const signedB = run("sign", "--root", site, "--key", b.privateFile, "--origin", ORIGIN);
+  assert.equal(signedB.code, 0, signedB.err);
+  // the site publishes no record of A here, so the revocation is named, not checked
+  assert.ok(signedB.out.includes(`WARNING: this key (${b.record.kid}) is named in plumbline-rotation.json as the successor of ${a.record.kid}, and plumbline-revocation.json holds a revocation of ${a.record.kid} (not checked here: this command does not have ${a.record.kid}'s public key): a verifier that adopted ${b.record.kid} through ${a.record.kid} revokes ${b.record.kid} with it`), signedB.out);
+  // with A's key record still published (as it is between revoke and re-key), the revocation is checked under it
+  mkdirSync(path.join(site, ".well-known"), { recursive: true });
+  writeFileSync(path.join(site, ".well-known", "plumbline-key.json"), readFileSync(a.recordFile));
+  const checked = run("sign", "--root", site, "--key", b.privateFile, "--origin", ORIGIN);
+  assert.ok(checked.out.includes(`and plumbline-revocation.json revokes ${a.record.kid}: a verifier that adopted ${b.record.kid} through ${a.record.kid} revokes ${b.record.kid} with it and refuses this signature (invalid revoked)`), checked.out);
+  const signedJson = JSON.parse(run("sign", "--root", site, "--key", b.privateFile, "--origin", ORIGIN, "--json").out) as { adoptedThroughRevoked?: string[] };
+  assert.deepEqual(signedJson.adoptedThroughRevoked, [a.record.kid]);
+  // a fresh key C, never in the chain, signs quietly
+  const c = keygen(path.join(root, "keys-c"));
+  const signedC = run("sign", "--root", site, "--key", c.privateFile, "--origin", ORIGIN);
+  assert.doesNotMatch(signedC.out, /successor of/);
+
+  // the dns command says what to do after a revocation
+  assert.match(run("dns", "--key", c.recordFile).out, /After a revocation, publish the new key's record alone and remove the revoked kid's/);
+});
+
+/** A copy of the site with A's rotation to B, so a second revoke can be read as JSON. */
+function scratchSiteFor(root: string, name: string, a: Keys, b: Keys): string {
+  const copy = path.join(root, name);
+  writeSite(copy);
+  assert.equal(run("sign", "--root", copy, "--key", a.privateFile, "--origin", ORIGIN).code, 0);
+  assert.equal(run("rotate", "--root", copy, "--old-key", a.privateFile, "--new-key", b.privateFile).code, 0);
+  return copy;
+}
+
+test("UAT-15 (INE-L1-16): export-jws refuses a key the site's revocation file revokes, as sign and rotate do", () => {
+  const { site, keys: a } = signedSite();
+  assert.equal(run("export-jws", "--root", site, "--key", a.privateFile).code, 0, "before the revocation it exports");
+  assert.equal(run("revoke", "--root", site, "--key", a.privateFile).code, 0);
+  const r = run("export-jws", "--root", site, "--key", a.privateFile);
+  assert.equal(r.code, 2);
+  assert.match(r.err, /this key \([0-9a-f]{16}\) is revoked by the site's plumbline-revocation\.json, so verifiers refuse everything it signs, a JWS included/);
+});
+
+test("UAT-15 (INE-L2-2): adopt refuses a second, different successor of a key the trust file already holds a successor of", () => {
+  const { root, site, keys: a, trust } = signedSite();
+  const b = keygen(path.join(root, "keys-b"));
+  assert.equal(run("rotate", "--root", site, "--old-key", a.privateFile, "--new-key", b.privateFile).code, 0);
+  assert.equal(run("adopt", "--root", site, "--trust", trust, "--origin", ORIGIN, "--yes").code, 0, "B is adopted through A");
+  // the thief holds A too and publishes A -> C on a mirror of the same origin
+  const mirror = path.join(root, "mirror");
+  writeSite(mirror);
+  const c = keygen(path.join(root, "keys-c"));
+  assert.equal(run("rotate", "--root", mirror, "--old-key", a.privateFile, "--new-key", c.privateFile).code, 0);
+  const before = readFileSync(trust, "utf8");
+  for (const yes of [[], ["--yes"]]) {
+    const r = run("adopt", "--root", mirror, "--trust", trust, "--origin", ORIGIN, ...yes);
+    assert.equal(r.code, 1, r.out + r.err);
+    assert.ok(r.out.includes(`WARNING: ${trust} already holds ${b.record.kid} as the successor of ${a.record.kid} for ${ORIGIN}, and this rotation names a different successor, ${c.record.kid}. Two successors of one key is how a stolen key looks`), r.out);
+    assert.match(r.out, /nothing adopted: [0-9a-f]{16} would be a second successor of [0-9a-f]{16}/);
+  }
+  assert.equal(readFileSync(trust, "utf8"), before, "nothing written");
+  const json = JSON.parse(run("adopt", "--root", mirror, "--trust", trust, "--origin", ORIGIN, "--yes", "--json").out) as { refusedBy?: string; forks?: unknown[]; added: boolean };
+  assert.deepEqual([json.refusedBy, json.forks?.length, json.added], ["fork", 1, false]);
+});

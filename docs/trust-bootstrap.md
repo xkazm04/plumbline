@@ -14,7 +14,9 @@ _plumbline.<host>  TXT  "v=plumbline1; kid=<16 lowercase hex>"
 ```
 
 `plumbline dns --key <plumbline-key.json> [--origin <https origin>]` prints it. Several records are allowed: during a
-rotation the publisher lists the old and the new kid until verifiers have moved. A record that starts with
+planned rotation the publisher lists the old and the new kid until verifiers have moved. After a revocation the record
+names the new kid alone: the revoked kid's record is removed, or DNS keeps agreeing with the stolen key (`plumbline
+revoke` and `plumbline dns` say so). A record that starts with
 `v=plumbline1` and is not exactly this form (a separator `;`, spaces around either part, a trailing `;` allowed) is
 malformed: it is counted and never read for a kid. Records that do not start with `v=plumbline1` belong to something
 else and are ignored. Text from a record never reaches a line Plumbline prints, except a kid in its exact pattern.

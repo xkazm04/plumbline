@@ -232,7 +232,7 @@ export async function dnsRecord(argv: string[], out: Out): Promise<number> {
   const record = txtRecordFor(kid);
   emit(args, out, { name, type: "TXT", value: record, kid }, [
     `${name} TXT "${record}"`,
-    "Publish it in the site's DNS zone. During a rotation, publish one record per key until verifiers have moved.",
+    "Publish it in the site's DNS zone. During a planned rotation, publish one record per key until verifiers have moved. After a revocation, publish the new key's record alone and remove the revoked kid's: a record that still names it vouches for the stolen key.",
     "It is a second channel, not proof: an attacker of the web host alone cannot change it; one who holds your DNS or registrar can.",
   ]);
   return 0;
@@ -293,9 +293,24 @@ export async function adopt(argv: string[], out: Out): Promise<number> {
   const newest = walk.newest as string;
   const toAdd = walk.entries;
   for (const entry of toAdd) lines.push(`successor ${entry.kid} public key ${entry.publicKey}`);
+  // UAT-15 (INE-L2-2): a second, different successor of one key is how a stolen key looks, so it is never adopted
+  const forks = toAdd.flatMap((entry) =>
+    store.entries
+      .filter((e) => e.origin === origin && e.adoptedVia === entry.adoptedVia && e.kid !== entry.kid)
+      .map((e) => ({ of: entry.adoptedVia as string, trusted: e.kid, offered: entry.kid })),
+  );
+  for (const f of forks) {
+    lines.push(
+      `WARNING: ${trustPath} already holds ${f.trusted} as the successor of ${f.of} for ${origin}, and this rotation names a different successor, ${f.offered}. ` +
+        `Two successors of one key is how a stolen key looks: ask the publisher out of band which key is theirs. If the key's holder really did rotate twice, remove ${f.trusted} from ${trustPath} first.`,
+    );
+  }
   let added = false;
   let code: number;
-  if (toAdd.length === 0) {
+  if (forks.length > 0) {
+    lines.push(`nothing adopted: ${forks.map((f) => f.offered).join(", ")} would be a second successor of ${[...new Set(forks.map((f) => f.of))].join(", ")}${yes ? " (--yes does not adopt one)" : ""}`);
+    code = 1;
+  } else if (toAdd.length === 0) {
     lines.push(`already trusted: ${trustPath} has ${newest} for ${origin}; nothing to add`);
     code = 0;
   } else if (!yes) {
@@ -322,7 +337,8 @@ export async function adopt(argv: string[], out: Out): Promise<number> {
       trustFile: trustPath,
       added,
       alreadyTrusted: toAdd.length === 0,
-      ...(toAdd.length > 0 ? { adopted: toAdd.map((e) => e.kid) } : {}),
+      ...(toAdd.length > 0 && forks.length === 0 ? { adopted: toAdd.map((e) => e.kid) } : {}),
+      ...(forks.length > 0 ? { forks, refusedBy: "fork" } : {}),
     },
     lines,
   );

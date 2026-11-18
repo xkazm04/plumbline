@@ -72,7 +72,7 @@ export const USAGE = {
   verify:
     "usage: plumbline verify --trust <plumbline.trust.json> (--root <site dir> [--origin <https origin>] | --url <https site base> [--allow-local] [--timeout <seconds>]) [--jws <detached JWS file>] [--now <iso>] [--json]",
   "export-jws": "usage: plumbline export-jws --root <site dir> --key <plumbline.private.json> [--out <file>] [--json]",
-  rotate: "usage: plumbline rotate --root <site dir> --old-key <old private file> --new-key <new private file> [--now <iso>] [--json]",
+  rotate: "usage: plumbline rotate --root <site dir> --old-key <old private file> --new-key <new private file> [--now <iso>] [--json] (a planned change of key only; after a leak, use revoke)",
   revoke: "usage: plumbline revoke --root <site dir> --key <private file> [--reason <text>] [--now <iso>] [--json]",
   trust:
     "usage: plumbline trust --file <plumbline.trust.json> (--key <plumbline-key.json> --origin <https origin> | --url <https site base> [--allow-local] [--require-dns]) [--yes] [--json]",
@@ -259,6 +259,16 @@ export async function sign(argv: string[], out: Out): Promise<number> {
   const keyRecordState = await publishedKeyRecordState(root, keyRecord);
   const lines = [`signed ${signature.subjects.length} files as ${signature.kid} for ${origin}, expires ${signature.expiresAt}`, `wrote ${target}`];
   if (fromEnv !== undefined) for (const w of CI_KEY_WARNINGS) lines.push(`NOTE: ${w}`);
+  // UAT-15 (INE-L1-02): a key adopted through a key the site revokes is revoked with it at every verifier that adopted it
+  const throughRevoked = await revokedPredecessors(root, signature.kid);
+  for (const x of throughRevoked) {
+    lines.push(
+      `WARNING: this key (${signature.kid}) is named in ${ROTATION_FILE} as the successor of ${x.kid}, and ${REVOCATION_FILE} ` +
+        (x.verified ? `revokes ${x.kid}` : `holds a revocation of ${x.kid} (not checked here: this command does not have ${x.kid}'s public key)`) +
+        `: a verifier that adopted ${signature.kid} through ${x.kid} revokes ${signature.kid} with it and refuses this signature (invalid revoked). ` +
+        "If that key was revoked after a leak, make a new key with plumbline keygen, sign with it, and re-establish trust through the first-contact ceremony.",
+    );
+  }
   if (keyRecordState === "absent") {
     lines.push(
       `WARNING: ${root} publishes no ${KEY_FILE}; first-contact verifiers need this key's record (keygen wrote it beside the private key): publish it, unless the site serves it from elsewhere`,
@@ -279,6 +289,7 @@ export async function sign(argv: string[], out: Out): Promise<number> {
       subjects: signature.subjects.map((s) => s.path),
       keyRecord: keyRecordState,
       ...(fromEnv !== undefined ? { keyFrom: "env", custody: [...CI_KEY_WARNINGS] } : {}),
+      ...(throughRevoked.length > 0 ? { adoptedThroughRevoked: throughRevoked.map((x) => x.kid) } : {}),
     },
     lines,
   );
@@ -709,6 +720,14 @@ export async function exportJws(argv: string[], out: Out): Promise<number> {
   }
   const privateFile = await readPrivateKeyFile(keyPath);
   const record = await keyRecordOf(privateFile, new Date());
+  // UAT-15 (INE-L1-16): a key the site revokes exports nothing, as sign and rotate refuse it
+  await refuseRevoked(
+    root,
+    record,
+    (kid) =>
+      `this key (${kid}) is revoked by the site's ${REVOCATION_FILE}, so verifiers refuse everything it signs, a JWS included: ` +
+      "make a new key with plumbline keygen, sign the site with it, and export with that key",
+  );
   if (typeof signature !== "object" || signature === null || signature.kid !== record.kid) {
     throw new CliError(`${SIGNATURE_FILE} was not made by this key (its kid is not ${record.kid}); export with the key that signed it`);
   }
@@ -757,6 +776,65 @@ function existingStatements(file: string, text: string, type: string, fields: re
 }
 
 /** Refuses (exit 2) when the site's revocation file holds a revocation of `key` that verifies under that key. */
+/** The rotation statements the root's plumbline-rotation.json holds whose kids are well formed; [] when none or unreadable. */
+async function rotationsIn(root: string): Promise<{ from: string; to: string; toPublicKey?: string }[]> {
+  const text = await readTextIfPresent(path.join(root, ROTATION_FILE));
+  if (text === undefined) return [];
+  try {
+    const listed = statementsOf(JSON.parse(text));
+    if ("problem" in listed) return [];
+    return listed.statements.flatMap((s) => {
+      const o = s as { from?: unknown; to?: unknown; toPublicKey?: unknown } | null;
+      return o !== null && isKid(o.from) && isKid(o.to) ? [{ from: o.from, to: o.to, ...(typeof o.toPublicKey === "string" ? { toPublicKey: o.toPublicKey } : {}) }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * UAT-15 (INE-L1-02): the keys the root's rotation file names as the predecessor of `kid` and that the root's revocation
+ * file revokes. `verified`: the revocation verifies under that key's public key, found in the chain (an earlier
+ * statement's `toPublicKey`) or in the root's own key record; otherwise the file only names it (not checked here).
+ */
+async function revokedPredecessors(root: string, kid: string): Promise<{ kid: string; verified: boolean }[]> {
+  const chain = await rotationsIn(root);
+  const from = [...new Set(chain.filter((s) => s.to === kid).map((s) => s.from))];
+  if (from.length === 0) return [];
+  const text = await readTextIfPresent(path.join(root, REVOCATION_FILE));
+  if (text === undefined) return [];
+  let named: string[] = [];
+  try {
+    const listed = statementsOf(JSON.parse(text));
+    if (!("problem" in listed)) named = listed.statements.map((s) => (s as { kid?: unknown } | null)?.kid).filter(isKid);
+  } catch {
+    return [];
+  }
+  const record = await readTextIfPresent(path.join(root, ...KEY_FILE.split("/")));
+  const out: { kid: string; verified: boolean }[] = [];
+  for (const x of from.filter((k) => named.includes(k))) {
+    let publicKey = chain.find((s) => s.to === x)?.toPublicKey;
+    if (publicKey === undefined && record !== undefined) {
+      try {
+        const r = JSON.parse(record) as { kid?: unknown; publicKey?: unknown };
+        if (r.kid === x && typeof r.publicKey === "string") publicKey = r.publicKey;
+      } catch {
+        // no usable key record
+      }
+    }
+    if (publicKey === undefined) {
+      out.push({ kid: x, verified: false });
+      continue;
+    }
+    if ((await applyRevocationText(text, [{ kid: x, origin: SELF_ORIGIN, publicKey }])).applied) out.push({ kid: x, verified: true });
+  }
+  return out;
+}
+
+/** What `rotate` says every time (UAT-15, INE-L1-02): it is for a planned change, never the response to a leak. */
+export const ROTATE_IS_PLANNED =
+  "rotate is for a planned change of key, not for a leak: after a leak, revoke the leaked key (plumbline revoke) and make a new key, because a verifier that adopted a successor through the leaked key revokes that successor with it.";
+
 async function refuseRevoked(root: string, key: PlumblineKey, sentence: (kid: string) => string): Promise<void> {
   const text = await readTextIfPresent(path.join(root, REVOCATION_FILE));
   if (text === undefined) return;
@@ -837,6 +915,7 @@ export async function rotate(argv: string[], out: Out): Promise<number> {
     `rotation ${statement.from} -> ${statement.to}`,
     chainLength === 1 ? `wrote ${target}` : `appended to ${target} (a chain of ${chainLength} rotations; verifiers follow it from the newest key they trust)`,
     "next: publish the new key record, then run sign with the new key so the site is signed by it.",
+    `NOTE: ${ROTATE_IS_PLANNED}`,
   ]);
   return 0;
 }
@@ -886,12 +965,28 @@ export async function revoke(argv: string[], out: Out): Promise<number> {
   await mkdir(root, { recursive: true });
   await writeFile(target, JSON.stringify(body, null, 2) + "\n", "utf8");
   const revocations = list.length + 1;
-  emit(args, out, { kid: statement.kid, revokedAt: statement.revokedAt, revocationFile: target, written: true, revocations }, [
-    `revoked ${statement.kid} at ${statement.revokedAt}`,
-    revocations === 1 ? `wrote ${target}` : `appended to ${target} (${revocations} revocations; every one stays published)`,
-    ...(inRoot !== undefined ? [`WARNING: ${inRoot}`] : []),
-    "next: publish it at the site base, make a NEW key with keygen, re-sign the site with it, and re-establish trust " +
-      "with your verifiers through the first-contact ceremony. Never rotate from the revoked key: verifiers refuse it.",
-  ]);
+  // UAT-15 (INE-L1-02): a successor the site already published for this key dies with it at every verifier that adopted
+  // it through this key, so it is not the key to re-sign with
+  const successors = [...new Set((await rotationsIn(root)).filter((r) => r.from === key.kid).map((r) => r.to))];
+  emit(
+    args,
+    out,
+    { kid: statement.kid, revokedAt: statement.revokedAt, revocationFile: target, written: true, revocations, ...(successors.length > 0 ? { successors } : {}) },
+    [
+      `revoked ${statement.kid} at ${statement.revokedAt}`,
+      revocations === 1 ? `wrote ${target}` : `appended to ${target} (${revocations} revocations; every one stays published)`,
+      ...(inRoot !== undefined ? [`WARNING: ${inRoot}`] : []),
+      ...successors.map(
+        (s) =>
+          `WARNING: ${ROTATION_FILE} names ${s} as the successor of ${statement.kid}. A verifier that adopted ${s} through ${statement.kid} revokes ${s} with this revocation (it follows the chain a key was adopted through), so ${s} is not the key to re-sign with: make another key with plumbline keygen.`,
+      ),
+      // UAT-15 (INE-L1-13): said every time, not only in the docs
+      `This revocation is final: every verifier that reads it refuses ${statement.kid} from then on, whatever the dates, and never trusts it again; there is no un-revoke. Tell your verifiers directly as well: one that never fetches this file keeps trusting the key.`,
+      // UAT-15 (INE-L1-05): the DNS record is a second channel, and it must stop vouching for the revoked key
+      "next: publish it at the site base, make a NEW key with keygen, re-sign the site with it, replace the site's _plumbline TXT record so it names the new kid alone " +
+        "(plumbline dns --key <the new key record> --origin <origin>), and re-establish trust with your verifiers through the first-contact ceremony. " +
+        "Never rotate from the revoked key: verifiers refuse it.",
+    ],
+  );
   return 0;
 }
