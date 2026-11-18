@@ -98,6 +98,23 @@ may run in parallel, because it adds no claim.
 - Size: L.
 - Must not break: guardrail 2 (the fact's kind may be named; the literal is a concept question, see the onboarding
   concept document); the severity stays `warn` (roadmap rule; DC-1).
+- State: fixed (commit a2d1e1c), awaiting recertify. Cause confirmed as written (`anchors.ts:90` read "2 €" as EUR 2).
+  Live on the unchanged larch-house: `init` (the world's `setup`) now prints "facts rooms.html: watches 7 (3 prices, 2
+  times, 1 phone number, 1 e-mail address); not on it: 2 (2 times: 07:00, 22:00)" (the house rules' quiet hours, now
+  counted because replacement strings are filled in), and so does `--relock`. After `raise-price` the real CLI, the
+  issue (run-action r1), the Desk's drift view and the `readDrift` tool result all say "1 of 7 facts the lock watches on
+  it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now
+  answer with an old fact."; after `cosmetic-edit` "all 7 facts ... are still on it, so what changed is something the
+  lock does not watch."; after `fix-network` rooms.html reads "... the network no longer states it either, so no stale
+  fact is left: review the change, then re-lock (watch --relock)." and the network file "... the agent now answers
+  from different facts: review the change, then re-lock (watch --relock)." (no "old fact" sentence on any surface).
+  `evidence/marta/anchor-probe.mjs`: all 36 forms anchored (was 23). Deviations: a page that watches none of the
+  network's facts is a `warn` finding at capture (init exits 1 for it), the "warning at zero"; the lock's phone anchors
+  are now the number's last nine digits (old locks' anchors still read). Ceiling: a fact written in words ("nine in the
+  morning") or a bare decimal time ("12.30" with no "from"/range) is not anchored, and is only named by init as not
+  on the page; the finding names the kind, never the value, so the owner still has to ask which price; "sign" in
+  "re-lock and sign" comes from the relock reminder and (after UAT-2) the signature finding, not this sentence;
+  `uat/fixtures/README.md`'s "Confirmed" sentences for these acts now describe the old product (not edited: fixtures).
 
 ### UAT-2. An accept never silences a stale fact; a merge never closes clean over a broken signature
 
