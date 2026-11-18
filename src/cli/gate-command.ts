@@ -4,6 +4,7 @@
 // 2: usage error, including a target that is not an http(s) URL (refused before any adapter runs).
 
 import { runGate, ALL_ADAPTERS, type GateOptions } from "../gate/index.js";
+import { ArgsError, parseArgs } from "./args.js";
 import type { GateReport } from "../core/types.js";
 
 const USAGE =
@@ -39,60 +40,68 @@ export function gateExitCode(report: GateReport, failOn: "fail" | "unavailable")
   return failed ? 1 : 0;
 }
 
-export async function runGateCommand(args: string[]): Promise<number> {
-  let target: string | undefined;
-  let adapters: GateOptions["adapters"];
-  let failOn: "fail" | "unavailable" = "fail";
-  let timeoutMs: number | undefined;
-  let json = false;
-  let allowLocal = false;
+/** The refusal for a bad value of each value-taking flag; a flag given with no value is refused with the same one. */
+const BAD_VALUE = {
+  adapters: `unknown adapter in --adapters (known: ${ALL_ADAPTERS.join(", ")})`,
+  "fail-on": "--fail-on takes fail or unavailable",
+  timeout: "--timeout takes a positive number of milliseconds",
+} as const;
 
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i] as string;
-    const value = (): string | undefined => args[++i];
-    if (arg === "--json") json = true;
-    else if (arg === "--allow-local") allowLocal = true;
-    else if (arg === "--adapters") {
-      const list = (value() ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-      const known = list.filter((a): a is (typeof ALL_ADAPTERS)[number] => (ALL_ADAPTERS as readonly string[]).includes(a));
-      if (list.length === 0 || known.length !== list.length) {
-        process.stderr.write(`unknown adapter in --adapters (known: ${ALL_ADAPTERS.join(", ")})\n${USAGE}`);
-        return 2;
-      }
-      adapters = known;
-    } else if (arg === "--fail-on") {
-      const v = value();
-      if (v !== "fail" && v !== "unavailable") {
-        process.stderr.write(`--fail-on takes fail or unavailable\n${USAGE}`);
-        return 2;
-      }
-      failOn = v;
-    } else if (arg === "--timeout") {
-      const n = Number(value());
-      if (!Number.isFinite(n) || n <= 0) {
-        process.stderr.write(`--timeout takes a positive number of milliseconds\n${USAGE}`);
-        return 2;
-      }
-      timeoutMs = n;
-    } else if (arg.startsWith("--")) {
-      process.stderr.write(`unknown option ${arg}\n${USAGE}`);
-      return 2;
-    } else if (target === undefined) target = arg;
-    else {
-      process.stderr.write(`unexpected argument\n${USAGE}`);
-      return 2;
-    }
+/** The gate's own sentence for each refusal of the shared parser. */
+function usageSentence(error: ArgsError): string {
+  if (error.reason === "extra") return "unexpected argument";
+  if (error.reason === "unknown") return `unknown option ${error.arg}`;
+  return Object.hasOwn(BAD_VALUE, error.arg) ? BAD_VALUE[error.arg as keyof typeof BAD_VALUE] : error.message;
+}
+
+function refuse(sentence: string): 2 {
+  process.stderr.write(`${sentence}\n${USAGE}`);
+  return 2;
+}
+
+export async function runGateCommand(argv: string[]): Promise<number> {
+  let args;
+  try {
+    args = parseArgs(argv, ["adapters", "fail-on", "timeout"], ["allow-local"], { positionals: 1 });
+  } catch (error) {
+    if (error instanceof ArgsError) return refuse(usageSentence(error));
+    throw error;
   }
+  const json = args.json;
+  const allowLocal = args.flags.has("allow-local");
+
+  let adapters: GateOptions["adapters"];
+  const adapterList = args.values.get("adapters");
+  if (adapterList !== undefined) {
+    const list = adapterList.split(",").map((s) => s.trim()).filter(Boolean);
+    const known = list.filter((a): a is (typeof ALL_ADAPTERS)[number] => (ALL_ADAPTERS as readonly string[]).includes(a));
+    if (list.length === 0 || known.length !== list.length) return refuse(BAD_VALUE.adapters);
+    adapters = known;
+  }
+
+  let failOn: "fail" | "unavailable" = "fail";
+  const failOnValue = args.values.get("fail-on");
+  if (failOnValue !== undefined) {
+    if (failOnValue !== "fail" && failOnValue !== "unavailable") return refuse(BAD_VALUE["fail-on"]);
+    failOn = failOnValue;
+  }
+
+  let timeoutMs: number | undefined;
+  const timeoutValue = args.values.get("timeout");
+  if (timeoutValue !== undefined) {
+    const n = Number(timeoutValue);
+    if (!Number.isFinite(n) || n <= 0) return refuse(BAD_VALUE.timeout);
+    timeoutMs = n;
+  }
+
+  const target = args.positionals[0];
   if (target === undefined || target === "") {
     process.stderr.write(USAGE);
     return 2;
   }
   // Before any adapter runs: a target that is not an http(s) URL would make every adapter unavailable and be sent to
   // Agent Atlas as written. It is a configuration error, so it exits 2 like one.
-  if (!isHttpUrl(target)) {
-    process.stderr.write(`the target must be an http(s) URL, such as https://site.example/\n${USAGE}`);
-    return 2;
-  }
+  if (!isHttpUrl(target)) return refuse("the target must be an http(s) URL, such as https://site.example/");
 
   if (allowLocal) process.stderr.write(`${ALLOW_LOCAL_WARNING}\n`);
   const report = await runGate(

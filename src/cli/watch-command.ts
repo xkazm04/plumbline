@@ -11,70 +11,61 @@
 import { resolve } from "node:path";
 import { RESIGN_REMINDER } from "../watch/decide.js";
 import { runRelock, runWatch } from "../watch/index.js";
+import { ArgsError, parseArgs, repeated } from "./args.js";
 
 const USAGE =
   "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <path-or-https-url>]... [--timeout <ms>] [--json]\n";
 
-export async function runWatchCommand(args: string[]): Promise<number> {
-  let root = process.cwd();
-  let init = false;
-  let relock = false;
-  let json = false;
-  let timeoutMs: number | undefined;
-  const extraSources: string[] = [];
-  const dropSources: string[] = [];
+/** The refusal for a missing or empty value of each value-taking flag (for --timeout, also a bad one). */
+const BAD_VALUE = {
+  root: "--root takes a folder",
+  source: "--source takes a path or an https URL",
+  drop: "--drop takes a grounding ref the lock holds",
+  timeout: "--timeout takes a positive number of milliseconds",
+} as const;
 
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i] as string;
-    const value = (): string | undefined => args[++i];
-    if (arg === "--json") json = true;
-    else if (arg === "--init") init = true;
-    else if (arg === "--relock") relock = true;
-    else if (arg === "--root") {
-      const v = value();
-      if (!v) {
-        process.stderr.write(`--root takes a folder\n${USAGE}`);
-        return 2;
-      }
-      root = resolve(v);
-    } else if (arg === "--source") {
-      const v = value();
-      if (!v) {
-        process.stderr.write(`--source takes a path or an https URL\n${USAGE}`);
-        return 2;
-      }
-      extraSources.push(v);
-    } else if (arg === "--drop") {
-      const v = value();
-      if (!v) {
-        process.stderr.write(`--drop takes a grounding ref the lock holds\n${USAGE}`);
-        return 2;
-      }
-      dropSources.push(v);
-    } else if (arg === "--timeout") {
-      const n = Number(value());
-      if (!Number.isFinite(n) || n <= 0) {
-        process.stderr.write(`--timeout takes a positive number of milliseconds\n${USAGE}`);
-        return 2;
-      }
-      timeoutMs = n;
-    } else {
-      process.stderr.write(`unknown argument ${arg}\n${USAGE}`);
-      return 2;
-    }
+/** The watch's own sentence for each refusal of the shared parser. It takes no positionals, so none is `extra`. */
+function usageSentence(error: ArgsError): string {
+  if (error.reason !== "missing") return `unknown argument ${error.arg}`;
+  return Object.hasOwn(BAD_VALUE, error.arg) ? BAD_VALUE[error.arg as keyof typeof BAD_VALUE] : error.message;
+}
+
+function refuse(sentence: string): 2 {
+  process.stderr.write(`${sentence}\n${USAGE}`);
+  return 2;
+}
+
+export async function runWatchCommand(argv: string[]): Promise<number> {
+  let args;
+  try {
+    args = parseArgs(argv, ["root", "timeout"], ["init", "relock"], { repeatable: ["source", "drop"] });
+  } catch (error) {
+    if (error instanceof ArgsError) return refuse(usageSentence(error));
+    throw error;
   }
-  if (init && relock) {
-    process.stderr.write(`--init and --relock do not go together: --init writes a first lock, --relock replaces one\n${USAGE}`);
-    return 2;
+  const { json } = args;
+  const init = args.flags.has("init");
+  const relock = args.flags.has("relock");
+  const extraSources = repeated(args, "source");
+  const dropSources = repeated(args, "drop");
+
+  const rootValue = args.values.get("root");
+  if (rootValue === "") return refuse(BAD_VALUE.root);
+  const root = rootValue === undefined ? process.cwd() : resolve(rootValue);
+  if (extraSources.includes("")) return refuse(BAD_VALUE.source);
+  if (dropSources.includes("")) return refuse(BAD_VALUE.drop);
+
+  let timeoutMs: number | undefined;
+  const timeoutValue = args.values.get("timeout");
+  if (timeoutValue !== undefined) {
+    const n = Number(timeoutValue);
+    if (!Number.isFinite(n) || n <= 0) return refuse(BAD_VALUE.timeout);
+    timeoutMs = n;
   }
-  if (dropSources.length > 0 && !relock) {
-    process.stderr.write(`--drop goes with --relock: it takes a ref out of the lock --relock writes\n${USAGE}`);
-    return 2;
-  }
-  if (dropSources.some((ref) => extraSources.includes(ref))) {
-    process.stderr.write(`--source and --drop name the same ref\n${USAGE}`);
-    return 2;
-  }
+
+  if (init && relock) return refuse("--init and --relock do not go together: --init writes a first lock, --relock replaces one");
+  if (dropSources.length > 0 && !relock) return refuse("--drop goes with --relock: it takes a ref out of the lock --relock writes");
+  if (dropSources.some((ref) => extraSources.includes(ref))) return refuse("--source and --drop name the same ref");
   const options = { root, init, ...(timeoutMs !== undefined ? { timeoutMs } : {}) };
 
   if (relock) {

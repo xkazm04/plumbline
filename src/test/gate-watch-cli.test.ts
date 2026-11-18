@@ -146,6 +146,11 @@ test("gate refuses an unknown adapter, a bad --fail-on, a bad --timeout and a se
   const cases: [string[], RegExp][] = [
     [["gate", "https://site.example/", "--adapters", "validator,oracle"], /unknown adapter in --adapters \(known: validator, atlas, customs\)/],
     [["gate", "https://site.example/", "--adapters", ""], /unknown adapter in --adapters/],
+    // p-b02834: parsed by args.ts; a flag with no value after it reads as the bad value it is
+    [["gate", "https://site.example/", "--adapters"], /unknown adapter in --adapters/],
+    [["gate", "https://site.example/", "--timeout"], /--timeout takes a positive number of milliseconds/],
+    [["gate", "https://site.example/", "--timeout", "--json"], /--timeout takes a positive number of milliseconds/],
+    [["gate", "--verbose", "https://site.example/"], /unknown option --verbose/],
     [["gate", "https://site.example/", "--fail-on", "warn"], /--fail-on takes fail or unavailable/],
     [["gate", "https://site.example/", "--fail-on"], /--fail-on takes fail or unavailable/],
     [["gate", "https://site.example/", "--timeout", "-5"], /--timeout takes a positive number of milliseconds/],
@@ -250,6 +255,11 @@ test("p-cf22cb: watch refuses a bad --root, --timeout, --drop or argument, each 
     [["watch", "--verbose"], /unknown argument --verbose/],
     [["watch", "somewhere"], /unknown argument somewhere/],
     [["watch", "--source"], /--source takes a path or an https URL/],
+    // p-b02834: parsed by args.ts; an empty value is refused like a missing one, as the hand-rolled loop did
+    [["watch", "--root", ""], /--root takes a folder/],
+    [["watch", "--source", "a.json", "--source", ""], /--source takes a path or an https URL/],
+    [["watch", "--relock", "--drop", ""], /--drop takes a grounding ref/],
+    [["watch", "--init", "--source", "a.json", "extra"], /unknown argument extra/],
     [["watch", "--relock", "--drop"], /--drop takes a grounding ref/],
     [["watch", "--drop", "data/rooms.json"], /--drop goes with --relock/],
     [["watch", "--relock", "--source", "a.json", "--drop", "a.json"], /--source and --drop name the same ref/],
