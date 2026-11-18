@@ -14,6 +14,8 @@ const git = (...args: string[]): string => execFileSync("git", args, { cwd: root
 
 const action = read("action/action.yml");
 const template = read("action/templates/plumbline-watch.yml");
+// every template that uses the Action is held to the same rules (D10 added the renewal template)
+const TEMPLATES = ["action/templates/plumbline-watch.yml", "action/templates/plumbline-renew.yml"] as const;
 const code = (text: string): string => text.split("\n").filter((line) => !line.trim().startsWith("#")).join("\n");
 
 test("the Action builds plumbline from its own checkout and runs the built CLI", () => {
@@ -23,13 +25,14 @@ test("the Action builds plumbline from its own checkout and runs the built CLI",
 });
 
 test("nothing installs plumbline from a registry or by name: no npx, no plumbline@", () => {
-  for (const text of [code(action), code(template)]) {
+  for (const text of [code(action), ...TEMPLATES.map((t) => code(read(t)))]) {
     assert.doesNotMatch(text, /\bnpx\b/);
     assert.doesNotMatch(text, /plumbline@/);
   }
 });
 
-test("the watch template uses this repository's Action pinned to a full commit SHA that holds the self-building Action", () => {
+for (const file of TEMPLATES) test(`${file} uses this repository's Action pinned to a full commit SHA that holds the self-building Action`, () => {
+  const template = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
   const uses = [...template.matchAll(/uses: xkazm04\/plumbline\/action@([^\s#]+)/g)].map((m) => m[1]);
   assert.equal(uses.length, 1, "the template uses the Action once");
   const sha = uses[0]!;
@@ -58,5 +61,5 @@ test("the watch template uses this repository's Action pinned to a full commit S
 
 test("the Action and the template never pass --allow-local (a comment may name it)", () => {
   assert.doesNotMatch(code(action), /allow-local/);
-  assert.doesNotMatch(code(template), /allow-local/);
+  for (const file of TEMPLATES) assert.doesNotMatch(code(read(file)), /allow-local/);
 });

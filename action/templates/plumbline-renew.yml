@@ -1,0 +1,54 @@
+# Plumbline renew: sign the site again before its signature expires, as ONE pull request for a person to merge.
+# Copy this file to .github/workflows/plumbline-renew.yml in the site's repository. It needs:
+#   - a repository secret PLUMBLINE_SIGNING_KEY holding the JSON of your plumbline.private.json (the key never leaves
+#     the secret store except as an environment variable of the sign step; it is never printed or written to disk);
+#   - a repository variable PLUMBLINE_ORIGIN, the https origin the site is published from (as `plumbline sign --origin`);
+#   - `root:` below set to the site folder holding plumbline.lock.json and plumbline.signature.json.
+# Weekly, it runs the watch; when the site's signature expires within 14 days, or has expired, the Action signs the same
+# files again on the branch plumbline/renew and opens (or updates) one pull request. Nothing is published until a person
+# merges it. A run with nothing to renew closes that pull request. It keeps no drift issue (the watch workflow does).
+name: Plumbline renew
+
+on:
+  schedule:
+    - cron: "41 5 * * 1" # every Monday at 05:41 UTC: inside a 14-day window, at least once a week
+  workflow_dispatch:
+
+permissions:
+  contents: write # the Action pushes its own branch, plumbline/renew
+  pull-requests: write # and keeps one pull request from it
+
+concurrency:
+  group: plumbline-renew
+  cancel-in-progress: false
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Third-party actions are pinned by full commit SHA; the tag is only a comment for humans.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      # The Action builds plumbline from its own checkout: pinning it by commit SHA pins the code that runs.
+      - name: Renew the signature when it is due
+        id: watch
+        uses: xkazm04/plumbline/action@6b4745751f985cba9c61ac4e532e5e8e91fb4217
+        with:
+          command: watch
+          root: "."
+          renew: true
+          signing-key: ${{ secrets.PLUMBLINE_SIGNING_KEY }}
+          origin: ${{ vars.PLUMBLINE_ORIGIN }}
+
+      - name: Pull request
+        shell: bash
+        env:
+          PR_ACTION: ${{ steps.watch.outputs.pr-action }}
+        run: echo "renewal pull request, $PR_ACTION"
