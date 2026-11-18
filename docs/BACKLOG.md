@@ -790,6 +790,18 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: S.
 - Must not break: guardrail 2.
+- State: fixed (commit 84c5aa3), awaiting recertify. Hypothesis confirmed against the no-quote rule as built: the
+  file is named by its path under the site base the gate read it from, only when that path is plain (letters, digits,
+  `.`, `_`, `-`, `/`, at most 120 characters; else its last segment when plain, else "a network definition"), and the
+  key only when it is a key of the agentic-web spec (a fixed list in `src/gate/adapter-validator.ts`: `commondefs`,
+  `tools`, `instructions`, ...); any other repeated key is counted ("1 other key (not named: not a key of the spec)"),
+  never quoted. The note sits beside the rule: "2 x duplicate keys: ...; dunmore_books.network.json repeats
+  \"commondefs\"; dunmore_extra.network.json repeats \"commondefs\" (2 network definitions checked)." Live: the
+  two-network arm built from a copy of tallow-finch's dunmore-books (a second network carrying the pre-fix bytes),
+  `gate --root` (UAT-22) printed exactly that, exit 1; the address form runs the same adapter. Tests: "UAT-24 ..." in
+  `src/test/gate-root.test.ts` (a clean file is not named; a non-spec key like `<b>evil</b>` is counted, not quoted;
+  `fileLabel` cases). Surfaces: the Desk's check view, the scan, the badge and the Action summary show the adapter's
+  summary, so they say it too (no Desk file changed).
 
 ### UAT-25. The alerts offer the cut path
 
