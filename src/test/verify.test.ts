@@ -375,7 +375,10 @@ test("isDerivedKid: true only for a well-formed kid derived from a 32-byte key; 
   const other = await generateKey(T0);
   assert.equal(await isDerivedKid(g.key.kid, g.key.publicKey), true);
   assert.equal(await isDerivedKid(other.key.kid, g.key.publicKey), false);
-  assert.equal(await isDerivedKid(g.key.kid.toUpperCase(), g.key.publicKey), false);
+  // an upper-case kid is outside the pattern. A kid of digits only has no upper case (about 1 key in 1,800: (10/16)^16),
+  // so the letter is forced: an upper-case A in place of the first character is never a well-formed kid.
+  assert.equal(await isDerivedKid(g.key.kid.toUpperCase(), g.key.publicKey), g.key.kid === g.key.kid.toUpperCase());
+  assert.equal(await isDerivedKid(`A${g.key.kid.slice(1)}`, g.key.publicKey), false);
   for (const key of [g.key.publicKey + "A", "AAAA", "not base64!", 5, undefined, null]) assert.equal(await isDerivedKid(g.key.kid, key), false);
   assert.equal(await isDerivedKid(undefined, g.key.publicKey), false);
 });
