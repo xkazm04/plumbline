@@ -57,6 +57,15 @@
       </h1>
       <p class="title__tag" data-role="subtitle" data-s="header.tagline"></p>
       <p class="title__plain" data-role="lead" data-s="header.plain"></p>
+      <!-- UAT-29 (MAR-L2-05): the landing starts from the visitor's own address; it opens the drift reading of it. -->
+      <form id="start-form" class="start field">
+        <label for="start-target" data-s="start.label"></label>
+        <span class="start__row">
+          <input id="start-target" name="target" type="url" required autocomplete="url" spellcheck="false" data-placeholder="start.placeholder">
+          <button id="start-run" class="btn" type="submit" data-s="start.button"></button>
+        </span>
+        <span class="note start__note" data-s="start.note"></span>
+      </form>
       <p class="title__more"><a href="#/about" data-s="header.aboutLink"></a></p>
     </header>
 

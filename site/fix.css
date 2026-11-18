@@ -79,6 +79,17 @@ code { font-family: var(--mono); overflow-wrap: anywhere; }
 .title__more { margin-top: .6rem; font: 600 var(--fs-small)/1.4 var(--sans); }
 .title__more a { color: var(--ink); text-decoration-color: var(--rule); }
 .title__more a:hover { text-decoration-color: var(--magenta); }
+/* UAT-29 (MAR-L2-05): the landing starts from the visitor's own address */
+.start { max-width: 24.5rem; margin: .7rem 0 0; gap: .25rem; }
+.start__row { display: flex; gap: .5rem; }
+.start__row input[type="url"] { flex: 1 1 auto; min-width: 0; }
+.start__row .btn { flex: 0 0 auto; }
+.start__note { display: block; }
+/* UAT-29: the owner's line opens a drift reading; the fingerprints wait behind a fold */
+.owner-line { font: 600 max(14px, 1.05rem)/1.45 var(--sans); color: var(--ink); margin: 0 0 .6rem; }
+.tech { margin-top: .3rem; font: 400 var(--fs-small)/1.4 var(--sans); color: var(--ink2); }
+.tech summary { cursor: pointer; }
+.tech .hashes { overflow-wrap: anywhere; }
 .stage[data-level="2"] .title { opacity: 0; transform: translateY(-1.4rem); pointer-events: none; visibility: hidden; }
 .ghost { left: 54rem; top: 29rem; transform: translate(-50%, -50%); font: 400 var(--gs, 10rem)/1 var(--serif); letter-spacing: .16em; text-transform: uppercase; color: rgba(27, 111, 132, .14); white-space: nowrap; pointer-events: none; z-index: 0; transition: opacity .6s; }
 .stage[data-level="2"] .ghost { opacity: 0; }
@@ -185,7 +196,7 @@ code { font-family: var(--mono); overflow-wrap: anywhere; }
 /* ---------- left column: the five ports as a list, the trail ---------- */
 .portlist, .pager, .peers { position: absolute; }
 .homelogs { display: none; }
-.portlist { left: 3rem; top: 24.2rem; width: 26rem; z-index: 3; }
+.portlist { left: 3rem; top: 31.4rem; width: 26rem; z-index: 3; }
 .portlist__h, .pager__h, .peers__h { font: 700 var(--fs-small)/1.2 var(--sans); letter-spacing: .22em; text-transform: uppercase; color: var(--ink2); margin-bottom: .5rem; }
 .pl { display: grid; grid-template-columns: 3rem minmax(0, 1fr); gap: .9rem; align-items: center; width: 100%; padding: .38rem .6rem .38rem .5rem; margin: 0 0 .1rem; text-align: left; cursor: pointer;
   background: transparent; border: 0; border-left: .2rem solid transparent; color: var(--ink); text-decoration: none; transition: background .3s, border-color .3s, transform .4s var(--ease); }
@@ -440,7 +451,7 @@ code { font-family: var(--mono); overflow-wrap: anywhere; }
   .stage > * { position: static; }
   .main, .home, .tool { position: static; }
   .title { width: auto; margin: 0 0 .4rem; }
-  .title__q { font-size: 2.15rem; margin-top: .7rem; } .title__tag { font-size: 1.12rem; } .title__plain { max-width: none; }
+  .title__q { font-size: 2.15rem; margin-top: .7rem; } .title__tag { font-size: 1.12rem; } .title__plain { max-width: none; } .start { max-width: none; }
   .stage[data-level="2"] .title { display: none; }
   .ghost { display: none; }
   .home { display: flex; flex-direction: column; gap: 1.2rem; }

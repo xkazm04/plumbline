@@ -9,7 +9,8 @@
 
 import { t, STRINGS } from "./strings.js";
 import { fetchableUrl, makeBrowserFetcher } from "./fetcher.js";
-import { lockProblem, publishedUrl, readDrift, siteBase } from "./drift.js";
+import { BROWSER_REFUSED, lockProblem, publishedUrl, readDrift, siteBase } from "./drift.js";
+import { ownerLine } from "./lib/plumbline/watch/owner.js";
 import { checkPeerBeforeLoad } from "./lib/plumbline/browser/preload.js";
 import { openReviewDialog } from "./review-dialog.js";
 import { runGateWith, ALL_ADAPTERS } from "./lib/plumbline/gate/run.js";
@@ -682,7 +683,9 @@ export class DeskPage {
           ? t("verdicts.unverifiableOriginMeaning", { fetchedFrom: safeUrl(check.fetchedFrom) })
           : r.verdict === "unverifiable" && check.signed && check.swapped
             ? t(check.swapped === "rotation" ? "verdicts.unverifiableRotatedMeaning" : "verdicts.unverifiableSwappedMeaning")
-            : t(`verdicts.${r.verdict}Meaning`),
+            : r.verdict === "invalid" && r.reason === "tampered"
+              ? t("verdicts.invalidTamperedMeaning")
+              : t(`verdicts.${r.verdict}Meaning`),
       ...(check.signed && check.expiresAt ? { expiresAt: check.expiresAt } : {}),
       revocation: { ...check.revocation.report, file: safeUrl(check.revocation.report.file) },
       signed: check.signed,
@@ -1584,11 +1587,15 @@ function renderDrift(page) {
     return;
   }
   const nodes = [];
+  // UAT-29 (MAR-L1-06): one sentence in the owner's words first, made from the findings' codes and counts (the same
+  // function the Action's issue opens with); never greener than the findings: a clean reading has none
+  const owner = ownerLine(d.findings, { lockState: d.lockState, siteSigned: d.lockCover !== "unsigned" });
+  if (owner !== null) nodes.push(el("p", owner, "owner-line"));
   const where = el("p", `${t("drift.lockAt")} ${d.lockUrl}`, "target");
   nodes.push(where);
-  // Only a 404 or 410 is "no lock" (D6); a refused read says so.
+  // Only a 404 or 410 is "no lock" (D6); a refused read says so, and names the header to ask the host for (MAR-L1-09).
   if (d.lockState === "absent") nodes.push(el("p", t("drift.noLock"), "notice"));
-  else if (d.lockState === "refused") nodes.push(el("p", t("drift.refused"), "notice"));
+  else if (d.lockState === "refused") nodes.push(el("p", t("drift.refused"), "notice"), el("p", t("drift.corsHeader"), "note cors-header"));
   else if (!d.lockFound) nodes.push(el("p", t("drift.notRead"), "notice"));
   // D3: a lock not covered by a signature verified under a publisher you trust is labelled, and a clean reading of one
   // never reads as plain "No drift".
@@ -1608,11 +1615,16 @@ function renderDrift(page) {
         item.append(el("p", t("gate.unreachable", { name: peer ? peer.name : f.ref }), "unreachable"));
       }
       item.append(el("p", f.summary, "summary"));
+      // MAR-L1-09: a file the browser was refused names the header to ask the host for (the reader's own words)
+      if (String(f.summary).includes(BROWSER_REFUSED)) item.append(el("p", t("drift.corsHeader"), "note cors-header"));
+      // MAR-L1-06: the 64-character fingerprints are the developer's; the default view folds them away
       if (f.expected || f.actual) {
         const pair = [];
         if (f.expected) pair.push(`${t("drift.expected")} ${f.expected}`);
         if (f.actual) pair.push(`${t("drift.actual")} ${f.actual}`);
-        item.append(el("p", pair.join(" · "), "hashes"));
+        const fold = el("details", null, "tech");
+        fold.append(el("summary", t("drift.technical")), el("p", pair.join(" · "), "hashes"));
+        item.append(fold);
       }
       list.append(item);
     }
@@ -2065,21 +2077,75 @@ export function doneSentence(kind, result) {
 
 const SEVERITY_ORDER = { info: 0, warn: 1, block: 2 };
 
+/** The views whose address field a link may fill (UAT-29, MAR-L1-11): `#/drift?target=<address>` and the like. */
+const LINK_FIELDS = { check: "gate-target", drift: "drift-target", verify: "verify-target" };
+
+/**
+ * The view and the address a hash names: `#/drift?target=https%3A%2F%2Fsite.example%2F` gives
+ * `{ view: "drift", target: "https://site.example/" }`. The target is kept only when the Desk would fetch it (https, or
+ * http on this machine); anything else is dropped, never shown. Pure, so the shell and the tests share it.
+ */
+export function hashRoute(hash) {
+  const raw = String(hash || "").replace(/^#\/?/, "");
+  const q = raw.indexOf("?");
+  const view = (q < 0 ? raw : raw.slice(0, q)).split("/")[0];
+  if (q < 0) return { view };
+  let target = null;
+  try {
+    target = new URLSearchParams(raw.slice(q + 1)).get("target");
+  } catch {
+    target = null;
+  }
+  const checked = target === null ? null : checkTarget(target);
+  return checked === null ? { view } : { view, target: checked };
+}
+
+/**
+ * Fills the address field of the view a link names, without running anything: the visitor still presses the button,
+ * which is what makes the address one they chose (D1). Returns the address it filled, or null.
+ */
+export function fillFromHash(hash) {
+  const { view, target } = hashRoute(hash);
+  if (target === undefined || !Object.hasOwn(LINK_FIELDS, view)) return null;
+  const input = byId(LINK_FIELDS[view]);
+  if (!input) return null;
+  input.value = target;
+  return target;
+}
+
+/** Each wired form's run, by form id, so the landing's address form can start the drift reading it leads to. */
+const FORM_RUNS = {};
+
 function wireForm(formId, inputId, buttonId, statusId, runningKey, method, kind) {
   // D1: an address the visitor types into the page's own field is one the assistant may then use.
   byId(inputId).addEventListener("change", (event) => App.page.noteVisitorTarget(event.target.value));
   byId(formId).addEventListener("submit", (event) => {
     event.preventDefault();
+    FORM_RUNS[formId]();
+  });
+  FORM_RUNS[formId] = () => {
     const button = byId(buttonId);
     // One run per form at a time: a second press while one is in flight does nothing.
     if (button.disabled) return;
     const target = byId(inputId).value;
     App.page.noteVisitorTarget(target);
     button.disabled = true;
-    void handle(statusId, t(runningKey), () => App.page[method]({ target }), (result) => doneSentence(kind, result)).finally(() => {
+    return handle(statusId, t(runningKey), () => App.page[method]({ target }), (result) => doneSentence(kind, result)).finally(() => {
       button.disabled = false;
     });
-  });
+  };
+}
+
+/**
+ * The landing's own form (UAT-29, MAR-L2-05): the visitor's address goes into the drift view's field, the view opens,
+ * and the reading starts, as if they had typed it there and pressed Read drift. `go` opens the view (the shell's).
+ */
+export function startFromLanding(target, go = (view) => (location.hash = `#/${view}`)) {
+  const input = byId("drift-target");
+  input.value = String(target || "").trim();
+  App.page.noteVisitorTarget(input.value);
+  go("drift");
+  return FORM_RUNS["drift-form"]();
 }
 
 async function signFromPage() {
@@ -2149,6 +2215,10 @@ export function wirePage() {
   byId("trust-import").addEventListener("change", (event) => void handle("trust-io-status", "", () => page.chooseTrustImport(event.target.files && event.target.files[0])));
   byId("partners-check").addEventListener("click", () => void handle("partners-status", "", () => page.checkPartners()));
   wireForm("site-peers-form", "site-peers-target", "site-peers-run", "site-peers-status", "sitePeers.checking", "checkSitePeers", "sitePeers");
+  byId("start-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    void startFromLanding(byId("start-target").value);
+  });
 }
 
 if (typeof window !== "undefined" && typeof document !== "undefined" && typeof document.querySelectorAll === "function" && !globalThis.__deskNoWire) {

@@ -5,9 +5,11 @@
 // each one leaves out.
 //
 // Routes: #/ (the overview), #/check, #/drift, #/verify, #/key, #/sign (the five ports) and #/about. A hash that does
-// not start with "#/" (the skip link's #main) leaves the view as it is.
+// not start with "#/" (the skip link's #main) leaves the view as it is. A link may carry the address to fill in
+// (UAT-29, MAR-L1-11): #/drift?target=<address> opens the drift view with its field filled; nothing runs until the
+// visitor presses the button.
 
-import { App, PARTNERS, onRender } from "./desk.js";
+import { App, PARTNERS, fillFromHash, hashRoute, onRender } from "./desk.js";
 import { t } from "./strings.js";
 import { EXAMPLE_CAPTURED, EXAMPLE_RUNS } from "./examples.js";
 import * as Art from "./art.js";
@@ -554,7 +556,8 @@ function route() {
     if (shell.view === null && shell.first) show(null);
     return;
   }
-  const name = hash.replace(/^#\/?/, "").split("/")[0];
+  const name = hashRoute(hash).view;
+  fillFromHash(hash);
   show(Object.hasOwn(VIEWS, name) ? name : null);
 }
 

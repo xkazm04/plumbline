@@ -13,9 +13,14 @@ port. [`PORT.md`](PORT.md) lists each view, what it shows and what it deliberate
 
 ## The views
 
-The overview (`#/`) shows the compass card with the fix of one gate run, the five ports, the sites checked and the peer
-ports; it runs no tool. Each port opens its own view by the address hash: `#/check` (the gate), `#/drift`, `#/verify`
-(with your trust list), `#/key` and `#/sign`. `#/about` holds what Plumbline is and how to publish with the CLI. The
+The overview (`#/`) starts from the visitor's own site: "Start with your site's address" opens the drift reading of
+that address (UAT-29). Below it, the compass card with the fix of one gate run, the five ports, the sites checked
+(other sites, labelled as examples) and the peer ports. Each port opens its own view by the address hash: `#/check`
+(the gate), `#/drift`, `#/verify` (with your trust list), `#/key` and `#/sign`. A link may carry the address to fill
+in, `#/drift?target=<address>` (also `#/check` and `#/verify`): the field is filled and nothing runs until the visitor
+presses the button, so the address is not one the assistant may fetch until then (D1). The drift reading opens with
+one sentence in the owner's words, made from the findings' codes (`lib/plumbline/watch/owner.js`); the files'
+fingerprints sit behind "Technical details", and a file the browser was refused names the header to ask the host for. `#/about` holds what Plumbline is and how to publish with the CLI. The
 Assistant button (top right) opens the assistant panel over the current view. The keys 1 to 5 open the ports and Escape
 returns to the overview. Below 1180 px wide, or in portrait, the page becomes one column.
 

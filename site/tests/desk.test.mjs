@@ -1245,7 +1245,7 @@ test("D1: the read tools fetch only a host the visitor chose, a partner, an exam
   // The browser wires the page's three address fields to noteVisitorTarget (desk.js wire()).
   const source = await siteFile("desk.js");
   assert.match(source, /addEventListener\("change", \(event\) => App\.page\.noteVisitorTarget\(event\.target\.value\)\)/);
-  assert.match(source, /App\.page\.noteVisitorTarget\(target\);\n    button\.disabled = true;\n    void handle/);
+  assert.match(source, /App\.page\.noteVisitorTarget\(target\);\n    button\.disabled = true;\n    return handle/);
 });
 
 test("D2: strings from an inspected site reach the model only when they pass their pattern; the network says results are data", async () => {
@@ -2793,4 +2793,125 @@ test("UAT-27 (INE-L1-17): the Desk's revoke adds to the site's revocation list, 
     App.page.revocation = null;
     App.page.render("revoke");
   }
+});
+
+// ---- UAT-29: an owner-facing first line, a link that carries her address, a landing that starts from it ----
+
+/** Every element under a node, depth first. */
+function nodesOf(node, out = []) {
+  out.push(node);
+  for (const child of node.children || []) if (typeof child === "object") nodesOf(child, out);
+  return out;
+}
+
+test("UAT-29 (MAR-L1-06, MAR-L1-09): the drift reading opens with the owner's line; fingerprints wait behind a fold; a refused file names the header", async () => {
+  const { ownerLine } = await import("../lib/plumbline/watch/owner.js");
+  const stale = {
+    kind: "grounding",
+    severity: "warn",
+    code: "grounding-stale-fact",
+    ref: "rooms.html",
+    expected: "a".repeat(64),
+    actual: "b".repeat(64),
+    summary: "A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.",
+    counts: { factsWatched: 7, factsGone: 1, factsUnplaced: 0, factsStale: 1, staleKinds: { money: 1 } },
+  };
+  const refused = { kind: "grounding", severity: "warn", code: "grounding-unreadable", ref: "hours.html", expected: "c".repeat(64), summary: "A grounding source could not be checked: it could not be fetched (the browser could not read it)." };
+  App.page.drift = { target: "https://larch.example/", lockUrl: "https://larch.example/plumbline.lock.json", lockFound: true, lockState: "found", lockSigned: false, lockCover: "untrusted", lockLabel: STRINGS.drift.untrustedLock, findings: [stale, refused], unreachablePeers: [] };
+  try {
+    App.page.render("drift");
+    const out = document.getElementById("drift-result");
+    const first = out.children[0];
+    assert.equal(first.className, "owner-line");
+    assert.equal(first.textContent, ownerLine([stale, refused], { lockState: "found", siteSigned: true }));
+    assert.match(first.textContent, /^Your page rooms\.html changed, and your assistant may still be telling visitors an old price from it: forward this to whoever looks after your website, who updates what the assistant says \(and 1 more thing below for them\)\.$/);
+    // the technical lines stay, below it, in Plumbline's own sentences
+    const all = nodesOf(out);
+    assert.ok(all.some((n) => n.textContent === stale.summary));
+    // no 64-character fingerprint outside a closed fold
+    for (const n of all) {
+      if (!/[0-9a-f]{64}/.test(String(n.textContent))) continue;
+      const fold = all.find((d) => d.tag === "details" && nodesOf(d).includes(n));
+      assert.ok(fold && !fold.open, `a fingerprint on the default view: ${n.textContent}`);
+      assert.equal(fold.children[0].tag, "summary");
+      assert.equal(fold.children[0].textContent, STRINGS.drift.technical);
+    }
+    // MAR-L1-09: the file the browser was refused names the header to ask the host for
+    const cors = all.filter((n) => n.className === "note cors-header");
+    assert.equal(cors.length, 1);
+    assert.match(cors[0].textContent, /Access-Control-Allow-Origin: \*/);
+    // a clean reading has no owner's line (never greener: the label still says what the lock is)
+    App.page.drift = { ...App.page.drift, findings: [] };
+    App.page.render("drift");
+    assert.ok(!nodesOf(document.getElementById("drift-result")).some((n) => n.className === "owner-line"));
+    // a lock the browser was refused: the line says nothing was checked, and the header is named
+    App.page.drift = { ...App.page.drift, lockFound: false, lockState: "refused", findings: [] };
+    App.page.render("drift");
+    const refusedView = nodesOf(document.getElementById("drift-result"));
+    assert.match(refusedView[1].textContent, /nothing about your assistant was checked this time/);
+    assert.ok(refusedView.some((n) => n.className === "note cors-header"));
+  } finally {
+    App.page.drift = null;
+    App.page.render("drift");
+  }
+});
+
+test("UAT-29 (MAR-L1-11): a link carries the address: #/drift?target= fills the drift field and runs nothing; a bad address is dropped", async () => {
+  wireOnce();
+  const field = document.getElementById("drift-target");
+  field.value = "";
+  const site = new Web();
+  App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+  try {
+    assert.deepEqual(desk.hashRoute("#/drift?target=https%3A%2F%2Flarch.example%2F"), { view: "drift", target: "https://larch.example/" });
+    assert.equal(desk.fillFromHash("#/drift?target=https%3A%2F%2Flarch.example%2F"), "https://larch.example/");
+    assert.equal(field.value, "https://larch.example/");
+    assert.deepEqual(site.calls, [], "a link fills the field; only the visitor's press runs the reading");
+    assert.equal(App.page.assistantMayFetch("https://larch.example/"), false, "a link's address is not one the visitor chose");
+    for (const bad of ["#/drift?target=javascript%3Aalert(1)", "#/drift?target=http%3A%2F%2F10.0.0.1%2F", "#/drift?target=", "#/drift"]) {
+      field.value = "kept";
+      assert.equal(desk.fillFromHash(bad), null, bad);
+      assert.equal(field.value, "kept", bad);
+    }
+    assert.deepEqual(desk.hashRoute("#/verify?target=https%3A%2F%2Fa.example%2F"), { view: "verify", target: "https://a.example/" });
+    assert.equal(desk.hashRoute("#/key?target=https%3A%2F%2Fa.example%2F").view, "key");
+    assert.equal(desk.fillFromHash("#/key?target=https%3A%2F%2Fa.example%2F"), null, "a view with no address field fills nothing");
+  } finally {
+    field.value = "";
+    restore();
+  }
+});
+
+test("UAT-29 (MAR-L2-05): the landing starts from the visitor's own address, and its button opens and runs the drift reading", async () => {
+  wireOnce();
+  // the form is in the title block, before the compass and the examples
+  const html = await siteFile("index.html");
+  assert.ok(html.indexOf('id="start-form"') > 0 && html.indexOf('id="start-form"') < html.indexOf('id="home"'));
+  assert.equal(STRINGS.start.label, "Start with your site's address");
+  const SITE = "https://own.example";
+  const site = new Web();
+  site.set(`${SITE}/plumbline.lock.json`, "gone", 404);
+  App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+  const went = [];
+  try {
+    await desk.startFromLanding(`${SITE}/`, (view) => went.push(view));
+    assert.deepEqual(went, ["drift"]);
+    assert.equal(document.getElementById("drift-target").value, `${SITE}/`);
+    assert.ok(site.calls.includes(`${SITE}/plumbline.lock.json`), "the reading ran");
+    assert.equal(App.page.drift.lockState, "absent");
+    assert.equal(App.page.assistantMayFetch(`${SITE}/`), true, "the visitor typed it");
+  } finally {
+    document.getElementById("drift-target").value = "";
+    App.page.drift = null;
+    restore();
+  }
+});
+
+test("MAR-RC-2: a signature that no longer covers the files reads as a change before the re-sign, without the stranger-danger words", () => {
+  assert.doesNotMatch(STRINGS.drift.invalidLock, /host may have rewritten/);
+  assert.match(STRINGS.drift.invalidLock, /If you or whoever looks after your website just changed the site, it needs signing again; if nobody did, someone else may have changed them\./);
+  assert.doesNotMatch(STRINGS.drift.cleanInvalid, /host may have rewritten/);
+  assert.match(STRINGS.verdicts.invalidTamperedMeaning, /^A signed file changed or is missing since the site was signed\. If this is your own site/);
+  // the verifier's rule stays: until it is known who changed them, they are not the publisher's
+  assert.match(STRINGS.verdicts.invalidTamperedMeaning, /do not treat these files as the publisher's until you know who changed them\.$/);
 });

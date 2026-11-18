@@ -16,6 +16,14 @@ export const STRINGS = {
     skip: "Skip to the Desk",
   },
 
+  // UAT-29 (MAR-L2-05): the landing starts from the visitor's own site, not from another site's verdict
+  start: {
+    label: "Start with your site's address",
+    placeholder: "https://your-site.example/",
+    button: "Check my site",
+    note: "Checked here, in your browser: no install, no key. The examples below are other sites.",
+  },
+
   about: {
     heading: "What Plumbline is",
     lead: "An agentic website publishes agent-manifest.json and a network file, and each visitor's browser runs them. Those files go stale, and nothing in the spec says who published them. Plumbline is the layer after generation:",
@@ -33,6 +41,7 @@ export const STRINGS = {
     verifiedMeaning: "These files came from the holder of a key you already trust for this origin, and they have not changed since they were signed. It does not mean the site is safe, honest or correct.",
     invalidTitle: "Invalid",
     invalidMeaning: "Something is wrong: a signed file changed or is missing, the signature expired, it does not check out under the key you trust, or that key has been revoked. Do not treat these files as the publisher's.",
+    invalidTamperedMeaning: "A signed file changed or is missing since the site was signed. If this is your own site and you or whoever looks after it just changed its files, it needs signing again; if nobody did, do not treat these files as the publisher's until you know who changed them.",
     unverifiableTitle: "Unverifiable",
     unverifiableMeaning: "You have not met this signer yet, or the site publishes no signature. The files may be fine, but nothing here can vouch for them until you trust the publisher's key yourself.",
     unverifiableOriginMeaning: "These files were signed for another address than {fetchedFrom}, where they were fetched: a copy signed for another address is not attested here, whoever signed it. Do not treat them as that publisher's site.",
@@ -94,9 +103,9 @@ export const STRINGS = {
     signedLock: "Signed lock: covered by a signature that verified under a publisher you trust.",
     unsignedLock: "unsigned lock: the host can rewrite it",
     untrustedLock: "Signed lock, by a key you have not trusted: until you trust that key, the host could rewrite it.",
-    invalidLock: "The signature over this lock does not hold (verify says why): the host may have rewritten it.",
+    invalidLock: "The signature over this lock does not hold (verify says why): its files changed after they were signed. If you or whoever looks after your website just changed the site, it needs signing again; if nobody did, someone else may have changed them.",
     cleanUntrusted: "Nothing differs from what this lock records, but it is signed by a key you have not trusted: until you trust that key, a clean reading proves little.",
-    cleanInvalid: "Nothing differs from what this lock records, but the signature over it does not hold: the host may have rewritten it, so a clean reading proves little.",
+    cleanInvalid: "Nothing differs from what this lock records, but the signature over it does not hold (if you or whoever looks after your website just changed the site, it needs signing again; if nobody did, someone else may have changed it), so a clean reading proves little.",
     noLock: "This site publishes no plumbline.lock.json, so there is nothing to compare against. Publishing a lock is how a site lets others see drift.",
     refused: "Could not read this site's plumbline.lock.json (the browser was refused). That is not the same as no lock: the site may publish one that does not allow other origins to read it.",
     notRead: "This site's plumbline.lock.json could not be used, so no drift was checked.",
@@ -114,6 +123,9 @@ export const STRINGS = {
     },
     expected: "locked",
     actual: "now",
+    technical: "Technical details for whoever looks after the website: the file's fingerprint as locked and as it is now",
+    corsHeader: "Your browser was not allowed to read this from another site. Ask whoever hosts your website to send it with the header Access-Control-Allow-Origin: * (as the site's other agent files are sent), so a checker in a browser can read it.",
+    forOwner: "For whoever looks after the website:",
     done: "Drift read: {n} findings, the worst {worst}. {lock}",
     doneOne: "Drift read: 1 finding, {worst}. {lock}",
     doneClean: "Drift read: nothing differs from the lock. {lock}",

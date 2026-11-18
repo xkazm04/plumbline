@@ -23,9 +23,12 @@ import { LOCK_REFUSED, publishedUrl, readPublishedLock, siteBase } from "./lib/p
 
 export { LOCK_REFUSED, lockProblem, publishedUrl, siteBase };
 
+/** The words the reader uses for a file the browser was refused (UAT-29: the page then names the header to ask for). */
+export const BROWSER_REFUSED = "the browser could not read it";
+
 /** The fetch-error sentence, from the shared table; a browser's "network" failure is the browser refusing to read it. */
 function why(error) {
-  if (error && error.name === "SafeFetchError" && error.code === "network") return "the browser could not read it";
+  if (error && error.name === "SafeFetchError" && error.code === "network") return BROWSER_REFUSED;
   return describeFetchError(error, "it could not be read");
 }
 
