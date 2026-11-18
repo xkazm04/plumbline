@@ -708,6 +708,24 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: M.
 - Must not break: the `safeFetch` law (private ranges refused; loopback only with the flag and its warning).
+- State: fixed (commit 1225728), awaiting recertify. `init`, `watch --root` (plain, `--init`, `--relock`) and
+  `scripts/scan-ecosystem.mjs` take `--allow-local` (`diff --peer` has it from UAT-18), printing the warning first;
+  `--external a2a-card=http://...` is taken only with the flag and only on a loopback host (`localhost`, 127/8, `[::1]`);
+  the scan's list takes http with the flag and records `settings.allowLocal` and a disclosure sentence; private ranges
+  stay refused (a partner on 10.0.0.5 stays pending, in the address rule's words); `watch --url` still refuses a
+  published lock's http peers. A rehearsal's printed commands (init's next steps, a refused relock's commands) keep
+  `--allow-local` so they run as printed (MC-3). Live, product CLI only: J5 kiln-row `watch --root site --relock
+  --external a2a-card=http://127.0.0.1:4505/... --allow-local` pinned the four sellers and the card (4 kept copies);
+  after `seller-rotates`, `seller-signer-swapped`, `card-skills-change`, `seller-offline` the CLI watch's findings were
+  byte for byte the harness's (`signer-rotation-published`, `signer-no-rotation`, `peer-unreachable`,
+  `external-changed`), and a plain relock refused naming both sellers, exit 1; J2 meridian-trips `init --allow-local`
+  pinned coinbridge (exit 0), and after `partner-adds-agent` + `partner-adds-links` the CLI watch's text output had the
+  same MD5 as the harness's; tallow-finch `scan-ecosystem.mjs --adapters validator --allow-local --trust <agency file>`
+  over 11 sites (juniper-yoga left out for time): alder `verified`, fernhill `invalid expired`, glenrock `invalid
+  tampered`, kestrel `unreachable`. Tests: `src/test/cli-allow-local.test.ts`. Ceiling: a lock written with the flag
+  pins `http://127.0.0.1` peers, which the Action (it never passes the flag) and `watch --url` report as not contacted:
+  rehearse on a copy (the docs say so); the harness (`uat/driver/local-cli.mjs`) stays for its Atlas and Customs
+  stand-ins.
 
 ### UAT-22. A pre-launch gate over files
 
