@@ -57,6 +57,8 @@ test("summarise counts every state in its own bucket; unavailable is never count
     lock: { found: 2, absent: 1, refused: 0, unreadable: 0, unusable: 0 },
     drift: { clean: 1, info: 0, warn: 0, block: 1, "not-checked": 1 },
     signature: { published: 1, absent: 1, unknown: 1 },
+    keyRecord: { published: 0, absent: 3, unknown: 0 },
+    attention: { unreachable: 0, fail: 1, invalid: 0, block: 0, warn: 0, "not-checked": 1, ok: 1 },
   });
 });
 
@@ -357,7 +359,59 @@ test("UAT-9: partly checked is not not checked: the gate cell, the CLI's sentenc
     sites: [site(healthy.target, healthy, { lockState: "found", findings: [] }), site(down.target, down, { lockState: "unreadable", lockSummary: "x", findings: [] })],
   };
   const html = renderHtml(report);
-  assert.match(html, /<td class="s-unavailable">unavailable: checked by 1 of 3 \(validator pass\); Atlas and Customs had no verdict<\/td>/);
-  assert.match(html, /<td class="s-unreachable">unavailable: the site could not be reached \(the request timed out\); nothing was checked, so this is not a pass<\/td>/);
+  assert.match(html, /<td class="s-unavailable" data-label="Gate">unavailable: checked by 1 of 3 \(validator pass\); Atlas and Customs had no verdict<\/td>/);
+  assert.match(html, /<td class="s-unreachable" data-label="Gate">unavailable: the site could not be reached \(the request timed out\); nothing was checked, so this is not a pass<\/td>/);
   assert.match(html, /td\.s-unreachable \{ color: #b71c1c; font-weight: bold; \}/);
+});
+
+test("UAT-19 (PRI-L1-03, PRI-L1-10, PRI-L1-15, PRI-L2-5): worst first, the key record per site, one word per state, the caveat once, no sideways scroll", async () => {
+  const { attentionOf, ATTENTION } = await import("../scan/report.js");
+  const caveat = { kind: "grounding" as const, severity: "info" as const, code: "url-not-checked" as const, ref: LOCK_FILE, summary: "Not checked from a published site: a file added to the vendored runtime folder ..." };
+  const down: GateReport = { target: "https://down.example/", state: "unavailable", findings: [{ adapter: "validator", state: "unavailable", summary: "The validator port could not run: the target could not be reached (the connection failed)." }] };
+  const partly: GateReport = { target: "https://ok.example/", state: "unavailable", findings: [{ adapter: "validator", state: "pass", summary: "fine" }, { adapter: "atlas", state: "unavailable", summary: "no verdict" }] };
+  const healthy = site("https://healthy.example/", partly, { lockState: "found", findings: [caveat] }, { state: "published", kid: "0123456789abcdef" });
+  healthy.keyRecord = { state: "published", kid: "0123456789abcdef" };
+  const signedNoKey = site("https://nokey.example/", partly, { lockState: "found", findings: [caveat] }, { state: "published", kid: "0123456789abcdef" });
+  const warned = site("https://warn.example/", partly, { lockState: "found", findings: [{ kind: "grounding", severity: "warn", code: "grounding-changed", ref: "a.json", summary: "changed" }, caveat] });
+  const unlocked = site("https://nolock.example/", partly, { lockState: "absent", lockSummary: "no lock", findings: [] });
+  const failed = site("https://fail.example/", gate("fail", "fail"), { lockState: "found", findings: [caveat] });
+  const gone = site("https://down.example/", down, { lockState: "unreadable", lockSummary: "The lock could not be fetched (the connection failed), so no drift was checked.", findings: [] });
+  // the list order puts the down site late, as the run did (position 11 of 12)
+  const sites = [healthy, signedNoKey, warned, unlocked, failed, gone];
+  assert.deepEqual(sites.map((x) => attentionOf(x)), ["ok", "ok", "warn", "not-checked", "fail", "unreachable"]);
+  assert.deepEqual([...ATTENTION], ["unreachable", "fail", "invalid", "block", "warn", "not-checked", "ok"]);
+  const report: ScanReport = {
+    schema: "plumbline-ecosystem-scan",
+    version: 1,
+    scannedAt: NOW.toISOString(),
+    tool: { name: "plumbline", version: "0.1.0" },
+    disclosure: [...DISCLOSURE],
+    settings: { siteDeadlineMs: 120000, delayMs: 2000 },
+    summary: summarise(sites),
+    sites,
+  };
+  const html = renderHtml(report);
+  const order = [...html.matchAll(/<th scope="row" data-label="Address"><a href="#site-(\d+)">/g)].map((m) => Number(m[1]));
+  assert.deepEqual(order, [5, 4, 2, 3, 0, 1], "the down site first, the failed one next, the healthy ones last, list order within a word");
+  const detailsOrder = [...html.matchAll(/<section id="site-(\d+)">/g)].map((m) => Number(m[1]));
+  assert.deepEqual(detailsOrder, order);
+  assert.match(html, /<td class="a-unreachable" data-label="Attention">unreachable: look first<\/td>/);
+  // the key record, flagged for a signed site that publishes none
+  assert.match(html, /<th scope="col">Key record<\/th>/);
+  assert.match(html, /data-label="Key record">published <code>0123456789abcdef<\/code><\/td>/);
+  assert.match(html, /data-label="Key record">not published \(the site is signed, but a verifier cannot fetch its key record\)<\/td>/);
+  // one word per lock state in the table and the summary; no state the CLI cannot produce
+  assert.match(html, /data-label="Lock">not published<\/td>/);
+  assert.match(html, /data-label="Lock">could not be read<\/td>/);
+  assert.ok(!/<td[^>]*data-label="Lock">absent</.test(html));
+  assert.match(html, /<li>Lock: found 4, not published 1, could not be read 1, unusable 0<\/li>/);
+  assert.ok(!html.includes("refused 0") && !html.includes("refused by the browser 0"));
+  assert.match(html, /<li>Attention: unreachable: look first 1, fail: fix the rule 1, /);
+  assert.match(html, /<li>Key record: published 1, not published 5, could not be read 0<\/li>/);
+  // the caveat once, at the top of the sites, not in every site's details
+  assert.equal(html.split("Not checked from a published site").length - 1, 1);
+  // a phone: rows stack, nothing forces a sideways scroll
+  assert.match(html, /@media \(max-width: 40rem\) \{\n {2}table, thead, tbody, tr, th, td \{ display: block; width: auto; \}/);
+  assert.match(html, /td, th, li, p, h3 \{ overflow-wrap: anywhere; \}/);
+  assert.ok(!/<script/i.test(html));
 });

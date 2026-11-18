@@ -10,7 +10,7 @@ import type { Fetcher } from "../net/locate.js";
 import { DEFAULT_TIMEOUT_MS, SafeFetchError, safeFetch, type SafeFetchOptions } from "../net/safe-fetch.js";
 import { runWatchUrl } from "../watch/index.js";
 import { siteBase } from "../watch/published.js";
-import { disclosureFor, SCAN_SCHEMA, SCAN_VERSION, driftStateOf, summarise, type PublishedFile, type ScanReport, type SiteResult } from "./report.js";
+import { attentionOf, disclosureFor, SCAN_SCHEMA, SCAN_VERSION, driftStateOf, summarise, type PublishedFile, type ScanReport, type SiteResult } from "./report.js";
 
 /**
  * One absolute deadline per site, in milliseconds. Derivation: the gate's adapters run side by side, each with its own
@@ -118,16 +118,20 @@ export async function scanSite(address: string, deps: ScanDeps = {}): Promise<Si
   const signature = await publishedFile(fetch, `${siteRoot}${SIGNATURE_FILE}`);
   const keyRecord = await publishedFile(fetch, `${siteRoot}${KEY_FILE}`);
   const elapsedMs = clock() - started;
+  const drift = driftStateOf(watch);
+  const verdict = signature.state === "published" ? { verdict: "unverifiable" as const } : {};
   return {
     address,
     gate,
     watch,
-    drift: driftStateOf(watch),
+    drift,
     signature,
     keyRecord,
-    ...(signature.state === "published" ? { verdict: "unverifiable" as const } : {}),
+    ...verdict,
     elapsedMs,
     deadlinePassed: clock() >= deadline,
+    // UAT-19: how soon a person looks at it, so the report lists the sites worst first
+    attention: attentionOf({ gate, watch, drift, ...verdict }),
   };
 }
 

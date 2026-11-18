@@ -24,6 +24,16 @@ export interface PublishedFile {
 export const DRIFT_STATES = ["clean", "info", "warn", "block", "not-checked"] as const;
 export type DriftState = (typeof DRIFT_STATES)[number];
 
+/**
+ * UAT-19 (PRI-L1-03): how soon a person looks at a site, worst first, one word per site; the report lists sites in this
+ * order. `unreachable`: the site itself did not answer the gate, or its lock could not be read (down or too slow).
+ * `fail`: a checker failed it. `invalid`: its signature is `invalid` against the operator's trust file (UAT-20). `block`
+ * and `warn`: its drift. `not-checked`: no lock was found, or no checker answered. `ok`: none of these (a gate that some
+ * checkers passed while others had no verdict is ok; its cell still says which answered).
+ */
+export const ATTENTION = ["unreachable", "fail", "invalid", "block", "warn", "not-checked", "ok"] as const;
+export type Attention = (typeof ATTENTION)[number];
+
 export interface SiteResult {
   /** The address from the list, as given (the list is the scan operator's). */
   address: string;
@@ -40,6 +50,8 @@ export interface SiteResult {
   /** How long the site took, and whether its deadline passed (then whatever was not read is unknown or unavailable). */
   elapsedMs: number;
   deadlinePassed: boolean;
+  /** UAT-19: how soon a person looks at it (attentionOf). Every scan since 2026-11-18 writes it. */
+  attention?: Attention;
 }
 
 export interface ScanSummary {
@@ -48,6 +60,9 @@ export interface ScanSummary {
   lock: Record<LockState, number>;
   drift: Record<DriftState, number>;
   signature: Record<PublishedFile["state"], number>;
+  /** UAT-19: the key record's presence over every site, and the sites per attention word. */
+  keyRecord?: Record<PublishedFile["state"], number>;
+  attention?: Record<Attention, number>;
 }
 
 export interface ScanReport {
@@ -99,6 +114,18 @@ export function driftStateOf(watch: DriftReport): DriftState {
   return "clean";
 }
 
+/** How soon a person looks at one site (ATTENTION), from what the report holds; the first that applies wins. */
+export function attentionOf(site: Pick<SiteResult, "gate" | "watch" | "drift"> & { verdict?: string }): Attention {
+  if (siteUnreachable(site.gate) !== null || site.watch.lockState === "unreadable") return "unreachable";
+  if (site.gate.state === "fail") return "fail";
+  if (site.verdict === "invalid") return "invalid";
+  if (site.drift === "block") return "block";
+  if (site.drift === "warn") return "warn";
+  const gateCheckedNothing = site.gate.state === "unavailable" && site.gate.findings.every((f) => f.state === "unavailable");
+  if (site.drift === "not-checked" || gateCheckedNothing) return "not-checked";
+  return "ok";
+}
+
 /** The counts over every site. A report state outside its enum is counted nowhere, so the sums show it. */
 export function summarise(sites: SiteResult[]): ScanSummary {
   const summary: ScanSummary = {
@@ -107,6 +134,8 @@ export function summarise(sites: SiteResult[]): ScanSummary {
     lock: zero(LOCK_STATES),
     drift: zero(DRIFT_STATES),
     signature: zero(["published", "absent", "unknown"] as const),
+    keyRecord: zero(["published", "absent", "unknown"] as const),
+    attention: zero(ATTENTION),
   };
   for (const site of sites) {
     if (Object.hasOwn(summary.gate, site.gate.state)) summary.gate[site.gate.state] += 1;
@@ -114,6 +143,9 @@ export function summarise(sites: SiteResult[]): ScanSummary {
     if (Object.hasOwn(summary.lock, lock)) summary.lock[lock] += 1;
     if (Object.hasOwn(summary.drift, site.drift)) summary.drift[site.drift] += 1;
     if (Object.hasOwn(summary.signature, site.signature.state)) summary.signature[site.signature.state] += 1;
+    const key = site.keyRecord?.state;
+    if (summary.keyRecord !== undefined && key !== undefined && Object.hasOwn(summary.keyRecord, key)) summary.keyRecord[key] += 1;
+    if (summary.attention !== undefined) summary.attention[site.attention ?? attentionOf(site)] += 1;
   }
   return summary;
 }
@@ -137,6 +169,30 @@ const WORDS: Record<string, string> = {
   unknown: "could not be read",
 };
 
+/** UAT-19 (PRI-L1-15): one word per lock state, the same in the table and the summary. */
+const LOCK_WORDS: Record<string, string> = {
+  found: "found",
+  absent: "not published",
+  refused: "refused by the browser",
+  unreadable: "could not be read",
+  unusable: "unusable",
+};
+
+/** UAT-19: the attention words, each saying what to do first. */
+const ATTENTION_WORDS: Record<Attention, string> = {
+  unreachable: "unreachable: look first",
+  fail: "fail: fix the rule",
+  invalid: "signature invalid: stop and escalate",
+  block: "block: look before the next release",
+  warn: "warn: review",
+  "not-checked": "not checked",
+  ok: "ok",
+};
+
+/** The `url-not-checked` caveat every found lock carries: stated once at the top of the page, not on every site (UAT-19). */
+const isCaveat = (f: { code?: string; severity: string; summary: string }): boolean =>
+  f.code === "url-not-checked" || (f.code === undefined && f.severity === "info" && f.summary.startsWith("Not checked from a published site:"));
+
 /**
  * The gate cell (UAT-9): its state with the one sentence every surface uses (gate/context.ts gateSentence), so a site
  * the validator passed reads "checked by 1 of 3 (validator pass); ..." and a site that did not answer reads "the site
@@ -145,40 +201,68 @@ const WORDS: Record<string, string> = {
 function gateCell(gate: GateReport): string {
   const down = siteUnreachable(gate) !== null;
   const word = gate.state === "unavailable" ? `unavailable: ${gateSentence(gate)}` : gate.state;
-  return `<td class="s-${down ? "unreachable" : escapeHtml(gate.state)}">${escapeHtml(word)}</td>`;
+  return `<td class="s-${down ? "unreachable" : escapeHtml(gate.state)}" data-label="Gate">${escapeHtml(word)}</td>`;
 }
 
-function cell(state: string, extra = ""): string {
+function cell(state: string, extra = "", label = ""): string {
   const word = WORDS[state] ?? state;
-  return `<td class="s-${escapeHtml(state)}">${escapeHtml(word)}${extra}</td>`;
+  return `<td class="s-${escapeHtml(state)}"${label === "" ? "" : ` data-label="${escapeHtml(label)}"`}>${escapeHtml(word)}${extra}</td>`;
+}
+
+/** The key record cell (UAT-19, PRI-L1-10): its presence and kid, flagged when it does not match a published signature. */
+function keyCell(site: SiteResult): string {
+  const key = site.keyRecord ?? { state: "unknown" as const };
+  const kid = key.kid !== undefined ? ` <code>${escapeHtml(key.kid)}</code>` : "";
+  let flag = "";
+  if (site.signature.state === "published" && key.state === "absent") flag = " (the site is signed, but a verifier cannot fetch its key record)";
+  else if (site.signature.state === "published" && key.kid !== undefined && site.signature.kid !== undefined && key.kid !== site.signature.kid) {
+    flag = " (another key than the signature's)";
+  }
+  return `<td class="s-${escapeHtml(flag === "" ? key.state : "warn")}" data-label="Key record">${escapeHtml(WORDS[key.state] ?? key.state)}${kid}${escapeHtml(flag)}</td>`;
 }
 
 /**
- * The static page: the disclosure, the summary and one row per site, then each site's findings. No script, no external
- * resource, no inline handler; every string from a report (addresses, summaries, refs) is escaped.
+ * The static page: the disclosure, the summary and one row per site, worst first (UAT-19: by attention, then in list
+ * order), then each site's findings in the same order. No script, no external resource, no inline handler; every string
+ * from a report (addresses, summaries, refs) is escaped.
  */
 export function renderHtml(report: ScanReport): string {
   const e = escapeHtml;
   const s = report.summary;
-  const counts = (label: string, record: Record<string, number>) =>
-    `<li>${e(label)}: ${Object.entries(record)
-      .map(([k, n]) => `${e(WORDS[k] ?? k)} ${n}`)
-      .join(", ")}</li>`;
-  const rows = report.sites
-    .map((site, i) => {
+  const counts = (label: string, record: Record<string, number> | undefined, words: Record<string, string> = WORDS, skip: readonly string[] = []) =>
+    record === undefined
+      ? ""
+      : `<li>${e(label)}: ${Object.entries(record)
+          .filter(([k]) => !skip.includes(k))
+          .map(([k, n]) => `${e(words[k] ?? k)} ${n}`)
+          .join(", ")}</li>`;
+  // worst first, then the list's own order; the anchors keep each site's index in the list
+  const ordered = report.sites
+    .map((site, i) => ({ site, i, attention: site.attention ?? attentionOf(site) }))
+    .sort((a, b) => ATTENTION.indexOf(a.attention) - ATTENTION.indexOf(b.attention) || a.i - b.i);
+  const caveat = report.sites.flatMap((site) => site.watch.findings.filter(isCaveat)).map((f) => f.summary)[0];
+  const rows = ordered
+    .map(({ site, i, attention }) => {
       const lock = site.watch.lockState ?? "found";
       const kid = site.signature.kid !== undefined ? ` <code>${e(site.signature.kid)}</code>` : "";
       const verdict = site.verdict !== undefined ? ` (${e(site.verdict)} here)` : "";
-      return `<tr><th scope="row"><a href="#site-${i}">${e(site.address)}</a></th>${gateCell(site.gate)}<td>${e(lock)}</td>${cell(site.drift)}${cell(site.signature.state, kid + verdict)}</tr>`;
+      return (
+        `<tr><td class="a-${e(attention)}" data-label="Attention">${e(ATTENTION_WORDS[attention])}</td>` +
+        `<th scope="row" data-label="Address"><a href="#site-${i}">${e(site.address)}</a></th>${gateCell(site.gate)}` +
+        `<td class="s-${e(lock)}" data-label="Lock">${e(LOCK_WORDS[lock] ?? lock)}</td>${cell(site.drift, "", "Drift")}${cell(site.signature.state, kid + verdict, "Signature")}${keyCell(site)}</tr>`
+      );
     })
     .join("\n");
-  const details = report.sites
-    .map((site, i) => {
+  const details = ordered
+    .map(({ site, i, attention }) => {
       const gate = site.gate.findings.map((f) => `<li>${e(f.adapter)}: <strong>${e(f.state)}</strong>. ${e(f.summary)}</li>`).join("");
-      const lockLine = site.watch.lockSummary !== undefined ? `<p>Lock: ${e(site.watch.lockState ?? "")}. ${e(site.watch.lockSummary)}</p>` : "";
-      const drift = site.watch.findings.map((f) => `<li><strong>${e(f.severity)}</strong> ${e(f.kind)} <code>${e(f.ref)}</code>: ${e(f.summary)}</li>`).join("");
+      const lockLine = site.watch.lockSummary !== undefined ? `<p>Lock: ${e(LOCK_WORDS[site.watch.lockState ?? ""] ?? site.watch.lockState ?? "")}. ${e(site.watch.lockSummary)}</p>` : "";
+      const drift = site.watch.findings
+        .filter((f) => !isCaveat(f))
+        .map((f) => `<li><strong>${e(f.severity)}</strong> ${e(f.kind)} <code>${e(f.ref)}</code>: ${e(f.summary)}</li>`)
+        .join("");
       const deadline = site.deadlinePassed ? "<p>The site's deadline passed; what was not read by then is unavailable or could not be read.</p>" : "";
-      return `<section id="site-${i}"><h3>${e(site.address)}</h3>${deadline}<h4>Gate: ${e(site.gate.state)}: ${e(gateSentence(site.gate))}</h4><ul>${gate}</ul><h4>Drift: ${e(WORDS[site.drift] ?? site.drift)}</h4>${lockLine}<ul>${drift}</ul></section>`;
+      return `<section id="site-${i}"><h3>${e(site.address)}</h3><p>Attention: ${e(ATTENTION_WORDS[attention])}.</p>${deadline}<h4>Gate: ${e(site.gate.state)}: ${e(gateSentence(site.gate))}</h4><ul>${gate}</ul><h4>Drift: ${e(WORDS[site.drift] ?? site.drift)}</h4>${lockLine}<ul>${drift}</ul></section>`;
     })
     .join("\n");
   return `<!doctype html>
@@ -195,6 +279,16 @@ td.s-pass, td.s-clean, td.s-info { color: #1b5e20; } td.s-fail, td.s-block { col
 td.s-unreachable { color: #b71c1c; font-weight: bold; }
 td.s-unavailable, td.s-not-checked, td.s-unknown, td.s-absent, td.s-published { color: #424242; }
 code { overflow-wrap: anywhere; } th[scope=row] { overflow-wrap: anywhere; font-weight: normal; }
+td, th, li, p, h3 { overflow-wrap: anywhere; }
+td.a-unreachable, td.a-fail, td.a-invalid { color: #b71c1c; font-weight: bold; } td.a-block { color: #b71c1c; } td.a-warn { color: #8a4b00; }
+td.a-not-checked { color: #424242; } td.a-ok { color: #1b5e20; }
+@media (max-width: 40rem) {
+  table, thead, tbody, tr, th, td { display: block; width: auto; }
+  thead { position: absolute; left: -9999px; }
+  tr { border-bottom: 2px solid #999; padding: .4rem 0; }
+  th, td { border-bottom: 0; padding: .1rem 0; }
+  td[data-label]::before, th[data-label]::before { content: attr(data-label) ": "; color: #424242; font-weight: normal; }
+}
 </style>
 </head>
 <body>
@@ -203,11 +297,13 @@ code { overflow-wrap: anywhere; } th[scope=row] { overflow-wrap: anywhere; font-
 <h2>What this scan sent where</h2>
 <ul>${report.disclosure.map((d) => `<li>${e(d)}</li>`).join("")}</ul>
 <h2>Summary</h2>
-<ul>${counts("Gate", s.gate)}${counts("Lock", s.lock)}${counts("Drift", s.drift)}${counts("Signature", s.signature)}</ul>
+<ul>${counts("Attention", s.attention, ATTENTION_WORDS)}${counts("Gate", s.gate)}${counts("Lock", s.lock, LOCK_WORDS, ["refused"])}${counts("Drift", s.drift)}${counts("Signature", s.signature)}${counts("Key record", s.keyRecord)}</ul>
 <p>A gate that is unavailable is never a pass: some or all of its checkers had no verdict, and its cell says which ("checked by 1 of 3 ...", or "nothing was checked"); a site that could not be reached is marked in red. A lock that was not found means no drift was checked. A clean watch means the locked things match the lock; a gate pass is not a security review.</p>
 <h2>Sites</h2>
+<p>Worst first: a site that could not be read, then a failed checker, an invalid signature, block, warn, not checked, and ok.</p>${caveat === undefined ? "" : `
+<p>For every site whose lock was found: ${e(caveat)}</p>`}
 <table>
-<thead><tr><th scope="col">Address</th><th scope="col">Gate</th><th scope="col">Lock</th><th scope="col">Drift</th><th scope="col">Signature</th></tr></thead>
+<thead><tr><th scope="col">Attention</th><th scope="col">Address</th><th scope="col">Gate</th><th scope="col">Lock</th><th scope="col">Drift</th><th scope="col">Signature</th><th scope="col">Key record</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>

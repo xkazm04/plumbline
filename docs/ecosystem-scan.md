@@ -51,6 +51,8 @@ Desk, Agent Atlas and Agent Customs. The owner extends it.
 | signature | `published`, `absent`, `unknown` | `plumbline.signature.json` at the site base answered 2xx, 404 or 410, or anything else |
 | verdict | `unverifiable` or omitted | present when a signature is published: this scan trusts no key, so a signature is `unverifiable` here, whatever its math. A verifier who has met the publisher may verify it with `plumbline verify --url`. A site that publishes no signature is "not signed", which is the publisher's choice, not a failure |
 
+| attention | `unreachable`, `fail`, `invalid`, `block`, `warn`, `not-checked`, `ok` | since 2026-11-18 (UAT-19): how soon a person looks at the site, worst first, the first that applies: the site did not answer the gate or its lock could not be read (down or too slow); a checker failed it; its signature is `invalid` against `--trust` (UAT-20); its drift is `block`, then `warn`; no lock was found or no checker answered; otherwise `ok` (a gate some checkers passed while others had no verdict is `ok`, and its cell still says which answered). The page lists the sites in this order, then in list order |
+
 A kid is recorded only when it is exactly 16 lowercase hex characters; anything else is left out, never quoted. Every
 summary in the report is Plumbline's own sentence, built from counts and fixed phrases; a site's own words are not
 copied into it.
@@ -70,7 +72,9 @@ copied into it.
     "gate": { "pass": 0, "fail": 0, "unavailable": 0 },
     "lock": { "found": 0, "absent": 0, "refused": 0, "unreadable": 0, "unusable": 0 },
     "drift": { "clean": 0, "info": 0, "warn": 0, "block": 0, "not-checked": 0 },
-    "signature": { "published": 0, "absent": 0, "unknown": 0 }
+    "signature": { "published": 0, "absent": 0, "unknown": 0 },
+    "keyRecord": { "published": 0, "absent": 0, "unknown": 0 },
+    "attention": { "unreachable": 0, "fail": 0, "invalid": 0, "block": 0, "warn": 0, "not-checked": 0, "ok": 0 }
   },
   "sites": [
     {
@@ -82,7 +86,8 @@ copied into it.
       "keyRecord": { "state": "published", "kid": "<16 hex>" },
       "verdict": "unverifiable",
       "elapsedMs": 2216,
-      "deadlinePassed": false
+      "deadlinePassed": false,
+      "attention": "block"
     }
   ]
 }
@@ -95,7 +100,14 @@ omitted, never `null`. A new member may be added in version 1; a change to an ex
 
 A static page: no script, no external resource (its own Content-Security-Policy is `default-src 'none'; style-src
 'unsafe-inline'`), and every string from the report escaped. It shows the disclosure first, then the summary, one row
-per site (each state in a word as well as a colour) and each site's findings.
+per site (each state in a word as well as a colour) and each site's findings. Since 2026-11-18 (UAT-19) the rows and
+the details are worst first (`attention`, then list order), with an Attention column that says what to do first
+("unreachable: look first", "fail: fix the rule", ...), a Key record column (its kid, flagged when the site is signed
+and publishes no key record, or a key record names another key than the signature), one word per state in the table and
+the summary (a lock that is `absent` reads "not published" in both, and `refused`, which only a browser produces, is
+not listed), and the caveat every found lock carries ("Not checked from a published site: ...") stated once above the
+table instead of in every site's details. On a narrow screen (40rem and less) each row stacks into labelled lines, so
+the page never scrolls sideways (measured at 390 px).
 
 ## A badge for one gate report
 

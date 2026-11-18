@@ -73,7 +73,7 @@ async function main(argv) {
   const result = await run.scanList(addresses, pkg.version, {
     ...(adapters !== undefined ? { adapters } : {}),
     onSite: (site, i, total) =>
-      process.stderr.write(`[${i + 1}/${total}] gate ${site.gate.state}, drift ${site.drift}, signature ${site.signature.state}, ${site.elapsedMs} ms: ${site.address}\n`),
+      process.stderr.write(`[${i + 1}/${total}] ${site.attention}: gate ${site.gate.state}, drift ${site.drift}, signature ${site.signature.state}, ${site.elapsedMs} ms: ${site.address}\n`),
   });
   await mkdir(out, { recursive: true });
   await writeFile(path.join(out, "report.json"), `${JSON.stringify(result, null, 2)}\n`);
