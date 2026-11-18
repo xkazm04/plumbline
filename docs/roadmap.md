@@ -254,6 +254,16 @@ Design:
 Done: detectors, capture, relock change list and Desk parity for `a2a-card`; `mcp-tools` built or its blocker written
 down; docs.
 
+As built: `a2a-card` is done as designed (capture with `watch --init|--relock --external a2a-card=<url>`, block on change
+with skill counts and the card's JWS signature count, warn when unreachable, `external <url>` in the relock change list,
+`--drop <url>` removes one, parity test). Deviation: no live card could be recorded (none of the hosts this repository
+talks to publishes one: `/.well-known/agent-card.json` and `agent.json` answered 404 on each, 2026-11-18), so the
+fixtures are the A2A specification's own sample cards, dated and with the spec's commit. `mcp-tools` is NOT built: it
+needs a JSON-RPC POST, `safeFetch` is GET-only, and no MCP server could be recorded as a fixture within the rules this
+work ran under (no POST to a third party). The narrow `safeFetch` extension is designed in `docs/gate-and-watch.md`;
+the wire reserves the kind; `--external mcp-tools=` is refused with that reason and a held entry is a `warn`, "not
+checked". `init` does not take `--external` (use `watch --init` or `--relock`).
+
 ### D10. The publisher's loop
 
 Goal: accepting drift and staying signed takes one review, not a checklist.
@@ -272,6 +282,14 @@ Design:
 Done: `action/*.test.mjs` cover the PR plan; CLI tests for `--key-env` (including that the key never reaches stdout,
 stderr or a report); docs.
 
+As built: the Action gained `relock-pr`, `renew`, `signing-key` and `origin`. `renew` is an Action input used by the
+new template rather than a separate workflow with its own build, so one Action holds every decision. The PR plan does
+not push when only the capture times changed (the body is compared with the run address masked), closes the PR when
+nothing is left to accept, and keeps it a draft until it is signed. The apply step is tested by bash against stub `gh`
+and `git`; the decide step runs the built CLI, so it is covered by the CLI tests and the decision tests, not run by bash
+in the Action's tests (they have no build). The branch push uses `--force-with-lease` on the Action's own branch in the
+adopter's repository. Commits by the Action use the standard `github-actions[bot]` identity.
+
 ## Status
 
 | Direction | State | Commits | Left for the owner |
@@ -284,5 +302,24 @@ stderr or a report); docs.
 | D4 | done | addcd1e | Optional: publish the Desk's `_plumbline` TXT record (`plumbline dns --key site/.well-known/plumbline-key.json --origin https://plumbline.xkazm04.workers.dev`); on a `workers.dev` host this needs a custom domain, since the workers.dev zone is Cloudflare's. |
 | D5 | done | 3b53541, ccd4091 | Submit `docs/proposals/waw-provenance.md` to cognizant-ai-labs/agentic-web (it references `docs/proposals/runtime-preload-hook.md`, written in D3). |
 | D3 | done | 1730387 | File `docs/proposals/runtime-preload-hook.md` upstream. Relock and re-sign the Desk: `site/desk.js` and `site/strings.js` (signed) changed. |
-| D6 | not started | | |
-| D10 | not started | | |
+| D6 | partial | 29741e1 | `a2a-card` done. `mcp-tools` blocked: needs a JSON-RPC POST (safeFetch is GET-only) and a recorded response from a public MCP server; the design is written. To unblock: name an MCP server whose `tools/list` may be recorded, and accept the narrow POST extension. |
+| D10 | done | 6b47457, 9fbe10f | Push both commits together (the templates pin 6b47457, which must exist on GitHub). To use it: add the `PLUMBLINE_SIGNING_KEY` secret and `PLUMBLINE_ORIGIN` variable, give the job `contents: write` and `pull-requests: write`. |
+
+## Owner list (consolidated, 2026-11-18)
+
+Nothing below was done by this work; each item is ready to act on.
+
+- **Push.** 19 local commits on `master` after `94d7bf7` (this status commit included), none pushed. Push them in order, through the publish gate and
+  the secret scan; the watch template pins `6b47457`, so that commit must reach GitHub with or before `9fbe10f`.
+- **Relock and re-sign the Desk.** Three signed Desk files changed: `site/drift.js` (D1), `site/desk.js` and
+  `site/strings.js` (D3); the Desk's `plumbline.signature.json` no longer matches them (no test asserts it does). Run the
+  release order in `site/README.md`: `npm run build:site`, `watch --root ./site --relock` (it also records the partner
+  outlines D7 added), `sign --root ./site ...`, deploy, then verify the Desk from the Desk.
+- **Package.** Choose the scoped npm name, set it in `package.json`, remove `"private": true`, `npm publish` (D2). The
+  pin test keeps checking that the pinned commit's `package.json` is private, which stays true for `6b47457`.
+- **Proposals to submit.** `docs/proposals/waw-provenance.md` (to the Worldwide Agentic Web spec, D5) and
+  `docs/proposals/runtime-preload-hook.md` (to the agentic-web runtime, D3). Both are written to be filed as they stand.
+- **Ecosystem scan.** Curate `ecosystem/sites.txt` and decide whether and where to publish results about named sites
+  (D9). The 2026-11-18 run's output is in the git-ignored `ecosystem/out/`.
+- **DNS record (optional).** Publish the Desk's `_plumbline` TXT record (D4); a `workers.dev` host needs a custom domain.
+- **MCP tool lists.** Decide whether to name a recordable MCP server and accept a narrow POST in `safeFetch` (D6).
