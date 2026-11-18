@@ -180,7 +180,7 @@ function run() {
   if (step("inputs", "Check the inputs", oneLine("Check the inputs"), inputs).code !== 0) return;
   if (step("run", "Run plumbline", block("Run plumbline"), { ...inputs, PLUMBLINE_ADAPTERS: "validator,atlas,customs" }).code !== 0) return;
   if (issues === "true") {
-    if (step("issue-plan", "Decide on the drift issue", block("Decide on the drift issue"), { ...base, FINDINGS: outputs.run.findings, BODY: outputs.run["issue-body"] }).code !== 0) return;
+    if (step("issue-plan", "Decide on the drift issue", block("Decide on the drift issue"), { ...base, FINDINGS: outputs.run.findings, BODY: outputs.run["issue-body"], REPORT: outputs.run.report }).code !== 0) return;
     const plan = outputs["issue-plan"];
     const r = step("issue-do", "Open, edit or close the drift issue", block("Open, edit or close the drift issue"), {
       ...base,
