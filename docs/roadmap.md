@@ -47,6 +47,14 @@ Design:
 Done: both commands tested (a fixture site for `init`; a loopback server for `watch --url`, including a lock aiming at
 a private address); a CLI/Desk parity test over the same published lock; docs updated.
 
+As built (deviations): the reader is not new beside `site/drift.js` but moved out of it: `src/watch/published.ts` is
+the one reader of a published lock, and `drift.js` now only gives it the browser's error sentence and the `refused`
+state, so the CLI and the Desk cannot disagree (the parity test still compares them). That changes a signed Desk file
+(`site/drift.js`). The not-run checks are one `info` finding (kind `grounding`, ref `plumbline.lock.json`), so the
+report keeps the wire's `DriftReport` shape; it also names the lock's signature as not verified. `watch --url` adds the
+published signature's expiry, which the checkout's watch already checks on disk. `init` keeps a lock that is there
+(stated, exit 0) rather than refusing, and `--workflow` refuses before anything is written.
+
 ### D2. Install without friction
 
 Goal: `npx <package> watch` works, and the Action is no slower than it must be.
@@ -61,6 +69,10 @@ Design:
   "the code that runs is the commit you pin" stays true.
 
 Done: pack test green; measurement written beside its date; no behaviour change in the Action unless measured need.
+
+As built: the measurement is local (npm ci from the npm cache 4.6 s, build 2.9 s, 2026-11-18), not the runner's; the
+runner downloads 26 MB more, which is seconds. Under 30 s, so no cache. `files` also ships the watch template (for
+`init --workflow`) and leaves out source maps (their sources are not packed); `prepack` empties `dist/` first.
 
 Owner: choose the package name, publish.
 
@@ -81,6 +93,10 @@ Design:
 
 Done: unit tests on the aggregator and the HTML escaping with fixtures; one local run against the seed list, its
 output kept out of git (`ecosystem/out/` ignored) and summarised in the status table.
+
+As built: the aggregator, the HTML and the badge are pure TypeScript (`src/scan/`), the script only loads the build.
+`badge` is a CLI command. The agentic-web example sites are not served publicly (GitHub Pages answered 404 on
+2026-11-18), so the seed list is the Desk, Agent Atlas and Agent Customs.
 
 Owner: curate the list, decide whether and where to publish results about named sites.
 
@@ -226,9 +242,9 @@ stderr or a report); docs.
 
 | Direction | State | Commits | Left for the owner |
 | --- | --- | --- | --- |
-| D1 | not started | | |
-| D2 | not started | | |
-| D9 | not started | | |
+| D1 | done | a9a03ee | Relock and re-sign the Desk: `site/drift.js` (a signed file) changed. |
+| D2 | done | 8a79b57 | Choose the scoped package name, set it in `package.json`, lift `"private": true`, publish. |
+| D9 | done | 9ab1e40 | Curate `ecosystem/sites.txt`; decide whether and where to publish results. Run of 2026-11-18 (3 sites): gate pass 1 (Agent Customs), unavailable 2 (the Desk and Agent Atlas: validator and Atlas pass, no Customs receipt); lock found 1 (the Desk: no drift, info only), absent 2; signature published 1 (the Desk, kid `91971cfa8d0e630c`, unverifiable to the scan), absent 2. The Desk took 12.1 s, Atlas 1.4 s, Customs 2.2 s. |
 | D7 | not started | | |
 | D8 | not started | | |
 | D4 | not started | | |
