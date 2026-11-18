@@ -471,6 +471,20 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: S.
 - Must not break: guardrail 11.
+- State: fixed (commit 92af4e2), awaiting recertify. Remedy chosen: explain where it happens, never normalise. Capture
+  (`init`, `watch --init`, `--relock`) reads every local file it locks and, when any ends its lines with CRLF, adds a
+  `warn` finding (ref `.gitattributes`, so `init` exits 1) naming the count, up to three of the files and the line
+  `* text=auto eol=lf`; when a `.gitattributes` between the site and its repository root (the folder holding `.git`)
+  already pins LF, it says the files predate the pin. A file whose bytes hash to the locked value once CRLF is made LF,
+  or LF made CRLF, keeps its finding and severity (grounding `warn`, runtime `block`) and reads "... in line endings
+  only: it now ends its lines with CRLF where the locked copy had LF, and no other byte differs. ..." with the remedy,
+  never "the agent now answers from different facts" (checkout watch, `watch --url`, the Desk's reader through the same
+  `published.ts` and `anchors.ts`). Tests: `src/test/watch-line-endings.test.ts`, including a real `git clone -c
+  core.autocrlf=true` of an LF repository whose init warns. MC-1 re-run: anchor-probe 36 of 36 anchored; on a fresh
+  larch-house `raise-price` still reads "1 of 7 facts ... the network still states it (1 price)" and `cosmetic-edit`
+  "all 7 facts ... are still on it". MC-5: a real-CLI relock of a copy of larch-house kept its pending peer. Ceiling:
+  a file whose line endings were mixed when locked and made uniform since is not recognised (it reads as a change, as
+  before); the capture warning reads the publisher's own files only, never a fetched source.
 
 ### UAT-14. A flag that cannot act says so
 
