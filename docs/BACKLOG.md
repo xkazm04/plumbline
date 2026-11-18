@@ -937,6 +937,7 @@ may run in parallel, because it adds no claim.
 - standard: none (the onboarding concept document governs the sequence).
 - Size: M. Signed Desk files.
 - Must not break: guardrail 2 and 8; the technical table stays below the owner line (Dev and Tomasz read it).
+- State: fixed (commits b23d62d, b2e2a8d, f4ae9a3; pin 15a894f), awaiting recertify. `src/watch/owner.ts` makes one owner sentence from reason codes and counts (wire: `DriftCounts` fact counts, documented); the drift issue and relock pull request open with it and a Desk link carrying the site's address (inputs `site-address`, `desk`); the Desk's drift reading opens with it, `#/drift?target=<address>` fills the field and runs nothing, and a signature no longer covering the files reads as a change before the re-sign (MAR-RC-2's Desk part). The round that built it was interrupted before Marta's live rehearsal on larch-house; unit, Action and Desk tests stand in until recertify.
 
 ### UAT-30. The news when it lands, to a named person
 
@@ -948,6 +949,7 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: S. Template pin follow-up.
 - Must not break: guardrail 5.
+- State: fixed (commit a19cb19; pin 15a894f), awaiting recertify. The watch template also runs on a push to the default branch that touches the site folder; new input `assignee` assigns the drift issue to a GitHub login (a refused assignment only warns). Exercised against the gh stub only; nothing was sent to a real person or service. The round that built it was interrupted before Marta's live rehearsal on larch-house; unit, Action and Desk tests stand in until recertify.
 
 ### UAT-31. The assistant's tool result carries what the lock watches
 
@@ -960,6 +962,7 @@ may run in parallel, because it adds no claim.
 - Size: S. Signed Desk file; nothing in `site/runtime/`.
 - Must not break: the tool-result pattern rule (`site/README.md`: strings from an inspected site pass their pattern or
   are withheld).
+- State: fixed (commit 41fb03d), awaiting recertify. The assistant's `read_drift` result carries each source's role, the kinds of fact the lock watches per page and the network facts it does not (kinds only, never a value). The round that built it was interrupted before Marta's live rehearsal on larch-house; unit, Action and Desk tests stand in until recertify.
 
 ### UAT-32. Two small Desk honesty fixes
 
@@ -971,6 +974,7 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: S. Signed Desk files.
 - Must not break: guardrail 3 (the import still needs a confirm).
+- State: fixed (commit ed2692e), awaiting recertify. After Trust in `#/verify` the status line says the new verdict (MAR-L2-04); the import button says what its changes do (INE-L2-3). The round that built it was interrupted before Marta's live rehearsal on larch-house; unit, Action and Desk tests stand in until recertify.
 
 ## Build items: code-review hypotheses (verify first)
 
