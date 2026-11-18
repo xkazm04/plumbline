@@ -656,6 +656,21 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: M.
 - Must not break: the report stays static with no script (its CSP), and guardrail 7.
+- State: fixed (commit 74d360f), awaiting recertify. Each site carries `attention` (`ATTENTION`: `unreachable`, `fail`,
+  `invalid`, `block`, `warn`, `not-checked`, `ok`, the first that applies; a gate some checkers passed while others had
+  no verdict is `ok`); `report.html` lists rows and details worst first, then in list order, with an Attention column
+  ("unreachable: look first", "fail: fix the rule", ...) and a Key record column (kid; flagged "the site is signed, but
+  a verifier cannot fetch its key record", or "another key than the signature's"); one word per lock state in the table
+  and the summary ("not published", "could not be read"), `refused` not listed; the summary adds Attention and Key
+  record counts (`summary.attention`, `summary.keyRecord` in `report.json`); the `url-not-checked` caveat once above the
+  table; under 40rem each row stacks into labelled lines. Live on tallow-finch (harness scan of 4400 to 4411, Atlas and
+  Customs stand-ins): juniper-yoga and kestrel-plumbing first ("unreachable: look first", lock "could not be read"),
+  then the four failed gates, fernhill (block), glenrock and harbourlight (warn), ivy-lane (not checked), alder-bakery
+  and brightwater last ("ok"); key records shown for the three signed sites; the caveat appears once; the page measured
+  390/390 scroll width at 390 px and 1280/1280 at 1280 px (drive-script, Chromium). Priya's procedure loses line 5 (the
+  down sites are the first rows, in red, with their word) and line 9 (a validator pass with no Atlas verdict reads
+  "ok"). Test: "UAT-19 ..." in `src/test/scan.test.ts`. Ceiling: `report.json` keeps the list order (a script sorts by
+  `attention`); a report written before has no `attention`, and the page derives it.
 
 ### UAT-20. An operator's scan with the operator's own trust file
 
