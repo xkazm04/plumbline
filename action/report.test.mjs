@@ -587,6 +587,9 @@ test(
       assert.equal(created[created.length - 1], `gh pr create --draft --head plumbline/relock --title ${PR_TITLES.relock} --body-file ${join(dir, "body.md")}`);
       const edited = steps({ PR_ACTION: "edit", DRAFT: "false", NUMBER: "3" });
       assert.deepEqual(edited.slice(-2), [`gh pr edit 3 --body-file ${join(dir, "body.md")}`, "gh pr ready 3"]);
+      // UAT-4: a refused relock describes the open pull request and pushes nothing
+      const described = steps({ PR_ACTION: "describe", DRAFT: "true", NUMBER: "3" });
+      assert.deepEqual(described, [`gh pr edit 3 --body-file ${join(dir, "body.md")}`, `gh pr comment 3 --body-file ${join(dir, "comment.md")}`], "describing pushes nothing");
       const closed = steps({ PR_ACTION: "close", DRAFT: "false", NUMBER: "3" });
       assert.deepEqual(closed, ["gh pr close 3 --comment no longer needed"], "closing pushes nothing");
       assert.deepEqual(steps({ PR_ACTION: "none", DRAFT: "false" }), []);
@@ -710,4 +713,30 @@ test("UAT-9: partly checked is not not checked: the Action summary words the thr
     const core = await import(built.href);
     for (const report of [healthy, down, none]) assert.equal(core.gateSentence(report), gateSentence(report));
   }
+});
+
+test("UAT-4: a refused relock (a signer change) is described on the open pull request, never pushed; with none open the issue says it", () => {
+  const swap = {
+    kind: "peer",
+    severity: "block",
+    ref: "https://seller.example/shop",
+    expected: "aaaaaaaaaaaaaaaa",
+    actual: "cccccccccccccccc",
+    summary: "A peer is now signed by a different key than the one the lock recorded: a different key, with no rotation published. A relock refuses it until a person decides: watch --relock --accept-signer <this peer>.",
+  };
+  const refused = { relocked: false, refused: "signer", peers: [{ peer: swap.ref, from: "aaaaaaaaaaaaaaaa", to: "cccccccccccccccc", how: "a different key, with no rotation published" }] };
+  const body = prBody({ mode: "relock", report: { findings: [swap] }, relock: refused, kid: null, runUrl });
+  assert.match(body, /\*\*the relock was refused\*\*/);
+  assert.match(body, /- `https:\/\/seller\.example\/shop`: the lock recorded `aaaaaaaaaaaaaaaa`; it is now signed by `cccccccccccccccc` \(a different key, with no rotation published\)/);
+  assert.match(body, /--relock --accept-signer https:\/\/seller\.example\/shop`/);
+  assert.doesNotMatch(body, /What the new lock changes/);
+  const open = [{ number: 4, body: "an earlier body", isDraft: true }];
+  const plan = prPlan({ mode: "relock", wanted: false, body, signed: false, open, runUrl, refused: true });
+  assert.deepEqual([plan.action, plan.number], ["describe", 4]);
+  assert.match(plan.comment, /refused to relock/);
+  assert.equal(prPlan({ mode: "relock", wanted: false, body, signed: false, open: [], runUrl, refused: true }).action, "none", "no pull request: the issue says it");
+  const issue = issueBody({ findings: [swap] });
+  assert.match(issue, /\*\*A relock refuses while a peer's signer changed\*\* \(`https:\/\/seller\.example\/shop`\)/);
+  assert.match(issue, /watch --root <path to your site> --relock --accept-signer https:\/\/seller\.example\/shop`/);
+  assert.doesNotMatch(issueBody({ findings: [warn] }), /A relock refuses/);
 });

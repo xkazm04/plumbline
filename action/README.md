@@ -83,12 +83,16 @@ issue, and you can keep your own with `findings` and `issue-body`.
 from it, titled `Plumbline: accept the drift (relock)`. Its body lists what the new lock changes (`added`, `removed`,
 `changed`, as `--relock` prints them), what the relock does not accept or keeps as it was (a page that dropped a fact the
 network still states, a pin it could not re-read: those keep reporting after a merge, and are not listed as accepted),
-and the findings it accepts, whose summaries carry the counts (what changed in a
+and the findings it accepts. When a peer's signer changed, the relock refuses (UAT-4: CI never passes
+`--accept-signer`), so nothing is pushed: an open pull request's body says the relock was refused, names each peer
+(the kid the lock recorded, the kid it is signed by now, what it publishes about it) and gives the command a person runs
+after deciding, with a comment (`pr-action: describe`); with none open, the drift issue says it, with the same
+command. The findings' summaries carry the counts (what changed in a
 peer, how many facts a page no longer states, how many skills a card added). With `signing-key` (a secret holding the
 JSON of `plumbline.private.json`) and `origin`, it also signs, and the body names the kid; without a key, the body says
 to sign locally and the pull request stays a draft. A person merges; the run accepts nothing. A relock that changes no
 ref opens nothing; a body that has not changed pushes nothing; the next run with nothing to accept closes the pull
-request with a comment. Output `pr-action`: `create`, `edit`, `close` or `none`. The job needs `contents: write` and
+request with a comment. Output `pr-action`: `create`, `edit`, `describe`, `close` or `none`. The job needs `contents: write` and
 `pull-requests: write`, and the branch is the Action's own: it is replaced on each push, with a lease that names what
 the run fetched (`--force-with-lease=refs/heads/<branch>:<the fetched commit>`, or `:` with nothing after it, "must not
 exist", when there was no branch). So a second drift while the pull request is open replaces the branch and edits the

@@ -65,7 +65,7 @@ outputs:
     description: "For `watch` with `issues: true`, what was done to the drift issue: create, edit, close or none."
     value: ${{ steps.issue-plan.outputs.action }}
   pr-action:
-    description: "For `watch` with `relock-pr` or `renew`, what was done to the pull request: create, edit, close or none."
+    description: "For `watch` with `relock-pr` or `renew`, what was done to the pull request: create, edit, describe (a refused relock: the body says so, nothing pushed), close or none."
     value: ${{ steps.pr-plan.outputs.action }}
 
 runs:
@@ -219,7 +219,13 @@ runs:
         if [ "$work" = "true" ]; then
           git -C "$GITHUB_WORKSPACE" switch -C "$branch"
           if [ "$MODE" = "relock" ]; then
+            # exit 1 is a refused relock (a peer's signer changed: UAT-4), which the plan reads from relock.json and says
+            # in the pull request; CI never passes --accept-signer. Exit 2 is a real error.
+            set +e
             node "$cli" watch --root "$root" --relock --json > "$pr/relock.json"
+            code=$?
+            set -e
+            if [ "$code" -gt 1 ]; then echo "::error::plumbline watch --relock failed with exit code $code"; exit "$code"; fi
             relock="$pr/relock.json"
           fi
           if [ -n "$PLUMBLINE_SIGNING_KEY" ]; then
@@ -273,6 +279,12 @@ runs:
             gh pr edit "$NUMBER" --body-file "$BODY"
             if [ "$DRAFT" = "true" ]; then gh pr ready "$NUMBER" --undo || true; else gh pr ready "$NUMBER" || true; fi
             echo "Updated pull request #$NUMBER"
+            ;;
+          describe)
+            # the relock was refused (a signer change waits for a person): the body says so, nothing is pushed
+            gh pr edit "$NUMBER" --body-file "$BODY"
+            if [ -n "$COMMENT" ]; then gh pr comment "$NUMBER" --body-file "$COMMENT"; fi
+            echo "Described pull request #$NUMBER"
             ;;
           close)
             gh pr close "$NUMBER" --comment "$(cat "$COMMENT")"

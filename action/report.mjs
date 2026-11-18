@@ -171,6 +171,8 @@ export function issueBody(report) {
   const findings = openFindings(report);
   const rows = findings.map((f) => `| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
   const noLock = findings.some((f) => f.summary === "no lock");
+  // UAT-4: a peer signed by another key than the lock recorded (both kids in their pattern): a relock refuses it
+  const signerChanged = findings.filter((f) => f.kind === "peer" && /^[0-9a-f]{16}$/.test(String(f.expected ?? "")) && /^[0-9a-f]{16}$/.test(String(f.actual ?? "")));
   const cli = "node dist/cli/index.js";
   const site = "<path to your site>";
   return (
@@ -189,6 +191,13 @@ export function issueBody(report) {
           "After reviewing a change you accept, in a clone of xkazm04/plumbline at the commit this workflow pins, run " +
           `\`${cli} watch --root ${site} --relock\`, ` +
           "sign the site again (the lock is a signed file) and commit both. The next clean run closes this issue.",
+      "",
+      ...(signerChanged.length > 0
+        ? [
+            "",
+            `**A relock refuses while a peer's signer changed** (${signerChanged.map((f) => `\`${String(f.ref).replace(/[`\r\n]/g, "")}\``).join(", ")}): CI never accepts a new signer. After deciding whether you trust the new key, run \`${cli} watch --root ${site} --relock ${signerChanged.map((f) => `--accept-signer ${String(f.ref).replace(/[`\s]/g, "")}`).join(" ")}\` in that clone.`,
+          ]
+        : []),
       "",
       "A clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.",
       "",
@@ -305,6 +314,23 @@ export function signedKid(sign) {
  */
 export function prBody({ mode, report, relock, kid, runUrl }) {
   const lines = [];
+  if (mode === "relock" && relock?.refused === "signer") {
+    // UAT-4: one proposal for all changes, so nothing is relocked while a signer change waits for a person
+    const peers = (Array.isArray(relock.peers) ? relock.peers : []).filter((p) => p && typeof p.peer === "string");
+    const kid = (k) => (typeof k === "string" && /^[0-9a-f]{16}$/.test(k) ? k : "?");
+    lines.push(`Plumbline watch found drift as of ${runUrl}, but **the relock was refused**: a peer is signed by another key than the lock recorded, and CI never accepts a new signer. Nothing was relocked; every other change waits with it, so this pull request stays one proposal.`, "");
+    lines.push("**Peers whose signer changed:**", "");
+    for (const p of peers) lines.push(`- \`${String(p.peer).replace(/`/g, "'").replace(/[\r\n]+/g, " ")}\`: the lock recorded \`${kid(p.from)}\`; it is now signed by \`${kid(p.to)}\` (${cell(p.how)})`);
+    lines.push("", `After deciding whether you trust the new key (\`plumbline verify --url\`, and \`plumbline adopt\` for a published rotation), in a clone of xkazm04/plumbline at the commit this workflow pins, run \`node dist/cli/index.js watch --root <path to your site> --relock ${peers.map((p) => `--accept-signer ${String(p.peer).replace(/[`\s]/g, "")}`).join(" ")}\`, sign the site again and commit both.`, "");
+    const findings = openFindings(report);
+    if (findings.length > 0) {
+      lines.push("**The findings waiting for that decision:**", "", "| Severity | Kind | Ref | What |", "| --- | --- | --- | --- |");
+      for (const f of findings) lines.push(`| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
+      lines.push("");
+    }
+    lines.push("Nothing is accepted until a person merges a relock. A clean watch closes this.", "", digestMarker(digestOf(report)));
+    return lines.join("\n") + "\n";
+  }
   if (mode === "relock") {
     const changes = relock?.changes ?? {};
     const list = (label, refs) => (Array.isArray(refs) ? refs : []).map((r) => `- ${label} \`${String(r).replace(/`/g, "'").replace(/[\r\n]+/g, " ")}\``);
@@ -352,10 +378,18 @@ export function prBody({ mode, report, relock, kid, runUrl }) {
  * - `none` when the open one's body is this run's (nothing is pushed: the capture times alone are no news);
  * - `close`, with a comment, when none is wanted (a clean run, nothing to accept or renew) and one is open.
  */
-export function prPlan({ mode, wanted, body, signed, open, runUrl }) {
+export function prPlan({ mode, wanted, body, signed, open, runUrl, refused = false }) {
   if (mode !== "relock" && mode !== "renew") throw new Error("the mode is relock or renew");
   const pr = (Array.isArray(open) ? open : []).find((p) => p && Number.isInteger(p.number));
   const draft = !signed;
+  // UAT-4: the relock was refused (a peer's signer changed; CI never accepts one). Nothing is pushed: an open pull
+  // request is described (its body says so, a comment notifies), and with none open the issue says it.
+  if (refused) {
+    if (!pr) return { action: "none", draft };
+    const same = (text) => String(text ?? "").replace(/\r\n/g, "\n").replace(/as of \S+/g, "as of <run>").trimEnd();
+    if (same(pr.body) === same(body)) return { action: "none", number: pr.number, draft };
+    return { action: "describe", number: pr.number, draft, comment: `Plumbline watch refused to relock as of ${runUrl}: a peer is signed by another key than the lock recorded, and CI never accepts a new signer. The body says which peers and the command a person runs after deciding.\n` };
+  }
   if (!wanted) {
     if (!pr) return { action: "none", draft };
     return { action: "close", number: pr.number, draft, comment: `Plumbline watch no longer finds anything to ${mode === "relock" ? "accept" : "renew"} as of ${runUrl}. Closing.\n` };
@@ -477,7 +511,8 @@ function main(argv) {
       const changed = ["added", "removed", "changed"].some((k) => Array.isArray(changes[k]) && changes[k].length > 0);
       const wanted = mode === "relock" ? relock !== null && openFindings(report).length > 0 && changed : renewNeeded(report) && kid !== null;
       const body = prBody({ mode, report, relock, kid, runUrl });
-      plan = prPlan({ mode, wanted, body, signed: kid !== null, open: JSON.parse(readFileSync(openFile, "utf8")), runUrl });
+      const refused = mode === "relock" && relock?.refused === "signer";
+      plan = prPlan({ mode, wanted, body, signed: kid !== null, open: JSON.parse(readFileSync(openFile, "utf8")), runUrl, refused });
       writeFileSync(bodyFile, body);
     } catch (error) {
       process.stderr.write(`::error::cannot decide on the pull request: ${error.message}\n`);
