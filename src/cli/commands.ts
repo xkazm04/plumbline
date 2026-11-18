@@ -39,6 +39,8 @@ import {
   isAcceptableOrigin,
   isPrivateKeyFile,
   isKid,
+  isIsoUtc,
+  signerChangeDetail,
   isSafeSubjectPath,
   parseManifest,
   revokeKey,
@@ -306,6 +308,8 @@ export interface RevocationReport {
   /** The trust file written, and how many of its entries gained `revokedAt`, when `recorded`. */
   trustFile?: string;
   recordedEntries?: number;
+  /** Each entry that gained `revokedAt` (UAT-8), with the key a cascaded one was adopted through. */
+  recordedKeys?: { kid: string; origin: string; adoptedVia?: string }[];
   /** One result per trust entry for the revoked kid; one result when no entry matched or the file was unreadable. */
   results: VerifyResult[];
 }
@@ -324,6 +328,11 @@ export async function applyRevocationToTrust(
 ): Promise<RevocationReport> {
   const outcome = await applyRevocationText(text, trust.entries);
   if (!outcome.applied) return { file, applied: false, recorded: false, results: outcome.results };
+  // which entries gain revokedAt now, by kid and origin, and the key a cascaded one was adopted through (UAT-8)
+  const before = trust.raw.entries.map((raw) => raw.revokedAt);
+  const newly = outcome.entries
+    .filter((e, i) => e.revokedAt !== undefined && before[i] !== e.revokedAt)
+    .map((e) => ({ kid: e.kid, origin: e.origin, ...(e.adoptedVia !== undefined && outcome.entries.some((p) => p.kid === e.adoptedVia && p.revokedAt === e.revokedAt) ? { adoptedVia: e.adoptedVia } : {}) }));
   const changed = markRevoked(trust, outcome.entries);
   if (record && changed > 0) await writeTrustFile(trust);
   const recorded = record && changed > 0;
@@ -331,7 +340,7 @@ export async function applyRevocationToTrust(
     file,
     applied: true,
     recorded,
-    ...(recorded ? { trustFile: trust.file, recordedEntries: changed } : {}),
+    ...(recorded ? { trustFile: trust.file, recordedEntries: changed, recordedKeys: newly } : {}),
     results: outcome.results,
   };
 }
@@ -342,12 +351,19 @@ export function revocationLines(report: RevocationReport, trust: TrustFile, reco
     report.applied
       ? `revocation applied: ${REVOCATION_FILE} revokes a trusted key, so nothing that key signs is accepted`
       : `revocation not applied: ${REVOCATION_FILE} is present but changes nothing for this trust store`,
-    ...report.results.map((r) => `  ${formatResult(r)}`),
+    // UAT-8 (INE-L1-07): the word "verified" is never set beside a revoked kid; what verified is the statement
+    ...report.results.map((r) =>
+      r.verdict === "verified" && r.kid !== undefined
+        ? `  the revocation statement verified under the trusted key ${r.kid}${r.origin ? ` (${r.origin})` : ""}: that key is revoked`
+        : `  ${formatResult(r)}`,
+    ),
   ];
   if (!report.applied) return lines;
   if (report.recorded) {
     const n = report.recordedEntries ?? 0;
-    lines.push(`revocation recorded in ${trust.file} (${n} ${n === 1 ? "entry" : "entries"})`);
+    // each key that died, and through which key a cascaded one died (UAT-8, INE-L1-01)
+    const named = (report.recordedKeys ?? []).map((k) => `${k.kid} for ${k.origin}${k.adoptedVia !== undefined ? ` (adopted through revoked key ${k.adoptedVia})` : ""}`);
+    lines.push(`revocation recorded in ${trust.file} (${n} ${n === 1 ? "entry" : "entries"}${named.length > 0 ? `: ${named.join("; ")}` : ""})`);
   } else if (record) lines.push(`revocation already recorded in ${trust.file}`);
   else lines.push(`revocation applied in memory only; nothing was written to ${trust.file}`);
   return lines;
@@ -625,9 +641,29 @@ export async function verify(argv: string[], out: Out): Promise<number> {
   }
 
   const lines = revocation ? revocationLines(revocation, trust, true) : [];
+  // The rotation the site publishes, if any: its statements' `from` kids, held to their pattern.
+  const rotationRead = await site.read(ROTATION_FILE);
+  let rotationFrom: string[] = [];
+  if (rotationRead.state === "present") {
+    try {
+      const listed = statementsOf(JSON.parse(decode(rotationRead.bytes)));
+      if ("statements" in listed) rotationFrom = listed.statements.map((s) => (s as { from?: unknown } | null)?.from).filter(isKid);
+    } catch {
+      rotationFrom = [];
+    }
+  }
+  // UAT-8 (TOM-L2-03): a signer this file does not trust for the origin while it trusts another key there is a swapped
+  // signer, said as such (the trusted key, the signer, and whether a rotation from the trusted key is published)
+  const sigOrigin = (signature as { origin?: unknown } | undefined)?.origin;
+  if (result.verdict === "unverifiable" && result.kid !== undefined && (expectedOrigin === undefined || sigOrigin === expectedOrigin) && typeof sigOrigin === "string") {
+    const swapped = signerChangeDetail(trust.entries, result.kid, sigOrigin, rotationFrom);
+    if (swapped !== undefined) result = { ...result, detail: swapped };
+  }
   // A published rotation is the way to an unknown signer that an old trusted key named: point at adopt, never adopt here.
-  // Read through the same source as everything else, so `--url` gets the hint too (p-58cf7d).
-  if (result.verdict === "unverifiable" && (await site.read(ROTATION_FILE)).state === "present") {
+  // Read through the same source as everything else, so `--url` gets the hint too (p-58cf7d). Not for a rotation from
+  // a key this file records as revoked: adopt refuses it (UAT-8, INE-L1-15).
+  const fromRevoked = rotationFrom.some((k) => trust.entries.some((e) => e.kid === k && e.revokedAt !== undefined));
+  if (result.verdict === "unverifiable" && rotationRead.state === "present" && !fromRevoked) {
     const how =
       base !== undefined
         ? `plumbline adopt --url ${base.toString()} --trust ${trustPath}${allowLocal ? " --allow-local" : ""}`
@@ -635,7 +671,13 @@ export async function verify(argv: string[], out: Out): Promise<number> {
     lines.push(`hint: ${ROTATION_FILE} is present; if you trust a key it rotates from, check it with ${how}`);
   }
   // The verdict line stays last, so a reader of the text output finds it in the same place with or without a revocation.
-  lines.push(formatResult(result));
+  // A verified line carries its limit and the signature's expiry, so it can be pasted into a note as it is (UAT-8).
+  const expires = (signature as { expiresAt?: unknown } | undefined)?.expiresAt;
+  lines.push(
+    result.verdict === "verified" && typeof expires === "string" && isIsoUtc(expires)
+      ? `${formatResult(result)} The signature is valid until ${expires.slice(0, 10)}. Verified means these files are the publisher's and unchanged, not that the site is safe, honest or correct.`
+      : formatResult(result),
+  );
   emit(args, out, { results: [result], ...(revocation ? { revocation } : {}) }, lines);
   return result.verdict === "verified" ? 0 : 1;
 }

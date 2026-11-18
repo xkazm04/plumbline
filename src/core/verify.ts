@@ -122,14 +122,47 @@ export async function resolveTrusted(
   return { poisoned: true };
 }
 
-/** The `invalid` / `revoked` result for anything signed by a key whose trust entry carries `revokedAt`. */
-export function revokedResult(what: string, kid: string, origin: string): VerifyResult {
+/**
+ * The `invalid` / `revoked` result for anything signed by a key whose trust entry carries `revokedAt`. `via`: the key
+ * it was adopted through, when its revocation came down that adoption chain (revokedVia), so an incident note says
+ * which key's revocation killed it, never "revoked by its holder" of a key nobody revoked (UAT-8, INE-L1-01).
+ */
+export function revokedResult(what: string, kid: string, origin: string, via?: string): VerifyResult {
   return invalid(
     "revoked",
-    `The key that made this ${what} has been revoked by its holder, so nothing it signs is accepted, whatever the dates.`,
+    via !== undefined
+      ? `The key that made this ${what} is revoked because it was adopted through revoked key ${via}, so nothing it signs is accepted, whatever the dates.`
+      : `The key that made this ${what} has been revoked by its holder, so nothing it signs is accepted, whatever the dates.`,
     kid,
     origin,
   );
+}
+
+/**
+ * The sentence for a signer this verifier has not trusted for `origin` while it trusts ANOTHER, unrevoked key there: a
+ * swapped signer is not a first contact (UAT-8, TOM-L2-03, REC-11). `rotationFrom`: the `from` kids of the rotation
+ * statements the site publishes (empty when it publishes none). Undefined when no other key is trusted for the origin
+ * (a stranger, or the signer itself is trusted). Every kid in the sentence is held to its pattern.
+ */
+export function signerChangeDetail(trustEntries: readonly TrustEntry[], kid: string, origin: string, rotationFrom: readonly string[] = []): string | undefined {
+  if (!KID_PATTERN.test(kid) || trustEntries.some((e) => e.kid === kid && e.origin === origin)) return undefined;
+  const other = trustEntries.filter((e) => e.origin === origin && e.kid !== kid && e.revokedAt === undefined && KID_PATTERN.test(e.kid));
+  if (other.length === 0) return undefined;
+  const trusted = other.map((e) => e.kid).join(" and ");
+  const from = other.find((e) => rotationFrom.includes(e.kid));
+  return from !== undefined
+    ? `This origin's trusted key is ${trusted}; this signature is by ${kid}, and the site publishes a rotation from ${from.kid}: check it with adopt before trusting ${kid}.`
+    : `This origin's trusted key is ${trusted}; this signature is by ${kid}, with no rotation from ${trusted}: a different key signing for an origin you trust is not a first contact, so ask the publisher out of band before trusting it.`;
+}
+
+/**
+ * The kid a revoked entry was adopted through, when its revocation came down that chain (spreadRevocations gives it
+ * the revoked key's own time), else undefined (it was revoked itself).
+ */
+export function revokedVia(entry: TrustEntry, trust: TrustStore, origin: string): string | undefined {
+  if (entry.adoptedVia === undefined || entry.revokedAt === undefined || !KID_PATTERN.test(entry.adoptedVia)) return undefined;
+  const parent = trust.find(entry.adoptedVia, origin);
+  return parent?.revokedAt !== undefined && parent.revokedAt === entry.revokedAt ? entry.adoptedVia : undefined;
 }
 
 /**
@@ -167,7 +200,8 @@ export async function verifyStatement(
     verdict: "unverifiable",
     kid: signature.kid,
     origin: signature.origin,
-    detail: "The files may be genuine but are not attested for the origin they were checked as: the signature names a different origin (see the result's origin field).",
+    // both origins are held to the origin rule (the signature's by its shape check, the expected one by the caller)
+    detail: `The signature names ${signature.origin}, but these files were checked as ${expected}: a copy signed for another address is not attested here, whoever signed it.`,
   };
 }
 
@@ -200,16 +234,17 @@ async function verifyAgainstTrust(
     );
   }
   // 2b. a revoked key is dead for everything; its holder (or a thief) can backdate signedAt, so dates do not matter
-  if (trusted && trusted.entry.revokedAt !== undefined) return revokedResult("signature", kid, origin);
+  if (trusted && trusted.entry.revokedAt !== undefined) return revokedResult("signature", kid, origin, revokedVia(trusted.entry, trust, origin));
 
   // 3. every signed path is present and its exact bytes match
   const byPath = new Map<string, SubjectFile>();
   for (const file of files) byPath.set(file.path, file);
   for (const subject of signature.subjects) {
     const file = byPath.get(subject.path);
-    if (!file) return invalid("tampered", "A file named in the signature is missing from the files being checked.", kid, origin);
+    // the path is a safe site-relative path (the shape check above): the publisher's file name, never its content
+    if (!file) return invalid("tampered", `A file named in the signature is missing from the files being checked: ${subject.path}.`, kid, origin);
     if ((await subjectDigest(file.content)) !== subject.sha256) {
-      return invalid("tampered", "A signed file differs from the version that was signed.", kid, origin);
+      return invalid("tampered", `A signed file differs from the version that was signed: ${subject.path}.`, kid, origin);
     }
   }
 
@@ -220,7 +255,7 @@ async function verifyAgainstTrust(
 
   // 4. time
   if (now.getTime() >= Date.parse(signature.expiresAt)) {
-    return invalid("expired", "The signature has expired and must be renewed by the publisher.", kid, origin);
+    return invalid("expired", `The signature expired on ${signature.expiresAt.slice(0, 10)} and must be renewed by the publisher.`, kid, origin);
   }
   if (Date.parse(signature.signedAt) > now.getTime() + FUTURE_SKEW_MS) {
     return invalid("malformed", "The signature claims to have been made in the future.", kid, origin);

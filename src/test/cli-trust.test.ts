@@ -32,8 +32,11 @@ test("verify records an accepted revocation in the trust file, so the key stays 
   const first = run("verify", "--root", site, "--trust", trust);
   assert.equal(first.code, 1);
   assert.match(first.out, /^revocation applied/m);
-  assert.match(first.out, new RegExp(`^revocation recorded in ${trust.replace(/[\\.]/g, "\\$&")} \\(2 entries\\)`, "m"));
+  // UAT-8: each key that died is named, and the word verified is never set beside the revoked kid
+  assert.match(first.out, new RegExp(`^revocation recorded in ${trust.replace(/[\\.]/g, "\\$&")} \\(2 entries: [0-9a-f]{16} for https://site\\.example; [0-9a-f]{16} for https://mirror\\.example\\)`, "m"));
   assert.match(first.out, /^invalid revoked/m);
+  assert.doesNotMatch(first.out, /verified kid=/);
+  assert.match(first.out, /^ {2}the revocation statement verified under the trusted key [0-9a-f]{16} \(https:\/\/site\.example\): that key is revoked$/m);
 
   const stored = readTrust(trust);
   assert.equal(stored.comment, "kept by hand");

@@ -162,7 +162,7 @@ test("expectedOrigin: a signature for another origin is unverifiable, an invalid
   const elsewhere = await verifySignature(signature, files, trust, { now: T0, expectedOrigin: "https://mirror.example" });
   assert.equal(elsewhere.verdict, "unverifiable");
   assert.equal(elsewhere.reason, undefined);
-  assert.equal(elsewhere.detail, "The files may be genuine but are not attested for the origin they were checked as: the signature names a different origin (see the result's origin field).");
+  assert.equal(elsewhere.detail, "The signature names https://site.example, but these files were checked as https://mirror.example: a copy signed for another address is not attested here, whoever signed it.");
   assert.equal(elsewhere.origin, "https://site.example");
   const changed = [{ path: "agent-manifest.json", content: JSON.stringify({ name: "Other" }) }];
   const tampered = await verifySignature(signature, changed, trust, { now: T0, expectedOrigin: "https://mirror.example" });
@@ -268,4 +268,46 @@ test("applyRevocationText: an empty list, a list over the cap, and a list of non
   assert.equal(junk.applied, false);
   assert.ok(junk.results.every((r) => r.reason === "malformed"));
   assert.ok(!JSON.stringify(junk).includes("SECRET"));
+});
+
+// ---- UAT-8: verdict sentences fit to paste into an incident note ----
+
+test("UAT-8: a key revoked by cascade says which key its revocation came through; one revoked itself says by its holder", async () => {
+  const a = await generateKey(T0);
+  const b = await generateKey(T0);
+  const signature = await signSubjects({ privateKey: b.privateKey, key: b.key, origin: ORIGIN, files, now: T0 });
+  const at = "2026-11-18T10:00:00.000Z";
+  const cascaded = await verifySignature(signature, files, storeOf({ ...entryOf(a), revokedAt: at }, { ...entryOf(b), adoptedVia: a.key.kid, revokedAt: at }), { now: T0 });
+  assert.deepEqual([cascaded.verdict, cascaded.reason], ["invalid", "revoked"]);
+  assert.equal(cascaded.detail, `The key that made this signature is revoked because it was adopted through revoked key ${a.key.kid}, so nothing it signs is accepted, whatever the dates.`);
+  // B revoked itself, earlier than A: by its holder
+  const own = await verifySignature(signature, files, storeOf({ ...entryOf(a), revokedAt: at }, { ...entryOf(b), adoptedVia: a.key.kid, revokedAt: "2026-11-18T09:00:00.000Z" }), { now: T0 });
+  assert.match(own.detail ?? "", /has been revoked by its holder/);
+});
+
+test("UAT-8: invalid tampered names the signed file, invalid expired its date", async () => {
+  const k = await generateKey(T0);
+  const signature = await signSubjects({ privateKey: k.privateKey, key: k.key, origin: ORIGIN, files, now: T0, lifetimeDays: 30 });
+  const trust = storeOf(entryOf(k));
+  const tampered = await verifySignature(signature, [{ path: "agent-manifest.json", content: "{}" }], trust, { now: T0 });
+  assert.equal(tampered.detail, "A signed file differs from the version that was signed: agent-manifest.json.");
+  const missing = await verifySignature(signature, [], trust, { now: T0 });
+  assert.equal(missing.detail, "A file named in the signature is missing from the files being checked: agent-manifest.json.");
+  const expired = await verifySignature(signature, files, trust, { now: new Date("2027-01-01T00:00:00.000Z") });
+  assert.equal(expired.detail, `The signature expired on ${signature.expiresAt.slice(0, 10)} and must be renewed by the publisher.`);
+});
+
+test("UAT-8: a swapped signer is named against the origin's trusted key, with or without a rotation from it; a stranger is not", async () => {
+  const { signerChangeDetail } = await import("../core/index.js");
+  const x = await generateKey(T0);
+  const y = await generateKey(T0);
+  const entries = [entryOf(x)];
+  assert.equal(
+    signerChangeDetail(entries, y.key.kid, ORIGIN),
+    `This origin's trusted key is ${x.key.kid}; this signature is by ${y.key.kid}, with no rotation from ${x.key.kid}: a different key signing for an origin you trust is not a first contact, so ask the publisher out of band before trusting it.`,
+  );
+  assert.match(signerChangeDetail(entries, y.key.kid, ORIGIN, [x.key.kid]) ?? "", /and the site publishes a rotation from [0-9a-f]{16}: check it with adopt before trusting/);
+  assert.equal(signerChangeDetail(entries, y.key.kid, "https://other.example"), undefined, "a stranger at another origin");
+  assert.equal(signerChangeDetail([{ ...entryOf(x), revokedAt: "2026-11-18T00:00:00.000Z" }], y.key.kid, ORIGIN), undefined, "a revoked key is not the origin's trusted key");
+  assert.equal(signerChangeDetail(entries, x.key.kid, ORIGIN), undefined, "the trusted signer itself");
 });

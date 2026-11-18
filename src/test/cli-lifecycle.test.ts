@@ -352,3 +352,21 @@ test("UAT-7: with the signature taken down, verify says what the revocation reco
   const json = JSON.parse(run("verify", "--root", site, "--trust", trust, "--json").out);
   assert.equal(json.results[0].verdict, "unverifiable");
 });
+
+test("UAT-8: verified carries its limit and expiry; a swapped signer is named; no adopt hint for a rotation from a revoked key", () => {
+  const { root, site, keys: a, trust } = signedSite();
+  const ok = run("verify", "--root", site, "--trust", trust, "--origin", ORIGIN);
+  assert.match(ok.out, /^verified kid=[0-9a-f]{16} origin=https:\/\/site\.example - .* The signature is valid until \d{4}-\d{2}-\d{2}\. Verified means these files are the publisher's and unchanged, not that the site is safe, honest or correct\.$/m);
+  // the site is now signed by another key, with no rotation
+  const y = keygen(path.join(root, "keys-y"));
+  assert.equal(run("sign", "--root", site, "--key", y.privateFile, "--origin", ORIGIN).code, 0);
+  const swapped = JSON.parse(run("verify", "--root", site, "--trust", trust, "--origin", ORIGIN, "--json").out).results[0];
+  assert.equal(swapped.verdict, "unverifiable");
+  assert.equal(swapped.detail, `This origin's trusted key is ${a.record.kid}; this signature is by ${y.record.kid}, with no rotation from ${a.record.kid}: a different key signing for an origin you trust is not a first contact, so ask the publisher out of band before trusting it.`);
+  // A rotates to Y, then A is revoked: the rotation is from a revoked key, so verify points nowhere near adopt
+  assert.equal(run("rotate", "--root", site, "--old-key", a.privateFile, "--new-key", y.privateFile).code, 0);
+  assert.match(run("verify", "--root", site, "--trust", trust, "--origin", ORIGIN).out, /^hint: plumbline-rotation\.json is present/m, "a rotation from a trusted key: the hint");
+  assert.equal(run("revoke", "--root", site, "--key", a.privateFile).code, 0);
+  const after = run("verify", "--root", site, "--trust", trust, "--origin", ORIGIN);
+  assert.doesNotMatch(after.out, /^hint:/m, "no adopt hint for a rotation from a revoked key");
+});

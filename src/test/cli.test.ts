@@ -310,7 +310,7 @@ test("verify --origin: a signature for another origin is unverifiable (exit 1); 
   const elsewhere = run("verify", "--root", site, "--trust", trust, "--origin", "https://mirror.example");
   assert.equal(elsewhere.code, 1);
   assert.match(elsewhere.out, /^unverifiable/m);
-  assert.match(elsewhere.out, /not attested for the origin they were checked as/);
+  assert.match(elsewhere.out, /but these files were checked as https:\/\/mirror\.example: a copy signed for another address is not attested here/);
   const bad = run("verify", "--root", site, "--trust", trust, "--origin", "https://mirror.example/path");
   assert.equal(bad.code, 2);
   assert.match(bad.err, /--origin must be/);

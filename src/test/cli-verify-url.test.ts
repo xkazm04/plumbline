@@ -82,7 +82,7 @@ test("verify --url: files signed for another origin are unverifiable where they 
   const r = await runAsync("verify", "--url", `${server.url}/sub/`, "--trust", trust, "--allow-local");
   assert.equal(r.code, 1);
   assert.match(r.out, /^unverifiable/m);
-  assert.match(r.out, /not attested for the origin they were checked as/);
+  assert.match(r.out, /The signature names https:\/\/site\.example, but these files were checked as http:\/\/127\.0\.0\.1:\d+: a copy signed for another address is not attested here/);
 });
 
 test("verify --url applies a served revocation and records it in the trust file", async () => {

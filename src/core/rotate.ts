@@ -3,7 +3,7 @@
 
 import { canonicalJson, unsignedBytesOf } from "./canonical.js";
 import { isDerivedKid, keyId, keyIdOfPrivate, signText, verifyText } from "./keys.js";
-import { KID_PATTERN, invalid, isBase64Url, isIsoUtc, isPublicKey, resolveTrusted, revokedResult } from "./verify.js";
+import { KID_PATTERN, invalid, isBase64Url, isIsoUtc, isPublicKey, resolveTrusted, revokedResult, revokedVia } from "./verify.js";
 import {
   FORMAT_VERSION,
   MAX_STATEMENTS_PER_FILE,
@@ -95,7 +95,7 @@ export async function verifyRotation(
     );
   }
   // A rotation from a revoked key is never honoured: whoever holds a leaked key could otherwise name their own successor.
-  if (trusted && trusted.entry.revokedAt !== undefined) return revokedResult("rotation", from, origin);
+  if (trusted && trusted.entry.revokedAt !== undefined) return revokedResult("rotation", from, origin, revokedVia(trusted.entry, trust, origin));
 
   if (!(await isDerivedKid(to, toPublicKey))) {
     return invalid("kid-mismatch", "The new key id in the statement is not derived from the new public key it carries.", from, origin);
