@@ -33,8 +33,11 @@ const SEVERITY_RANK = { block: 0, warn: 1 };
  * `rootIsFolder` says whether `root` names a folder in the workspace: `watch` needs one, and so does a `gate` with no
  * target, which checks the files there (UAT-22).
  */
-export function inputProblem({ command, target, failOn, issues, rootIsFolder, relockPr = "false", renew = "false", signingKey = false, origin = "", siteAddress = "", desk = "" }) {
+export function inputProblem({ command, target, failOn, issues, rootIsFolder, relockPr = "false", renew = "false", signingKey = false, origin = "", siteAddress = "", desk = "", assignee = "" }) {
   if (command !== "gate" && command !== "watch") return "command must be gate or watch";
+  // UAT-30: a GitHub login (the pattern GitHub allows), and only where there is an issue to assign
+  if (assignee !== "" && !/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(assignee)) return "assignee must be a GitHub login, like octocat";
+  if (assignee !== "" && issues !== "true") return "assignee goes with issues: true: it names the person the drift issue is assigned to";
   // UAT-29: the Desk link is built from these, so each is a plain https address or empty
   if (siteAddress !== "" && deskLink(siteAddress) === null) return "site-address must be the https address the site is published at, like https://example.org/";
   if (desk !== "" && deskLink("https://example.org/", desk) === null) return "desk must be an https address, like https://plumbline.xkazm04.workers.dev/";
@@ -858,6 +861,7 @@ function main(argv) {
       origin: env.PLUMBLINE_ORIGIN ?? "",
       siteAddress: env.PLUMBLINE_SITE_ADDRESS ?? "",
       desk: env.PLUMBLINE_DESK ?? "",
+      assignee: env.PLUMBLINE_ASSIGNEE ?? "",
     });
     if (problem === null) return 0;
     process.stderr.write(`::error::${problem}\n`);

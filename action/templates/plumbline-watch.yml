@@ -1,4 +1,5 @@
-# Plumbline watch: a daily check for three drifts (grounding, runtime, peer) against plumbline.lock.json.
+# Plumbline watch: a check for three drifts (grounding, runtime, peer) against plumbline.lock.json, daily and on every
+# push to the default branch that touches the site folder, so a changed page is news when it lands (UAT-30).
 # Copy this file to .github/workflows/plumbline-watch.yml in the site's repository, or let `plumbline init --workflow`
 # write it with `root:` set to your site folder. Needs plumbline.lock.json committed first: in a clone of
 # xkazm04/plumbline at the pinned commit, run `npm ci && node dist/cli/index.js init --root <your site>` (no key is
@@ -14,12 +15,20 @@
 #      and approve pull requests" (off by default; without it the pull request step fails).
 # A pull request opened with the job's own token starts no workflow runs, so your required checks do not run on it
 # until a person pushes to its branch (or give the Action's `token:` a fine-grained token or a GitHub App token).
+# To have the issue reach a named person (the site's owner, say), give `assignee:` their GitHub login below: the Action
+# assigns the issue to them, and GitHub notifies an assignee of the issue and of every comment on it. The person needs
+# access to the repository (a collaborator), or GitHub refuses the assignment and the step only warns.
 name: Plumbline watch
 
 on:
   schedule:
     - cron: "17 6 * * *" # every day at 06:17 UTC
   workflow_dispatch:
+  # a push that touches the site folder (init --workflow writes your root here); only the default branch is watched,
+  # see `if:` below, so a push to a pull request's branch never edits or closes the drift issue
+  push:
+    paths:
+      - "**"
 
 permissions:
   contents: read
@@ -31,6 +40,9 @@ concurrency:
 
 jobs:
   watch:
+    # a push is watched on the default branch only: a relock branch, or a person's signature pushed to it, is not what
+    # the site publishes, and must never close the drift issue before a person merges it
+    if: github.event_name != 'push' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -52,6 +64,8 @@ jobs:
           command: watch
           root: "."
           issues: true
+          # assignee: your-github-login   # the person the drift issue is assigned to (UAT-30)
+          # site-address: https://your-site.example/   # the Desk link in the issue opens the reading of this address
 
       - name: Findings
         shell: bash

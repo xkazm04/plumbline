@@ -73,6 +73,12 @@ and so does a report that cannot be read, so a broken run is never taken for a c
     issues: true                            # keep the drift issue; the job needs `issues: write`
 ```
 
+**A named person** (UAT-30). With `assignee: <a GitHub login>` (and `issues: true`), the Action assigns the drift issue
+to that person when it opens it, and on each edit if it is not assigned yet; GitHub notifies an assignee of the issue
+and of every comment on it, so the news reaches the site's owner without their watching the repository. The login is
+checked before the build; GitHub refuses an assignee without access to the repository, and then the step warns and the
+issue stands. Who GitHub notifies, and how, is GitHub's; it has not been exercised on a real repository here.
+
 **The owner's part** (UAT-29). The issue and the relock pull request open with one sentence for the site's owner,
 made from the findings' codes (`docs/gate-and-watch.md`, "The owner's line"), then a link to the Desk's drift reading
 of the site with its address filled in (`site-address`, the https address the site is published at; without it, the
@@ -191,7 +197,11 @@ tests are skipped).
 --workflow` writes it to `.github/workflows/plumbline-watch.yml` with your site folder as `root:`, or copy it there by
 hand. Once, in a clone of this repository at the pinned commit, run `npm ci && node dist/cli/index.js init --root <your
 site>` (the same capture as `watch --init`) and commit the lock; if the site is signed, sign it again after the lock is
-written (the lock is a signed file) and commit both. It runs daily and on demand with `contents: read` and `issues: write` only, and passes `issues: true`, so
+written (the lock is a signed file) and commit both. It runs daily, on demand, and on every push to the default
+branch that touches the site folder (`init --workflow` writes `<your site>/**` as the push path, so a changed page is
+checked when it lands, UAT-30; a push to any other branch, the relock branch included, is skipped by the job's `if:`,
+so nothing but the default branch ever edits or closes the drift issue), with `contents: read` and `issues: write`
+only, and passes `issues: true`, so
 the Action keeps the drift issue as above. `info` findings
 (upstream runtime is ahead, upstream could not be asked) stay in the job log. When you have reviewed a drift and accept
 it, run `node dist/cli/index.js watch --root <your site> --relock` in that clone: it rewrites the lock from the current

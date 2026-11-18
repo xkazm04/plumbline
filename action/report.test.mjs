@@ -1095,3 +1095,58 @@ test("UAT-29: the relock pull request opens with the owner's line and what the p
   // a renewal has no drift to tell the owner of
   assert.doesNotMatch(prBody({ mode: "renew", report: { findings: [] }, relock: null, kid: "a".repeat(16), runUrl: "u" }), /whoever looks after/);
 });
+
+// ---- UAT-30: the news when it lands, to a named person ----
+
+test("UAT-30 (MAR-L1-08): the watch template runs on a push that touches the site folder as well as daily, on the default branch only", () => {
+  const template = read("action/templates/plumbline-watch.yml");
+  const on = template.slice(template.indexOf("\non:\n"), template.indexOf("\npermissions:"));
+  assert.match(on, /\n {2}schedule:\n {4}- cron: /);
+  assert.match(on, /\n {2}push:\n {4}paths:\n {6}- "\*\*"\n/, "the push filter init narrows to the site folder");
+  // a push to the relock branch, or a person's signature pushed to it, must never edit or close the drift issue
+  assert.match(code(template), /\n {4}if: github\.event_name != 'push' \|\| github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)\n/);
+  // the named person and the Desk address are offered as comments, so the pinned Action is not passed an input it lacks
+  assert.match(template, /\n {10}# assignee: your-github-login /);
+});
+
+test("UAT-30: assignee is a GitHub login, and goes with issues: true", async () => {
+  const base = { command: "watch", target: "", failOn: "fail", issues: "true", rootIsFolder: true };
+  assert.equal(inputProblem({ ...base, assignee: "marta-hollis" }), null);
+  for (const bad of ["@marta", "marta hollis", "-marta", "marta--", "a".repeat(40), "m;rm -rf"]) assert.match(inputProblem({ ...base, assignee: bad }), /assignee must be a GitHub login/, bad);
+  assert.match(inputProblem({ ...base, issues: "false", assignee: "marta" }), /assignee goes with issues: true/);
+});
+
+test("UAT-30: the issue step assigns the named person on create and on edit; a refused assignment only warns, and the issue stands", { skip: !bash && "no POSIX bash (set PLUMBLINE_TEST_BASH)" }, () => {
+  const apply = stepScript("Open, edit or close the drift issue");
+  const dir = mkdtempSync(join(tmpdir(), "plumbline-uat30-"));
+  try {
+    const stubs = join(dir, "bin");
+    mkdirSync(stubs);
+    // a gh that logs, answers create with the issue's address, and refuses to assign the login "nobody"
+    writeFileSync(
+      join(stubs, "gh"),
+      '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$GH_LOG"\nif [ "$1 $2" = "issue create" ]; then echo "https://github.com/o/r/issues/12"; fi\nif [ "$5" = "nobody" ]; then echo "could not assign" >&2; exit 1; fi\n',
+      { mode: 0o755 },
+    );
+    const body = join(dir, "body.md");
+    writeFileSync(body, "x\n");
+    const steps = (env) => {
+      const log = join(dir, "gh.log");
+      writeFileSync(log, "");
+      const r = spawnSync(bash, ["-eo", "pipefail", "-c", apply], { env: { ...process.env, PATH: `${stubs}${delimiter}${process.env.PATH}`, GH_LOG: log, GITHUB_ACTION_PATH: here, BODY: body, ...env }, encoding: "utf8" });
+      return { status: r.status, out: r.stdout, err: r.stderr, calls: readFileSync(log, "utf8").trim().split("\n").filter(Boolean) };
+    };
+    const created = steps({ ISSUE_ACTION: "create", ASSIGNEE: "marta-hollis" });
+    assert.equal(created.status, 0, created.err);
+    assert.deepEqual(created.calls, [`issue create --title ${ISSUE_TITLE} --body-file ${body}`, "issue edit 12 --add-assignee marta-hollis"]);
+    const edited = steps({ ISSUE_ACTION: "edit", NUMBER: "12", COMMENT: "", ASSIGNEE: "marta-hollis" });
+    assert.deepEqual(edited.calls, [`issue edit 12 --body-file ${body}`, "issue edit 12 --add-assignee marta-hollis"]);
+    const none = steps({ ISSUE_ACTION: "create", ASSIGNEE: "" });
+    assert.deepEqual(none.calls, [`issue create --title ${ISSUE_TITLE} --body-file ${body}`], "no assignee, no assignment");
+    const refused = steps({ ISSUE_ACTION: "create", ASSIGNEE: "nobody" });
+    assert.equal(refused.status, 0, "a refused assignment never fails the step");
+    assert.match(refused.out, /::warning::the drift issue could not be assigned to nobody/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

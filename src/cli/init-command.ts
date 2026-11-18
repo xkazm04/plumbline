@@ -35,6 +35,9 @@ const OWN_DESK = resolve(fileURLToPath(new URL("../../site", import.meta.url)));
 /** The template's root line, which init replaces with the site folder. */
 const TEMPLATE_ROOT_LINE = /^( +root: )"\."$/m;
 
+/** The template's push filter (UAT-30), which init narrows to the site folder: a push that touches it runs the watch. */
+const TEMPLATE_PATHS_LINE = /^( +- )"\*\*"$/m;
+
 const BAD_VALUE = {
   root: "--root takes a folder",
   source: "--source takes a path or an https URL",
@@ -133,11 +136,11 @@ export async function runInitCommand(argv: string[]): Promise<number> {
       process.stderr.write("init failed: the watch template is not beside this build (action/templates/plumbline-watch.yml)\n");
       return 2;
     }
-    if (!TEMPLATE_ROOT_LINE.test(template)) {
-      process.stderr.write('init failed: the watch template has no `root: "."` line to fill in\n');
+    if (!TEMPLATE_ROOT_LINE.test(template) || !TEMPLATE_PATHS_LINE.test(template)) {
+      process.stderr.write('init failed: the watch template has no `root: "."` line or no `- "**"` push path to fill in\n');
       return 2;
     }
-    workflowText = template.replace(TEMPLATE_ROOT_LINE, `$1"${rel}"`);
+    workflowText = template.replace(TEMPLATE_ROOT_LINE, `$1"${rel}"`).replace(TEMPLATE_PATHS_LINE, `$1"${rel === "." ? "**" : `${rel}/**`}"`);
     workflowRel = rel;
   }
 

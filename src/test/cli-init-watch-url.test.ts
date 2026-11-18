@@ -85,6 +85,9 @@ test("init: writes the lock and the workflow, makes no key, prints the next step
   const workflow = readFileSync(path.join(repo, WORKFLOW_PATH), "utf8");
   assert.match(workflow, /\n {10}root: "site"\n/);
   assert.doesNotMatch(workflow, /root: "\."/);
+  // UAT-30 (MAR-L1-08): a push that touches the site folder runs the watch, as well as the daily schedule
+  assert.match(workflow, /\n {2}push:\n {4}paths:\n {6}- "site\/\*\*"\n/);
+  assert.match(workflow, /\n {4}- cron: /);
   assert.match(workflow, /uses: xkazm04\/plumbline\/action@[0-9a-f]{40}/, "the template's pinned Action, unchanged");
   // no key anywhere: init makes none and reads none
   assert.ok(!filesUnder(repo).some((f) => /private|\.key$|\.pem$/.test(f)), filesUnder(repo).join(", "));

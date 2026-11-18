@@ -47,6 +47,10 @@ inputs:
     description: "With `signing-key`: the https origin the site is published from, as `plumbline sign --origin` takes it."
     required: false
     default: ""
+  assignee:
+    description: "For `watch` with `issues: true`: a GitHub login the drift issue is assigned to when it is opened (and on each edit, if it is not yet), so the news reaches a named person: GitHub notifies an assignee of the issue and of every comment on it. The person needs access to the repository; if GitHub refuses the assignment the step warns and the issue stays as it is."
+    required: false
+    default: ""
   site-address:
     description: "For `watch`: the https address the site is published at, such as https://example.org/. The drift issue and the relock pull request then open with a link to the Desk's reading of that address, filled in, so the site's owner can see it in a browser with no install. Empty, the address the site's own plumbline.signature.json names is used; with neither, the issue says where the Desk is."
     required: false
@@ -96,6 +100,7 @@ runs:
         PLUMBLINE_ORIGIN: ${{ inputs.origin }}
         PLUMBLINE_SITE_ADDRESS: ${{ inputs.site-address }}
         PLUMBLINE_DESK: ${{ inputs.desk }}
+        PLUMBLINE_ASSIGNEE: ${{ inputs.assignee }}
       run: node "$GITHUB_ACTION_PATH/report.mjs" inputs
 
     # The code that runs is this action's own checkout: pinning the action by commit SHA pins the code, with no package
@@ -186,14 +191,25 @@ runs:
         NUMBER: ${{ steps.issue-plan.outputs.number }}
         COMMENT: ${{ steps.issue-plan.outputs.comment }}
         BODY: ${{ steps.run.outputs.issue-body }}
+        ASSIGNEE: ${{ inputs.assignee }}
       run: |
+        # UAT-30: the issue reaches a named person. An assignment GitHub refuses (no access, a typo) only warns: the
+        # issue and its comments are never lost to it. The login was checked against its pattern before the build.
+        assign() {
+          if [ -n "$ASSIGNEE" ]; then
+            gh issue edit "$1" --add-assignee "$ASSIGNEE" || echo "::warning::the drift issue could not be assigned to $ASSIGNEE (does the login have access to this repository?)"
+          fi
+        }
         case "$ISSUE_ACTION" in
           create)
-            gh issue create --title "$(node "$GITHUB_ACTION_PATH/report.mjs" title)" --body-file "$BODY"
+            url=$(gh issue create --title "$(node "$GITHUB_ACTION_PATH/report.mjs" title)" --body-file "$BODY")
+            echo "$url"
+            assign "${url##*/}"
             ;;
           edit)
             # A body edit notifies nobody, so findings that changed also get a comment naming what is new.
             gh issue edit "$NUMBER" --body-file "$BODY"
+            assign "$NUMBER"
             if [ -n "$COMMENT" ]; then gh issue comment "$NUMBER" --body-file "$COMMENT"; fi
             echo "Updated issue #$NUMBER"
             ;;

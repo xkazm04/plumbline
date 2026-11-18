@@ -43,7 +43,13 @@ if (noun === "issue" && verb === "list") {
     process.stderr.write(`gh stub: no issue ${n}\n`);
     process.exit(1);
   }
-  if (verb === "edit") {
+  if (verb === "edit" && has("--add-assignee")) {
+    // UAT-30: an assignment; GitHub notifies the assignee (and, from then on, of every comment)
+    const who = opt("--add-assignee");
+    issue.assignees = [...new Set([...(issue.assignees ?? []), who])];
+    issue.history.push({ run, did: `assigned ${who}` });
+    record("issue assign", true, { number: n, assignee: who });
+  } else if (verb === "edit") {
     issue.body = body();
     issue.history.push({ run, did: "body edited" });
     record("issue edit", false, { number: n });
