@@ -1,0 +1,54 @@
+{
+  "ok": false,
+  "exit": 2,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta",
+  "checks": [
+    {
+      "label": "without CORS on the rooms page the Desk says the rooms page could not be checked (not clean)",
+      "pass": true
+    },
+    {
+      "label": "the Desk names the missing header or what to ask the host for",
+      "pass": false
+    }
+  ],
+  "snaps": [
+    {
+      "name": "l2-11-raise-nocors-drift-laptop",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-11-raise-nocors-drift-laptop.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-11-raise-nocors-drift-laptop.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-11-raise-nocors-drift-laptop.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "status": "Drift read: 2 findings, the worst Warning. Unsigned lock: the host can rewrite it.",
+    "result": "Lock read from http://127.0.0.1:4100/plumbline.lock.json\n\nunsigned lock: the host can rewrite it\n\nGROUNDING (1)\n!\nWARNING\nrooms.html\n\nA grounding source could not be checked: it could not be fetched (the browser could not read it).\n\nlocked 87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee\n\nPEERS (1)\n!\nWARNING\nhttp://127.0.0.1:4101/fellside_bikes\n\nA peer in this lock was not contacted: it is not an https address, which a published lock may not point a browser at.\n\nNot checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub)."
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Access to fetch at 'http://127.0.0.1:4100/rooms.html' from origin 'http://127.0.0.1:4199' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_FAILED"
+    }
+  ],
+  "pageErrors": []
+}

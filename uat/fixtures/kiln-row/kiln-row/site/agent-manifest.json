@@ -1,0 +1,43 @@
+{
+  "brand": "Kiln Row",
+  "networks": [
+    {
+      "name": "kiln_row",
+      "front_man": "kiln_guide",
+      "hocon": "./kiln_row.network.json",
+      "description": "A marketplace of independent potters, glassmakers and weavers. The guide finds a piece and hands you to the maker's own assistant.",
+      "tags": ["agentified-website", "marketplace", "crafts"],
+      "sample_queries": [
+        "I want a stoneware mug under £30.",
+        "Who makes handwoven throws?",
+        "Can a studio make a custom dinner set?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "allowed_peers": [
+    "{{site:ashgrove-pottery}}",
+    "{{site:brackenfold-ceramics}}",
+    "{{site:copperwick-glass}}",
+    "{{site:dovetail-weaving}}",
+    "{{site:tidewater-studio}}"
+  ],
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Hands a shopper to a seller's own assistant only for that seller's pieces. Tidewater Studio is reached through its A2A Agent Card."
+  },
+  "theme": {
+    "primary": "#8c3b1f"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

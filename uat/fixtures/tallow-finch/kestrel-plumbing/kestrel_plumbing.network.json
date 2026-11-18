@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "description": "Boiler service, repairs and emergency call-outs from Kestrel Plumbing & Heating.",
+    "sample_queries": [
+      "How much is a boiler service?",
+      "I have a leak, can someone come today?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Kestrel Plumbing & Heating"
+    }
+  },
+  "tools": [
+    {
+      "name": "plumbing_desk",
+      "function": {
+        "description": "The front desk of Kestrel Plumbing & Heating."
+      },
+      "instructions": "You are the desk of Kestrel Plumbing & Heating. A boiler service is £85. Emergency call-outs are £95 for the first hour, 24 hours a day, on +44 1632 960855. If water is leaking, tell the visitor to turn off the stopcock first. For quotes, ask the quote helper.",
+      "tools": [
+        "quote_helper"
+      ]
+    },
+    {
+      "name": "quote_helper",
+      "function": {
+        "description": "Collects what is needed for a written quote."
+      },
+      "instructions": "Ask what the job is and the postcode, and say a written quote follows within 2 working days. Never quote a price for a job yourself."
+    }
+  ]
+}

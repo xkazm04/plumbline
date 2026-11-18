@@ -1,0 +1,32 @@
+{
+  "brand": "Ashgrove Pottery",
+  "networks": [
+    {
+      "name": "ashgrove_studio",
+      "front_man": "ashgrove_shopkeeper",
+      "hocon": "./ashgrove_studio.network.json",
+      "description": "Wood-fired stoneware tableware from Ashgrove Pottery: mugs, bowls and plates, made to order in small batches.",
+      "tags": [
+        "agentified-website",
+        "maker"
+      ],
+      "sample_queries": [
+        "Do you have the tenmoku mug in stock?",
+        "How long does a dinner set take?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "open",
+    "note": "Marketplaces that list our pieces may link our assistant."
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true
+  }
+}

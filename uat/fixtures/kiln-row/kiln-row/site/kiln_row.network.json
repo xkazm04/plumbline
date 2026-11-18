@@ -1,0 +1,49 @@
+{
+  "metadata": {
+    "description": "A marketplace of independent potters, glassmakers and weavers. The guide finds a piece and hands you to the maker's own assistant.",
+    "sample_queries": [
+      "I want a stoneware mug under £30.",
+      "Who makes handwoven throws?",
+      "Can a studio make a custom dinner set?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 12,
+  "link_labels": {
+    "{{site:ashgrove-pottery}}/ashgrove_studio": "Ashgrove Pottery",
+    "{{site:brackenfold-ceramics}}/brackenfold_shop": "Brackenfold Ceramics",
+    "{{site:copperwick-glass}}/copperwick_glass": "Copperwick Glass",
+    "{{site:dovetail-weaving}}/dovetail_loom": "Dovetail Weaving"
+  },
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Kiln Row",
+      "handover_rules": "Before handing over, tell the shopper which maker they are being passed to. Prices, stock and delivery come from the maker's assistant, never from you. Kiln Row takes payment at checkout; nobody asks for card details in the chat."
+    }
+  },
+  "tools": [
+    {
+      "name": "kiln_guide",
+      "function": {
+        "description": "Finds pieces across the makers on {site_name} and hands the shopper to the right maker."
+      },
+      "instructions": "You are the guide of {site_name}. Ashgrove Pottery makes stoneware tableware; Brackenfold Ceramics makes porcelain and lamps; Copperwick Glass makes blown glass; Dovetail Weaving makes throws and rugs. Larger commissions go to Tidewater Studio. {handover_rules}",
+      "tools": [
+        "gift_helper",
+        "{{site:ashgrove-pottery}}/ashgrove_studio",
+        "{{site:brackenfold-ceramics}}/brackenfold_shop",
+        "{{site:copperwick-glass}}/copperwick_glass",
+        "{{site:dovetail-weaving}}/dovetail_loom"
+      ]
+    },
+    {
+      "name": "gift_helper",
+      "function": {
+        "description": "Narrows a gift idea down by budget, occasion and style."
+      },
+      "instructions": "Ask about budget, occasion and style, then suggest which makers to look at. Do not state prices."
+    }
+  ]
+}

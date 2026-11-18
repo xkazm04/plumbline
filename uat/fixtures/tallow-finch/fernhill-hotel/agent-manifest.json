@@ -1,0 +1,38 @@
+{
+  "brand": "Fernhill Hotel",
+  "networks": [
+    {
+      "name": "fernhill_hotel",
+      "front_man": "hotel_concierge",
+      "hocon": "./fernhill_hotel.network.json",
+      "description": "Rooms, dining and events at the Fernhill Hotel.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "What does a superior double cost?",
+        "Can we hold a wedding at Fernhill?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#4c3f91"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

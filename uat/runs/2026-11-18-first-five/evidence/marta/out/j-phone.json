@@ -1,0 +1,38 @@
+{
+  "ok": false,
+  "exit": 1,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta",
+  "checks": [],
+  "snaps": [
+    {
+      "name": "l2-41-phone-overview",
+      "url": "http://127.0.0.1:4199/",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-41-phone-overview.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-41-phone-overview.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-41-phone-overview.txt"
+    },
+    {
+      "name": "l2-42-phone-assistant",
+      "url": "http://127.0.0.1:4199/",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-42-phone-assistant.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-42-phone-assistant.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-42-phone-assistant.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "overview-scroll": [
+      390,
+      390
+    ]
+  },
+  "console": [],
+  "pageErrors": [],
+  "error": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('#drift-target').first() to be visible\u001b[22m\n\u001b[2m    62 × locator resolved to hidden <input type=\"url\" required=\"\" name=\"target\" id=\"drift-target\" autocomplete=\"url\" spellcheck=\"false\" placeholder=\"https://example.com/\" data-placeholder=\"drift.placeholder\"/>\u001b[22m\n\n    at waitFor (C:\\Users\\kazda\\kiro\\plumbline\\uat\\driver\\drive-script.mjs:199:39)"
+}

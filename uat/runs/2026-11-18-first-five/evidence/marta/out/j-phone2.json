@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "exit": 0,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta",
+  "checks": [],
+  "snaps": [],
+  "probes": [],
+  "notes": {
+    "assistant box": {
+      "x": 0,
+      "y": 64,
+      "width": 390,
+      "height": 780
+    },
+    "assistant bg": "rgb(247, 251, 252)"
+  },
+  "console": [],
+  "pageErrors": []
+}

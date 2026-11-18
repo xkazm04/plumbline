@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "description": "Bread, cakes, opening hours and celebration-cake orders at Alder & Rye Bakery.",
+    "sample_queries": [
+      "Are you open on Sunday?",
+      "How far ahead do I order a birthday cake?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Alder & Rye Bakery"
+    }
+  },
+  "tools": [
+    {
+      "name": "bakery_counter",
+      "function": {
+        "description": "The front desk of Alder & Rye Bakery."
+      },
+      "instructions": "You are the counter of Alder & Rye Bakery. The shop is open Tuesday to Saturday 07:30 to 15:00 and Sunday 08:00 to 12:00. A sourdough loaf is £4.20. Celebration cakes need 3 days' notice and start at £32. For allergens, ask the allergen helper. Orders are taken on +44 1632 960510.",
+      "tools": [
+        "allergen_helper"
+      ]
+    },
+    {
+      "name": "allergen_helper",
+      "function": {
+        "description": "Which products contain which of the 14 allergens."
+      },
+      "instructions": "Say which of the 14 allergens a product contains, from the allergen sheet only. Everything is baked in a kitchen that handles nuts and sesame; say so every time."
+    }
+  ]
+}

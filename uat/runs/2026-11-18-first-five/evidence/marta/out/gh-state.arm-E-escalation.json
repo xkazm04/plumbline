@@ -1,0 +1,57 @@
+{
+  "next": 2,
+  "issues": [
+    {
+      "number": 1,
+      "title": "Plumbline drift",
+      "body": "Plumbline watch found drift since `plumbline.lock.json` was written.\n\n| Severity | Kind | Ref | What |\n| --- | --- | --- | --- |\n| warn | grounding | rooms.html | A grounding source changed since the lock was written; 1 of 6 facts the network states are no longer on it, so the network may now state an old fact. |\n\n`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. After reviewing a change you accept, in a clone of xkazm04/plumbline at the commit this workflow pins, run `node dist/cli/index.js watch --root <path to your site> --relock`, sign the site again (the lock is a signed file) and commit both. The next clean run closes this issue.\n\nA clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.\n\n<!-- plumbline:digest [[\"warn\",\"grounding\",\"rooms.html\"]] -->\n",
+      "state": "open",
+      "comments": [],
+      "history": [
+        {
+          "run": "e1-cosmetic",
+          "did": "created"
+        },
+        {
+          "run": "e2-raise-after-cosmetic",
+          "did": "body edited"
+        }
+      ]
+    }
+  ],
+  "prs": [],
+  "calls": [
+    {
+      "run": "e0-baseline",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "e1-cosmetic",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "e1-cosmetic",
+      "call": "issue create --title Plumbline drift --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/mini/E-esc/_uat/tmp/e1-cosmetic/plumbline-issue.md",
+      "what": "issue create",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "e2-raise-after-cosmetic",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "e2-raise-after-cosmetic",
+      "call": "issue edit 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/mini/E-esc/_uat/tmp/e2-raise-after-cosmetic/plumbline-issue.md",
+      "what": "issue edit",
+      "notifies": false,
+      "number": 1
+    }
+  ]
+}

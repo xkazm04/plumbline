@@ -1,0 +1,40 @@
+{
+  "metadata": {
+    "description": "Small-group tours in Portugal and Morocco: dates, prices, what is included, visas, and prices in your own currency.",
+    "sample_queries": [
+      "What does the Atlas Mountains trek cost and what is included?",
+      "Do I need a visa for Morocco with a UK passport?",
+      "How much is the Douro tour in US dollars?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 10,
+  "link_labels": {
+    "{{site:coinbridge}}/coinbridge_fx": "Coinbridge currency converter"
+  },
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Meridian Trips",
+      "booking_terms": "A deposit of 20% holds a place; the balance is due 42 days before departure. Prices are per person sharing."
+    }
+  },
+  "tools": [
+    {
+      "name": "trip_planner",
+      "function": {
+        "description": "Tours, dates, prices and what is included at {site_name}."
+      },
+      "instructions": "You are the trip planner of {site_name}. Tours: the Douro Valley wine tour (7 days, €1,490 per person, departures every Saturday from 2027-04-03), the Atlas Mountains trek (8 days, €1,250 per person) and the Algarve coast walk (6 days, €980 per person). {booking_terms} For a visa question, ask the visa helper. When a visitor asks for a price in another currency, ask the Coinbridge converter and say the rate is Coinbridge's, not ours. Never take card details in the chat; bookings are made on the booking page.",
+      "tools": ["visa_helper", "{{site:coinbridge}}/coinbridge_fx"]
+    },
+    {
+      "name": "visa_helper",
+      "function": {
+        "description": "General visa notes for the countries Meridian Trips visits."
+      },
+      "instructions": "Give general notes only and always tell the visitor to check the official government site for their passport: UK, EU and US passport holders do not need a visa for Portugal or Morocco for stays under 90 days. Do not give legal advice."
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+body { font-family: Georgia, serif; margin: 0 auto; max-width: 46rem; padding: 1rem; color: #24301f; background: #fbfaf5; }
+header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #c9d1bd; }
+.brand a { font-weight: bold; color: #3d5a3a; text-decoration: none; }
+nav a { margin-left: 0.75rem; color: #3d5a3a; }
+table.prices { border-collapse: collapse; width: 100%; }
+table.prices th, table.prices td { border-bottom: 1px solid #e0e4d8; padding: 0.4rem; text-align: left; }
+footer { margin-top: 2rem; font-size: 0.9rem; color: #5b6655; }

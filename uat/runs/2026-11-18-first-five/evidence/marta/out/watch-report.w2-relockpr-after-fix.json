@@ -1,0 +1,27 @@
+{
+  "lockState": "found",
+  "findings": [
+    {
+      "kind": "grounding",
+      "severity": "warn",
+      "ref": "larch_house.network.json",
+      "expected": "af65d05e709de774cfc0dd8dd44e154f45d7e23092a03f9c53f0941634c1e489",
+      "actual": "09c35b8d4813be73049252ea49425f6b0aa595ebc411c13f048a592eeab3d43c",
+      "summary": "A grounding source changed since the lock was written; the agent now answers from different facts."
+    },
+    {
+      "kind": "grounding",
+      "severity": "warn",
+      "ref": "rooms.html",
+      "expected": "87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee",
+      "actual": "fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12",
+      "summary": "A grounding source changed since the lock was written; all 5 facts the network states from it are still on it."
+    },
+    {
+      "kind": "runtime",
+      "severity": "info",
+      "ref": "cognizant-ai-labs/agentic-web",
+      "summary": "Could not check upstream: GitHub rate-limited the request until epoch 1794999868."
+    }
+  ]
+}

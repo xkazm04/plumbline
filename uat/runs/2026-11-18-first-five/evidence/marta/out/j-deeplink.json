@@ -1,0 +1,34 @@
+{
+  "ok": false,
+  "exit": 2,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta",
+  "checks": [
+    {
+      "label": "a link with the address opens the drift view prefilled",
+      "pass": false
+    }
+  ],
+  "snaps": [
+    {
+      "name": "l2-43-phone-deeplink-query",
+      "url": "http://127.0.0.1:4199/#/drift?target=http://127.0.0.1:4100/",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-43-phone-deeplink-query.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-43-phone-deeplink-query.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-43-phone-deeplink-query.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "visible sections for #/drift?target=": [
+      "home"
+    ]
+  },
+  "console": [],
+  "pageErrors": []
+}

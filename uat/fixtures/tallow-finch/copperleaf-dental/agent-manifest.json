@@ -1,0 +1,38 @@
+{
+  "brand": "Copperleaf Dental",
+  "networks": [
+    {
+      "name": "copperleaf_dental",
+      "front_man": "copperleaf_receptionist",
+      "hocon": "./copperleaf_dental.network.json",
+      "description": "Appointments, treatment prices and emergency advice at Copperleaf Dental.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "How much is a check-up?",
+        "I have toothache, what do I do?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#2f7d6d"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

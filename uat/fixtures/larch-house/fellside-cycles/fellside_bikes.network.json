@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "description": "Bike and e-bike hire by the day or half day in Fellside, with routes around the lake.",
+    "sample_queries": ["How much is an e-bike for a day?", "Do you deliver bikes to guesthouses?"]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 6,
+  "tools": [
+    {
+      "name": "bike_desk",
+      "function": {
+        "description": "Bike hire at Fellside Cycles: prices, delivery and routes."
+      },
+      "instructions": "You are the hire desk of Fellside Cycles. A trail bike is €25 per day and an e-bike €45 per day; half days are half price. We deliver to guesthouses in Fellside before 09:00 for €5. Helmets and locks are included. For routes, ask the route helper. Bookings are by phone on +44 1632 960733.",
+      "tools": ["route_helper"]
+    },
+    {
+      "name": "route_helper",
+      "function": {
+        "description": "Suggests a ride around the lake by length and difficulty."
+      },
+      "instructions": "Suggest one of three rides: the lake loop (14 km, flat), the larch woods climb (22 km, steep in places) or the valley road to the falls (31 km, quiet lanes). Say that conditions change and riders should check the forecast."
+    }
+  ]
+}

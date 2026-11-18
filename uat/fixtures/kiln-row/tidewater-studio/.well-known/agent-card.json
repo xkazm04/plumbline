@@ -1,0 +1,51 @@
+{
+  "name": "Tidewater Studio Commissions Agent",
+  "description": "Takes commission enquiries for Tidewater Studio, a ceramics studio of nine makers: dinner services, restaurant tableware and architectural tiles. It quotes lead times and asks the questions a quote needs; prices are confirmed by a person.",
+  "supportedInterfaces": [
+    {"url": "{{site:tidewater-studio}}/a2a/v1", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"},
+    {"url": "{{site:tidewater-studio}}/a2a/json", "protocolBinding": "HTTP+JSON", "protocolVersion": "1.0"}
+  ],
+  "provider": {
+    "organization": "Tidewater Studio Ltd",
+    "url": "{{site:tidewater-studio}}/"
+  },
+  "iconUrl": "{{site:tidewater-studio}}/icon.png",
+  "version": "2.3.0",
+  "documentationUrl": "{{site:tidewater-studio}}/agent.html",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "extendedAgentCard": false
+  },
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["text/plain", "application/json"],
+  "skills": [
+    {
+      "id": "commission-quote",
+      "name": "Commission enquiry",
+      "description": "Collects what a commission needs (pieces, quantities, glaze, deadline, delivery address region) and returns the studio's current lead time and the next step. Never takes payment.",
+      "tags": ["ceramics", "commission", "quote"],
+      "examples": [
+        "We need 120 plates and 120 bowls for a restaurant opening in May.",
+        "Could you make a dinner service for twelve in a sea-green glaze?"
+      ],
+      "inputModes": ["text/plain", "application/json"],
+      "outputModes": ["text/plain", "application/json"]
+    },
+    {
+      "id": "lead-times",
+      "name": "Lead times",
+      "description": "Gives the studio's current lead time for tableware and for tiles, in weeks.",
+      "tags": ["ceramics", "lead-time"],
+      "examples": ["How long is your wait for tiles at the moment?"],
+      "inputModes": ["text/plain"],
+      "outputModes": ["text/plain"]
+    }
+  ],
+  "signatures": [
+    {
+      "protected": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpPU0UiLCJraWQiOiJrZXktMSIsImprdSI6Imh0dHBzOi8vZXhhbXBsZS5jb20vYWdlbnQvandrcy5qc29uIn0",
+      "signature": "QFdkNLNszlGj3z3u0YQGt_T9LixY3qtdQpZmsTdDHDe3fXV9y9-B3m2-XgCpzuhiLt8E0tV6HXoZKHv4GtHgKQ"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "description": "Wood-fired stoneware tableware from Ashgrove Pottery: mugs, bowls and plates, made to order in small batches.",
+    "sample_queries": [
+      "Do you have the tenmoku mug in stock?",
+      "How long does a dinner set take?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 6,
+  "tools": [
+    {
+      "name": "ashgrove_shopkeeper",
+      "function": {
+        "description": "Stock, prices and delivery for Ashgrove's pieces."
+      },
+      "instructions": "You are Ashgrove Pottery's shopkeeper. A tenmoku mug is £26, a pasta bowl £34, a dinner plate £38. Pieces are made in batches; a set of six takes 6 weeks. Delivery in the UK is £7.50. Everything is dishwasher safe. For glaze questions ask the glaze notes helper.",
+      "tools": [
+        "glaze_notes"
+      ]
+    },
+    {
+      "name": "glaze_notes",
+      "function": {
+        "description": "What each glaze looks like and how it ages."
+      },
+      "instructions": "Describe the tenmoku, ash and celadon glazes and say that wood firing makes every piece different."
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "description": "Eye tests, glasses and contact lenses at Lumen Opticians.",
+    "sample_queries": [
+      "How much is an eye test?",
+      "Do you fit contact lenses?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Lumen Opticians"
+    }
+  },
+  "tools": [
+    {
+      "name": "optician_desk",
+      "function": {
+        "description": "The front desk of Lumen Opticians."
+      },
+      "instructions": "You are the desk of Lumen Opticians. An eye test is £25 and free for under-16s and over-60s. Contact lens fitting is £40. Open Monday to Saturday 09:00 to 17:30. For frames and lenses, ask the frames helper.",
+      "tools": [
+        "frames_helper"
+      ]
+    },
+    {
+      "name": "frames_helper",
+      "function": {
+        "description": "Frames and lens options and their price bands."
+      },
+      "instructions": "Describe the frame ranges and lens options by price band from the price list only."
+    }
+  ]
+}

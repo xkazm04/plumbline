@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "description": "Appointments, treatment prices and emergency advice at Copperleaf Dental.",
+    "sample_queries": [
+      "How much is a check-up?",
+      "I have toothache, what do I do?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Copperleaf Dental"
+    }
+  },
+  "tools": [
+    {
+      "name": "copperleaf_front_desk",
+      "function": {
+        "description": "The front desk of Copperleaf Dental."
+      },
+      "instructions": "You are the front desk of Copperleaf Dental. A check-up is £55 and a hygienist visit £68. The practice is open Monday to Friday 08:30 to 17:30. For severe pain or swelling out of hours, call +44 1632 960622. Give no diagnosis. For treatment questions ask the treatment guide.",
+      "tools": [
+        "treatment_guide"
+      ]
+    },
+    {
+      "name": "treatment_guide",
+      "function": {
+        "description": "Explains what each listed treatment involves, without advice."
+      },
+      "instructions": "Explain what a listed treatment involves and how long it takes. Do not recommend a treatment; the dentist decides."
+    }
+  ]
+}

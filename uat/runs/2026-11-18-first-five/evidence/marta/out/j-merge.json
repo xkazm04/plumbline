@@ -1,0 +1,59 @@
+{
+  "ok": false,
+  "exit": 2,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta",
+  "checks": [
+    {
+      "label": "after the unsigned relock is merged, the Desk drift reading still says something about the stale price",
+      "pass": false
+    }
+  ],
+  "snaps": [
+    {
+      "name": "l2-20-W-after-merge-drift",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-20-W-after-merge-drift.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-20-W-after-merge-drift.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-20-W-after-merge-drift.txt"
+    },
+    {
+      "name": "l2-21-W-after-merge-verify",
+      "url": "http://127.0.0.1:4199/#/verify",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-21-W-after-merge-verify.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-21-W-after-merge-verify.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-21-W-after-merge-verify.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "drift-status": "Drift read: 1 finding, Warning. Unsigned lock: the host can rewrite it.",
+    "drift-result": "Lock read from http://127.0.0.1:4100/plumbline.lock.json\n\nunsigned lock: the host can rewrite it\n\nPEERS (1)\n!\nWARNING\nhttp://127.0.0.1:4101/fellside_bikes\n\nA peer in this lock was not contacted: it is not an https address, which a published lock may not point a browser at.\n\nNot checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub).",
+    "verify-status": "Verify finished: Invalid: a signed file changed, or is missing.",
+    "verify-result": "✕\nINVALID: A SIGNED FILE CHANGED, OR IS MISSING\nhttp://127.0.0.1:4100/\n\nSomething is wrong: a signed file changed or is missing, the signature expired, it does not check out under the key you trust, or that key has been revoked. Do not treat these files as the publisher's.\n\nA signed file differs from the version that was signed.\n\nSigner key id\ne85f149386e93582\nSigned for origin\nhttp://127.0.0.1:4100\nFiles fetched from\nhttp://127.0.0.1:4100\nSigned files\nagent-manifest.json, larch_house.network.json, plumbline.lock.json"
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "pageErrors": []
+}

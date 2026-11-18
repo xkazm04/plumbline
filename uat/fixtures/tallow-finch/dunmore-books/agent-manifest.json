@@ -1,0 +1,38 @@
+{
+  "brand": "Dunmore Books",
+  "networks": [
+    {
+      "name": "dunmore_books",
+      "front_man": "bookshop_clerk",
+      "hocon": "./dunmore_books.network.json",
+      "description": "A second-hand and new bookshop: stock questions, orders and the returns policy.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "Can you order a book for me?",
+        "What is your returns policy?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#6b2d5c"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

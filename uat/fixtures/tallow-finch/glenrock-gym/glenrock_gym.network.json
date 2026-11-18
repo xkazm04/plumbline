@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "description": "Memberships, classes and opening hours at Glenrock Gym.",
+    "sample_queries": [
+      "How much is a monthly membership?",
+      "When is the next spin class?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Glenrock Gym"
+    }
+  },
+  "tools": [
+    {
+      "name": "gym_desk",
+      "function": {
+        "description": "The front desk of Glenrock Gym."
+      },
+      "instructions": "You are the desk of Glenrock Gym. Membership is £34 a month with no joining fee, or £5 for a day pass. The gym is open 06:00 to 22:00 every day. For classes, ask the class timetable helper. Cancel membership by e-mail to members@glenrock-gym.example with one month's notice.",
+      "tools": [
+        "class_helper"
+      ]
+    },
+    {
+      "name": "class_helper",
+      "function": {
+        "description": "This week's class timetable."
+      },
+      "instructions": "Give the class times from this week's timetable only. Classes are included in membership."
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "ok": false,
+  "exit": 2,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta",
+  "checks": [
+    {
+      "label": "once her own key is trusted the Desk no longer calls the lock unsigned",
+      "pass": true
+    },
+    {
+      "label": "the reading names the stale price with a currency (anchored pattern)",
+      "pass": false
+    }
+  ],
+  "snaps": [
+    {
+      "name": "l2-12-raise-verify-after-trust",
+      "url": "http://127.0.0.1:4199/#/verify",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-12-raise-verify-after-trust.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-12-raise-verify-after-trust.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-12-raise-verify-after-trust.txt"
+    },
+    {
+      "name": "l2-13-raise-drift-after-trust",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-13-raise-drift-after-trust.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-13-raise-drift-after-trust.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-13-raise-drift-after-trust.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "verify-status": "Verify finished: Unverifiable.",
+    "verify-result": "✓\nVERIFIED\nhttp://127.0.0.1:4100/\n\nThese files came from the holder of a key you already trust for this origin, and they have not changed since they were signed. It does not mean the site is safe, honest or correct.\n\nThe files match a signature made by a key this verifier already trusts for this origin.\n\nSigner key id\ne85f149386e93582\nSigned for origin\nhttp://127.0.0.1:4100\nFiles fetched from\nhttp://127.0.0.1:4100\nSigned files\nagent-manifest.json, larch_house.network.json, plumbline.lock.json\n\nTrusted. The site was verified again under your trust store: the verdict above is the new one.",
+    "drift-status": "Drift read: 2 findings, the worst Warning. Signed lock.",
+    "drift-result": "Lock read from http://127.0.0.1:4100/plumbline.lock.json\n\nSigned lock: covered by a signature that verified under a publisher you trust.\n\nGROUNDING (1)\n!\nWARNING\nrooms.html\n\nA grounding source changed since the lock was written; all 5 facts the network states from it are still on it.\n\nlocked 87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee · now fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\n\nPEERS (1)\n!\nWARNING\nhttp://127.0.0.1:4101/fellside_bikes\n\nA peer in this lock was not contacted: it is not an https address, which a published lock may not point a browser at.\n\nNot checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub)."
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "pageErrors": []
+}

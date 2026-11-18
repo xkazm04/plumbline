@@ -1,0 +1,94 @@
+{
+  "next": 2,
+  "issues": [
+    {
+      "number": 1,
+      "title": "Plumbline drift",
+      "body": "Plumbline watch found drift since `plumbline.lock.json` was written.\n\n| Severity | Kind | Ref | What |\n| --- | --- | --- | --- |\n| warn | grounding | larch_house.network.json | A grounding source changed since the lock was written; the agent now answers from different facts. |\n| warn | grounding | rooms.html | A grounding source changed since the lock was written; all 5 facts the network states from it are still on it. |\n\n`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. After reviewing a change you accept, in a clone of xkazm04/plumbline at the commit this workflow pins, run `node dist/cli/index.js watch --root <path to your site> --relock`, sign the site again (the lock is a signed file) and commit both. The next clean run closes this issue.\n\nA clean report does not mean the site is safe: it means the locked files, peers and runtime match what was locked.\n\n<!-- plumbline:digest [[\"warn\",\"grounding\",\"larch_house.network.json\"],[\"warn\",\"grounding\",\"rooms.html\"]] -->\n",
+      "state": "closed",
+      "comments": [
+        {
+          "run": "d2-fix-network",
+          "body": "Plumbline watch's findings changed as of https://github.com/larchhouse/larchhouse-site/actions/runs/d2-fix-network. The table in the issue body is up to date.\n\nNew:\n\n- **warn** grounding `larch_house.network.json`\n"
+        },
+        {
+          "run": "d3-after-relock-sign",
+          "body": "Plumbline watch is clean as of https://github.com/larchhouse/larchhouse-site/actions/runs/d3-after-relock-sign: the locked files, peers and runtime match plumbline.lock.json. Closing. (Clean is not safe: it means nothing locked has drifted.)"
+        }
+      ],
+      "history": [
+        {
+          "run": "d1-raise-price",
+          "did": "created"
+        },
+        {
+          "run": "d2-fix-network",
+          "did": "body edited"
+        },
+        {
+          "run": "d2-fix-network",
+          "did": "commented"
+        },
+        {
+          "run": "d3-after-relock-sign",
+          "did": "closed"
+        }
+      ]
+    }
+  ],
+  "prs": [],
+  "calls": [
+    {
+      "run": "d0-setup",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "d1-raise-price",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "d1-raise-price",
+      "call": "issue create --title Plumbline drift --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/d1-raise-price/plumbline-issue.md",
+      "what": "issue create",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "d2-fix-network",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "d2-fix-network",
+      "call": "issue edit 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/d2-fix-network/plumbline-issue.md",
+      "what": "issue edit",
+      "notifies": false,
+      "number": 1
+    },
+    {
+      "run": "d2-fix-network",
+      "call": "issue comment 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/d2-fix-network/plumbline-issue-comment.md",
+      "what": "issue comment",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "d3-after-relock-sign",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "d3-after-relock-sign",
+      "call": "issue close 1 --comment Plumbline watch is clean as of https://github.com/larchhouse/larchhouse-site/actions/runs/d3-after-relock-sign: the locked files, peers and runtime match plumbline.lock.json. Closing. (Clean is not safe: it means nothing locked has drifted.)",
+      "what": "issue close",
+      "notifies": true,
+      "number": 1
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  // edited in the hosting panel's file editor, 2026-11-02: new theme colour
+  "brand": "Lumen Opticians",
+  "networks": [
+    {
+      "name": "lumen_opticians",
+      "front_man": "optician_desk",
+      "hocon": "./lumen_opticians.network.json",
+      "description": "Eye tests, glasses and contact lenses at Lumen Opticians.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "How much is an eye test?",
+        "Do you fit contact lenses?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#6a3b8b",
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

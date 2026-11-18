@@ -1,0 +1,51 @@
+{
+  "world": "kiln-row",
+  "journey": "j5-vetting-sellers",
+  "character": "tomasz-wieczorek",
+  "portBase": 4500,
+  "start": "onboarded",
+  "sites": [
+    {
+      "name": "kiln-row",
+      "role": "the marketplace (publisher); a repository whose site/ folder is served; its lock predates the Agent Card",
+      "repo": true,
+      "runtime": "nsdeploy-53a787c"
+    },
+    {
+      "name": "ashgrove-pottery",
+      "role": "seller peer: signs (key ashgrove-1) and will rotate its key properly",
+      "runtime": "nsdeploy-53a787c"
+    },
+    {
+      "name": "brackenfold-ceramics",
+      "role": "seller peer: signs (key brackenfold-1) and will change signer without a rotation",
+      "runtime": "nsdeploy-53a787c"
+    },
+    {
+      "name": "copperwick-glass",
+      "role": "seller peer: unsigned",
+      "runtime": "nsdeploy-53a787c"
+    },
+    {
+      "name": "dovetail-weaving",
+      "role": "seller peer: flaky (goes offline and comes back)",
+      "runtime": "nsdeploy-53a787c"
+    },
+    {
+      "name": "tidewater-studio",
+      "role": "the larger studio: publishes an A2A Agent Card at /.well-known/agent-card.json, not an agentic-web network"
+    }
+  ],
+  "acts": {
+    "onboarded": "The marketplace with a lock written by init (with the daily workflow) over the four seller peers, no Agent Card in it; ashgrove-pottery and brackenfold-ceramics signed with their first keys, copperwick-glass unsigned, dovetail-weaving answering. Played by up.",
+    "seller-rotates": "ashgrove-pottery makes key ashgrove-2, publishes plumbline-rotation.json (ashgrove-1 -> ashgrove-2) and the new key record, and signs with ashgrove-2.",
+    "seller-signer-swapped": "brackenfold-ceramics is signed with a different key (brackenfold-other) and publishes that key's record; no rotation.",
+    "seller-offline": "dovetail-weaving stops answering (its port refuses connections).",
+    "seller-back": "dovetail-weaving answers again.",
+    "seller-back-changed": "dovetail-weaving comes back from an outage CHANGED: agent deposit_taker added (loom_keeper calls it) and signed for the first time with a new key (dovetail-new). Needs seller-offline first; it brings the seller back up. Added after run 2026-11-18-first-five.",
+    "card-skills-change": "tidewater-studio's Agent Card gains the skill glaze-matcher and changes the description and tags of commission-quote.",
+    "card-offline": "tidewater-studio stops answering (the card's host refuses connections).",
+    "card-back": "World convenience, not in the journey: tidewater-studio answers again.",
+    "seller-signs": "copperwick-glass makes key copperwick-1, publishes its record and signs."
+  }
+}

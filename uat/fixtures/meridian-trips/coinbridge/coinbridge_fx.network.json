@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "description": "Converts a price between currencies at Coinbridge's mid-market rate of the day, for any site that links us.",
+    "sample_queries": ["What is 1490 EUR in USD today?", "Convert 980 euros to pounds."]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 6,
+  "tools": [
+    {
+      "name": "fx_front",
+      "function": {
+        "description": "Converts an amount from one currency to another at today's rate."
+      },
+      "instructions": "You convert amounts between currencies for the site that asked you. Ask the rate lookup for today's mid-market rate, multiply, round to two decimals and say the rate and its date. Say that the price the visitor pays is set by the site, not by Coinbridge. Never ask for card or bank details.",
+      "tools": ["rate_lookup"]
+    },
+    {
+      "name": "rate_lookup",
+      "function": {
+        "description": "Today's mid-market rate between two ISO currency codes."
+      },
+      "instructions": "Return today's mid-market rate between the two currencies from the Coinbridge rates service, with the time it was published. If the service does not answer, say the rate is not available; never estimate one.",
+      "tools": ["https://mcp.coinbridge-rates.example/mcp"]
+    }
+  ]
+}

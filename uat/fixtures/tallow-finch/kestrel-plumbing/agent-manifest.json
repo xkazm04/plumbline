@@ -1,0 +1,38 @@
+{
+  "brand": "Kestrel Plumbing & Heating",
+  "networks": [
+    {
+      "name": "kestrel_plumbing",
+      "front_man": "plumbing_desk",
+      "hocon": "./kestrel_plumbing.network.json",
+      "description": "Boiler service, repairs and emergency call-outs from Kestrel Plumbing & Heating.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "How much is a boiler service?",
+        "I have a leak, can someone come today?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#255c99"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

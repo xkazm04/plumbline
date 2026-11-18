@@ -1,0 +1,32 @@
+{
+  "brand": "Dovetail Weaving",
+  "networks": [
+    {
+      "name": "dovetail_loom",
+      "front_man": "loom_keeper",
+      "hocon": "./dovetail_loom.network.json",
+      "description": "Handwoven wool throws and rugs from Dovetail Weaving.",
+      "tags": [
+        "agentified-website",
+        "maker"
+      ],
+      "sample_queries": [
+        "What size is the herringbone throw?",
+        "Is the wool local?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "open",
+    "note": "Marketplaces that list our pieces may link our assistant."
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true
+  }
+}

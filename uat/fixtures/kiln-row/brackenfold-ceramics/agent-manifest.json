@@ -1,0 +1,32 @@
+{
+  "brand": "Brackenfold Ceramics",
+  "networks": [
+    {
+      "name": "brackenfold_shop",
+      "front_man": "brackenfold_assistant",
+      "hocon": "./brackenfold_shop.network.json",
+      "description": "Translucent porcelain cups, vases and table lamps from Brackenfold Ceramics.",
+      "tags": [
+        "agentified-website",
+        "maker"
+      ],
+      "sample_queries": [
+        "How tall is the moon lamp?",
+        "Do you ship to Germany?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "open",
+    "note": "Marketplaces that list our pieces may link our assistant."
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true
+  }
+}

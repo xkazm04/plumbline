@@ -1,0 +1,24 @@
+$ (cd <world>) plumbline keygen --out <world>/keys/larch-house
+kid e85f149386e93582
+private key: C:\Users\kazda\AppData\Local\Temp\plumbline-uat-larch-house-HS8ZrG\keys\larch-house\plumbline.private.json
+public record: C:\Users\kazda\AppData\Local\Temp\plumbline-uat-larch-house-HS8ZrG\keys\larch-house\.well-known\plumbline-key.json
+WARNING: Back up the private key file and never commit it: key loss is identity loss, and a leaked key lets anyone sign as you.
+WARNING: A key held in browser memory is exposed to every script running on that origin; keep signing keys out of the page.
+[exit 0]
+
+$ (cd <world>/larch-house) plumbline init --root site --source rooms.html --workflow
+init: wrote plumbline.lock.json (3 grounding sources, 4 runtime files, 0 peers, 1 pending)
+warn  peer http://127.0.0.1:4101/fellside_bikes: A peer could not be captured, so the lock holds it as pending and every watch reports it (the address is not https).
+init: wrote .github/workflows/plumbline-watch.yml (root: site)
+next:
+  1. Commit plumbline.lock.json and .github/workflows/plumbline-watch.yml. The watch needs nothing else: no key, no trust file.
+  2. The workflow runs daily and keeps one drift issue (it needs issues: write).
+  3. Name the pages whose facts your network states (a price list, opening hours): plumbline watch --root site --relock --source <page>. A changed page is then drift, and the prices, times, dates, phone numbers, e-mail addresses and percentages the network states from it are anchored: the watch counts the ones no longer on it.
+  4. Upgrade, when you are ready: sign the agent files. plumbline keygen --out <a folder outside the site>, then plumbline sign --root site --key <that folder>/plumbline.private.json --origin <https origin>. The lock is a signed file: sign again after every --relock.
+[exit 1]
+
+$ (cd <world>) plumbline sign --root <world>/larch-house/site --key <world>/keys/larch-house/plumbline.private.json --origin http://127.0.0.1:4100
+signed 3 files as e85f149386e93582 for http://127.0.0.1:4100, expires 2027-02-16T10:25:20.410Z
+wrote C:\Users\kazda\AppData\Local\Temp\plumbline-uat-larch-house-HS8ZrG\larch-house\site\plumbline.signature.json
+[exit 0]
+

@@ -1,0 +1,4 @@
+Browser runtime, vendored copy (UAT stand-in).
+
+Copied from cognizant-ai-labs/agentic-web `skills/agentify-website/runtime` at commit 7ee54a3, which is nsdeploy's
+runtime at nsdeploy commit `53a787c` with the skill's edits. Apache-2.0.

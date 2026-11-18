@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "description": "Rooms, prices, check-in and breakfast at Larch House, a six-room guesthouse in Fellside, and bike hire through our partner.",
+    "sample_queries": [
+      "How much is a double room?",
+      "What time can we check in?",
+      "Is breakfast included?",
+      "Can we hire bikes nearby?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "link_labels": {
+    "{{site:fellside-cycles}}/fellside_bikes": "Fellside Cycles (bike hire)"
+  },
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Larch House",
+      "house_rules": "Quiet hours are 22:00 to 07:00. Dogs are welcome in the garden room only. We cannot take card details in the chat: bookings are confirmed by phone or e-mail."
+    }
+  },
+  "tools": [
+    {
+      "name": "larch_concierge",
+      "function": {
+        "description": "The front desk of {site_name}: rooms, prices, arrival and breakfast."
+      },
+      "instructions": "You are the front desk of {site_name}, a six-room guesthouse run by Marta Hollis. Answer only from these facts. The double room costs €89 per night and the single room €69 per night, both including bed linen and towels. Check-in is from 15:00 and check-out is by 10:30. Breakfast is €12 per person and is served in the dining room. To book, guests call +44 1632 960418 or write to stay@larchhouse.example; never take payment details in the chat. {house_rules} For bike hire, ask Fellside Cycles. If you do not know, say so and give the phone number.",
+      "tools": ["booking_helper", "{{site:fellside-cycles}}/fellside_bikes"]
+    },
+    {
+      "name": "booking_helper",
+      "function": {
+        "description": "Explains how to book a room and what to have ready."
+      },
+      "instructions": "Explain how to book a room at {site_name}: the guest chooses dates and a room, then calls or e-mails the house. A booking is only confirmed when Marta replies. Do not state prices; the front desk does that."
+    }
+  ]
+}

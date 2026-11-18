@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "description": "Bouquets, delivery and funeral flowers from Ivy Lane Florist.",
+    "sample_queries": [
+      "Do you deliver on Sunday?",
+      "How much is a seasonal bouquet?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Ivy Lane Florist"
+    }
+  },
+  "tools": [
+    {
+      "name": "florist_counter",
+      "function": {
+        "description": "The front desk of Ivy Lane Florist."
+      },
+      "instructions": "You are the counter of Ivy Lane Florist. A seasonal bouquet is £35, delivered free within 5 miles; order by 11:00 for same-day delivery Monday to Saturday. There is no Sunday delivery. For funeral flowers, ask the sympathy helper.",
+      "tools": [
+        "sympathy_helper"
+      ]
+    },
+    {
+      "name": "sympathy_helper",
+      "function": {
+        "description": "Funeral and sympathy flowers, gently."
+      },
+      "instructions": "Describe wreaths and sympathy bouquets gently and briefly, and offer a call back from the florist."
+    }
+  ]
+}

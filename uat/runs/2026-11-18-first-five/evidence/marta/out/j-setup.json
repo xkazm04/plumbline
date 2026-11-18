@@ -1,0 +1,232 @@
+{
+  "ok": true,
+  "exit": 0,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta",
+  "checks": [
+    {
+      "label": "the drift reading of the untouched site renders",
+      "pass": true
+    }
+  ],
+  "snaps": [
+    {
+      "name": "l2-01-setup-overview",
+      "url": "http://127.0.0.1:4199/",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-01-setup-overview.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-01-setup-overview.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-01-setup-overview.txt"
+    },
+    {
+      "name": "l2-02-setup-drift-empty",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-02-setup-drift-empty.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-02-setup-drift-empty.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-02-setup-drift-empty.txt"
+    },
+    {
+      "name": "l2-03-setup-drift-read",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-03-setup-drift-read.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-03-setup-drift-read.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-03-setup-drift-read.txt"
+    },
+    {
+      "name": "l2-04-setup-verify",
+      "url": "http://127.0.0.1:4199/#/verify",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-04-setup-verify.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-04-setup-verify.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-04-setup-verify.txt"
+    },
+    {
+      "name": "l2-05-setup-check",
+      "url": "http://127.0.0.1:4199/#/check",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-05-setup-check.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-05-setup-check.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-05-setup-check.txt"
+    },
+    {
+      "name": "l2-06-setup-assistant",
+      "url": "http://127.0.0.1:4199/#/check",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-06-setup-assistant.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-06-setup-assistant.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-06-setup-assistant.txt"
+    }
+  ],
+  "probes": [
+    {
+      "url": "http://127.0.0.1:4199/",
+      "items": [
+        {
+          "tag": "a",
+          "name": "Skip to the Desk",
+          "href": "#main"
+        },
+        {
+          "tag": "a",
+          "name": "What Plumbline is, and how to publish",
+          "href": "#/about"
+        },
+        {
+          "tag": "button",
+          "name": "Validator port: Passed. Shows its sentence in the verdict card.",
+          "type": "button"
+        },
+        {
+          "tag": "button",
+          "name": "Agent Atlas: Passed. Shows its sentence in the verdict card.",
+          "type": "button"
+        },
+        {
+          "tag": "button",
+          "name": "Agent Customs: Passed. Shows its sentence in the verdict card.",
+          "type": "button"
+        },
+        {
+          "tag": "a",
+          "name": "1. Check a site (Take a fix)",
+          "href": "#/check"
+        },
+        {
+          "tag": "a",
+          "name": "2. Read drift (Set and drift)",
+          "href": "#/drift"
+        },
+        {
+          "tag": "a",
+          "name": "3. Verify a signature (Read the papers)",
+          "href": "#/verify"
+        },
+        {
+          "tag": "a",
+          "name": "4. Make a publisher key (Cast a seal)",
+          "href": "#/key"
+        },
+        {
+          "tag": "a",
+          "name": "5. Sign a site's files (Sign the manifest)",
+          "href": "#/sign"
+        },
+        {
+          "tag": "a",
+          "name": "1. Check a siteTake a fix",
+          "href": "#/check"
+        },
+        {
+          "tag": "a",
+          "name": "2. Read driftSet and drift",
+          "href": "#/drift"
+        },
+        {
+          "tag": "a",
+          "name": "3. Verify a signatureRead the papers",
+          "href": "#/verify"
+        },
+        {
+          "tag": "a",
+          "name": "4. Make a publisher keyCast a seal",
+          "href": "#/key"
+        },
+        {
+          "tag": "a",
+          "name": "5. Sign a site's filesSign the manifest",
+          "href": "#/sign"
+        },
+        {
+          "tag": "button",
+          "name": "Agent CustomsPassed · example",
+          "type": "button"
+        },
+        {
+          "tag": "button",
+          "name": "Agent AtlasUnavailable · example",
+          "type": "button"
+        },
+        {
+          "tag": "button",
+          "name": "The challenge siteFailed · example",
+          "type": "button"
+        },
+        {
+          "tag": "a",
+          "name": "Agent Atlas",
+          "href": "https://agent-atlas-phi.vercel.app/"
+        },
+        {
+          "tag": "a",
+          "name": "Agent Customs",
+          "href": "https://montbaga.github.io/agent-customs/"
+        },
+        {
+          "tag": "button",
+          "name": "Check the partners now",
+          "id": "partners-check",
+          "type": "button"
+        },
+        {
+          "tag": "button",
+          "name": "Assistant",
+          "id": "dock-tab",
+          "type": "button"
+        }
+      ]
+    }
+  ],
+  "notes": {
+    "overview-probe": [
+      "Skip to the Desk",
+      "What Plumbline is, and how to publish",
+      "Validator port: Passed. Shows its sentence in the verdict card.",
+      "Agent Atlas: Passed. Shows its sentence in the verdict card.",
+      "Agent Customs: Passed. Shows its sentence in the verdict card.",
+      "1. Check a site (Take a fix)",
+      "2. Read drift (Set and drift)",
+      "3. Verify a signature (Read the papers)",
+      "4. Make a publisher key (Cast a seal)",
+      "5. Sign a site's files (Sign the manifest)",
+      "1. Check a siteTake a fix",
+      "2. Read driftSet and drift",
+      "3. Verify a signatureRead the papers",
+      "4. Make a publisher keyCast a seal",
+      "5. Sign a site's filesSign the manifest",
+      "Agent CustomsPassed · example",
+      "Agent AtlasUnavailable · example",
+      "The challenge siteFailed · example",
+      "Agent Atlas",
+      "Agent Customs",
+      "Check the partners now",
+      "Assistant"
+    ],
+    "drift-status": "Drift read: 1 finding, Warning. Unsigned lock: the host can rewrite it.",
+    "drift-result": "Lock read from http://127.0.0.1:4100/plumbline.lock.json\n\nunsigned lock: the host can rewrite it\n\nPEERS (1)\n!\nWARNING\nhttp://127.0.0.1:4101/fellside_bikes\n\nA peer could not be captured when the lock was written (pending since 2026-11-18), so it is not watched; run watch --relock once it answers.\n\nNot checked from a browser: the upstream nsdeploy commit (the CLI's watch asks GitHub).",
+    "verify-status": "Verify finished: Unverifiable.",
+    "verify-result": "?\nUNVERIFIABLE\nhttp://127.0.0.1:4100/\n\nYou have not met this signer yet, or the site publishes no signature. The files may be fine, but nothing here can vouch for them until you trust the publisher's key yourself.\n\nThe signature is internally consistent but the signer is unknown: this verifier has no trust entry for the key, so it proves nothing about who published the files.\n\nSigner key id\ne85f149386e93582\nSigned for origin\nhttp://127.0.0.1:4100\nFiles fetched from\nhttp://127.0.0.1:4100\nSigned files\nagent-manifest.json, larch_house.network.json, plumbline.lock.json\nFirst contact: trust this publisher?\n\nTrust is a decision you make, not something a site can announce about itself. Before you trust this key:\n\nLearn the publisher's key id through a channel that is not this site: in person, on a call, in a signed message or in a repository you already trust.\nCompare it with the key id below, character by character.\nSkipping this turns your trust store into a rubber stamp for whoever controls the site right now, which is exactly the attacker a signature is meant to exclude.\nKey id the site publishes\ne85f149386e93582\nPublic key\nIKQMZVIfpXXY-MXbZNWLdt11KiVnHVHjQpv9zO22OuQ\nI compared this key id, character by character, with one the publisher gave me through another channel.\nTrust this publisher for this origin",
+    "gate-status": "Check finished. Overall: Unavailable: no verdict.",
+    "gate-result": "Overall:\n⊘\nUNAVAILABLE: NO VERDICT\nhttp://127.0.0.1:4100/\n\nValidator port\n✓\nPASSED\n\nPlumbline's port of the reference validation rules (not the reference code) found no problem: 1 network definition checked.\n\nAgent Atlas\n⊘\nUNAVAILABLE: NO VERDICT\n\nAgent Atlas could not connect to the target, so it has no verdict about the site.\n\nAgent Customs\n⊘\nUNAVAILABLE: NO VERDICT\n\nUnavailable: no receipt for this target in Agent Customs' published receipts. The live network was not rechecked.\n\nIn a browser, \"the connection failed\" also covers a server that does not allow cross-origin reads (CORS). It is never counted as a pass.",
+    "assistant": "ASK THE PLUMBLINE DESK\nClose the assistant\n\nThe assistant can run the gate, read drift, verify a signature, make a key and, after you confirm, sign the files you picked on the page. It never sees your private key.\n\nYour messages and the results it reads go to the LLM provider you choose in the settings below. You confirm anything that cannot be undone before it happens.\n\nAssistant needs your AI provider key. Add it in AI model settings below.\n\nRemember my AI provider key on this device\n\nUnticked, the Desk keeps your key in this tab only: it removes it from this browser's saved setups when the page starts and when you leave it, whatever the settings below say. Ticked, the next Save and start keeps it in this browser.\n\nPlumbline Desk\nAPI key required\n⚙ Developer\n6 website actions connected\nCheck an agentic website with the gate, read its drift, verify its publisher signature, and make a key and sign agent files in your browser.\n\nTo start, add an AI provider key. In ⚙ AI model settings, choose a provider, create a key on its site, and paste it into the API key field. Then select Save and start. Your key is saved in this browser.\nSend\nNew chat\nAGENTS WORKING FOR YOU\n🧭\nPlumbline Desk\nyour concierge\n🏢\nagent-atlas-phi.vercel.app\npartner network\n🏢\nmontbaga.github.io\npartner network\n⚙ AI model settings\nSaved setup\nCustom / unsaved\nDon't have an API key?\n\nAn API key is a private code from an AI provider. It lets this page use that provider for you; it is not your password.\n\nWhat is an API key and how do I get one? ↗\n\nChoose a provider below and create a key. Its recommended settings will be filled in for you.\n\nOtari ↗\nBilling may be required\nGoogle AI Studio ↗\nFree tier\nGroq ↗\nFree tier\nOpenAI ↗\nBilling may be required\nAnthropic ↗\nBilling may be required\nFree tiers have usage limits and may vary by region. Other providers may require billing.\nAPI key *\nSave and start\nAdvanced settings (optional)\nTo start, add an AI provider key. In ⚙ AI model settings, choose a provider, create a key on its site, and paste it into the API key field. Then select Save and start. Your key is saved in this browser."
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "pageErrors": []
+}

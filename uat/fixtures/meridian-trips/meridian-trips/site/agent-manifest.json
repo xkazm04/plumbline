@@ -1,0 +1,37 @@
+{
+  "brand": "Meridian Trips",
+  "networks": [
+    {
+      "name": "meridian_trips",
+      "front_man": "trip_planner",
+      "hocon": "./meridian_trips.network.json",
+      "description": "Small-group tours in Portugal and Morocco: dates, prices, what is included, visas, and prices in your own currency.",
+      "tags": ["agentified-website", "travel", "tours"],
+      "sample_queries": [
+        "What does the Atlas Mountains trek cost and what is included?",
+        "Do I need a visa for Morocco with a UK passport?",
+        "How much is the Douro tour in US dollars?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "allowed_peers": ["{{site:coinbridge}}"],
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Asks Coinbridge to convert a tour price when a visitor asks for another currency."
+  },
+  "theme": {
+    "primary": "#0b5563"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "lockState": "found",
+  "findings": [
+    {
+      "kind": "grounding",
+      "severity": "warn",
+      "ref": "rooms.html",
+      "expected": "fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12",
+      "actual": "2f335822784f7c0e45077a224f79d89d0541f104c0b6a65f3da9466800e424b4",
+      "summary": "A grounding source changed since the lock was written; all 5 facts the network states from it are still on it."
+    },
+    {
+      "kind": "runtime",
+      "severity": "info",
+      "ref": "cognizant-ai-labs/agentic-web",
+      "summary": "Could not check upstream: GitHub rate-limited the request until epoch 1794999868."
+    }
+  ]
+}

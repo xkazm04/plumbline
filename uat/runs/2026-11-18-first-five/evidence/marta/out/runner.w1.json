@@ -1,0 +1,94 @@
+{
+  "label": "w1-relockpr-at-raise",
+  "harness": true,
+  "issues": "true",
+  "relockPr": "true",
+  "failedStep": null,
+  "steps": [
+    {
+      "id": "inputs",
+      "name": "Check the inputs",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {}
+    },
+    {
+      "id": "run",
+      "name": "Run plumbline",
+      "code": 0,
+      "stdoutTail": "{\n  \"lockState\": \"found\",\n  \"findings\": [\n    {\n      \"kind\": \"grounding\",\n      \"severity\": \"warn\",\n      \"ref\": \"rooms.html\",\n      \"expected\": \"87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee\",\n      \"actual\": \"fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\",\n      \"summary\": \"A grounding source changed since the lock was written; all 5 facts the network states from it are still on it.\"\n    },\n    {\n      \"kind\": \"runtime\",\n      \"severity\": \"info\",\n      \"ref\": \"cognizant-ai-labs/agentic-web\",\n      \"summary\": \"Could not check upstream: GitHub rate-limited the request until epoch 1794999868.\"\n    }\n  ]\n}\n",
+      "stderrTail": "local-cli: TEST HARNESS (uat/driver/local-cli.mjs): the built Plumbline modules with allowLocal; the product's CLI cannot do this run against a loopback site\n",
+      "outputs": {
+        "report": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/w1-relockpr-at-raise/plumbline-watch.json",
+        "findings": "1",
+        "issue-body": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/w1-relockpr-at-raise/plumbline-issue.md"
+      }
+    },
+    {
+      "id": "issue-plan",
+      "name": "Decide on the drift issue",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {
+        "action": "none",
+        "number": "1",
+        "comment": ""
+      }
+    },
+    {
+      "id": "issue-do",
+      "name": "Open, edit or close the drift issue",
+      "code": 0,
+      "stdoutTail": "The drift issue needs nothing.\n",
+      "stderrTail": "",
+      "outputs": {}
+    },
+    {
+      "id": "pr-plan",
+      "name": "Decide on the pull request",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "Switched to a new branch 'plumbline/relock'\nlocal-cli: TEST HARNESS (uat/driver/local-cli.mjs): the built Plumbline modules with allowLocal; the product's CLI cannot do this run against a loopback site\n",
+      "outputs": {
+        "action": "create",
+        "number": "",
+        "draft": "true",
+        "title": "Plumbline: accept the drift (relock)",
+        "branch": "plumbline/relock",
+        "body": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/w1-relockpr-at-raise/plumbline-pr/body.md",
+        "comment": ""
+      }
+    },
+    {
+      "id": "pr-do",
+      "name": "Open, update or close the pull request",
+      "code": 0,
+      "stdoutTail": "https://github.com/stub/stub/pull/2\n",
+      "stderrTail": "fatal: couldn't find remote ref refs/heads/plumbline/relock\n",
+      "outputs": {}
+    }
+  ],
+  "ghCallsThisRun": [
+    {
+      "run": "w1-relockpr-at-raise",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "w1-relockpr-at-raise",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    },
+    {
+      "run": "w1-relockpr-at-raise",
+      "call": "pr create --draft --head plumbline/relock --title Plumbline: accept the drift (relock) --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/w1-relockpr-at-raise/plumbline-pr/body.md",
+      "what": "pr create",
+      "notifies": true,
+      "number": 2
+    }
+  ]
+}

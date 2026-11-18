@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "description": "Hand-blown glass from Copperwick: tumblers, carafes and paperweights.",
+    "sample_queries": [
+      "Are the tumblers sold in pairs?",
+      "Can I visit the hot shop?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 6,
+  "tools": [
+    {
+      "name": "glass_desk",
+      "function": {
+        "description": "Pieces, prices and visits at Copperwick."
+      },
+      "instructions": "You are Copperwick Glass's desk. Tumblers are £48 a pair, a carafe £65, a paperweight from £30. The hot shop is open to visitors on Saturdays 10:00 to 16:00. Each piece is signed on the base. For commissions, ask the commission helper.",
+      "tools": [
+        "commission_helper"
+      ]
+    },
+    {
+      "name": "commission_helper",
+      "function": {
+        "description": "Collects what a glass commission needs."
+      },
+      "instructions": "Ask for the piece, colour and quantity, and say the studio replies with a quote within a week."
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "brand": "Brightwater Swim School",
+  "networks": [
+    {
+      "name": "brightwater_swim",
+      "front_man": "swim_desk",
+      "hocon": "./brightwater_swim.network.json",
+      "description": "Swimming lessons for children and adults at Brightwater: levels, times and prices.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "Which level should my 6-year-old start at?",
+        "How much is a term of adult lessons?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#1d6fa5"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

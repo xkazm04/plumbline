@@ -1,0 +1,101 @@
+{
+  "label": "w2-relockpr-after-fix",
+  "harness": true,
+  "issues": "true",
+  "relockPr": "true",
+  "failedStep": "pr-do",
+  "steps": [
+    {
+      "id": "inputs",
+      "name": "Check the inputs",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {}
+    },
+    {
+      "id": "run",
+      "name": "Run plumbline",
+      "code": 0,
+      "stdoutTail": "{\n  \"lockState\": \"found\",\n  \"findings\": [\n    {\n      \"kind\": \"grounding\",\n      \"severity\": \"warn\",\n      \"ref\": \"larch_house.network.json\",\n      \"expected\": \"af65d05e709de774cfc0dd8dd44e154f45d7e23092a03f9c53f0941634c1e489\",\n      \"actual\": \"09c35b8d4813be73049252ea49425f6b0aa595ebc411c13f048a592eeab3d43c\",\n      \"summary\": \"A grounding source changed since the lock was written; the agent now answers from different facts.\"\n    },\n    {\n      \"kind\": \"grounding\",\n      \"severity\": \"warn\",\n      \"ref\": \"rooms.html\",\n      \"expected\": \"87b52e6f251d7602dbb2cf220d211ca82fb54b059d8f826d04f111126457fbee\",\n      \"actual\": \"fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12\",\n      \"summary\": \"A grounding source changed since the lock was written; all 5 facts the network states from it are still on it.\"\n    },\n    {\n      \"kind\": \"runtime\",\n      \"severity\": \"info\",\n      \"ref\": \"cognizant-ai-labs/agentic-web\",\n      \"summary\": \"Could not check upstream: GitHub rate-limited the request until epoch 1794999868.\"\n    }\n  ]\n}\n",
+      "stderrTail": "local-cli: TEST HARNESS (uat/driver/local-cli.mjs): the built Plumbline modules with allowLocal; the product's CLI cannot do this run against a loopback site\n",
+      "outputs": {
+        "report": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/w2-relockpr-after-fix/plumbline-watch.json",
+        "findings": "2",
+        "issue-body": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/w2-relockpr-after-fix/plumbline-issue.md"
+      }
+    },
+    {
+      "id": "issue-plan",
+      "name": "Decide on the drift issue",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "",
+      "outputs": {
+        "action": "edit",
+        "number": "1",
+        "comment": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/w2-relockpr-after-fix/plumbline-issue-comment.md"
+      }
+    },
+    {
+      "id": "issue-do",
+      "name": "Open, edit or close the drift issue",
+      "code": 0,
+      "stdoutTail": "Updated issue #1\n",
+      "stderrTail": "",
+      "outputs": {}
+    },
+    {
+      "id": "pr-plan",
+      "name": "Decide on the pull request",
+      "code": 0,
+      "stdoutTail": "",
+      "stderrTail": "Switched to a new branch 'plumbline/relock'\nlocal-cli: TEST HARNESS (uat/driver/local-cli.mjs): the built Plumbline modules with allowLocal; the product's CLI cannot do this run against a loopback site\n",
+      "outputs": {
+        "action": "edit",
+        "number": "2",
+        "draft": "true",
+        "title": "Plumbline: accept the drift (relock)",
+        "branch": "plumbline/relock",
+        "body": "C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/w2-relockpr-after-fix/plumbline-pr/body.md",
+        "comment": ""
+      }
+    },
+    {
+      "id": "pr-do",
+      "name": "Open, update or close the pull request",
+      "code": 1,
+      "stdoutTail": "",
+      "stderrTail": "To C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/remote.git\n ! [rejected]        HEAD -> plumbline/relock (stale info)\nerror: failed to push some refs to 'C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/remote.git'\n",
+      "outputs": {}
+    }
+  ],
+  "ghCallsThisRun": [
+    {
+      "run": "w2-relockpr-after-fix",
+      "call": "issue list --state open --search \"Plumbline drift\" in:title --json number,title,body --limit 50",
+      "what": "issue list",
+      "notifies": false
+    },
+    {
+      "run": "w2-relockpr-after-fix",
+      "call": "issue edit 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/w2-relockpr-after-fix/plumbline-issue.md",
+      "what": "issue edit",
+      "notifies": false,
+      "number": 1
+    },
+    {
+      "run": "w2-relockpr-after-fix",
+      "call": "issue comment 1 --body-file C:/Users/kazda/AppData/Local/Temp/plumbline-uat-larch-house-HS8ZrG/_uat/tmp/w2-relockpr-after-fix/plumbline-issue-comment.md",
+      "what": "issue comment",
+      "notifies": true,
+      "number": 1
+    },
+    {
+      "run": "w2-relockpr-after-fix",
+      "call": "pr list --head plumbline/relock --state open --json number,body,isDraft",
+      "what": "pr list",
+      "notifies": false
+    }
+  ]
+}

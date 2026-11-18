@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "description": "Handwoven wool throws and rugs from Dovetail Weaving.",
+    "sample_queries": [
+      "What size is the herringbone throw?",
+      "Is the wool local?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 6,
+  "tools": [
+    {
+      "name": "loom_keeper",
+      "function": {
+        "description": "Throws, rugs, sizes and prices at Dovetail."
+      },
+      "instructions": "You are Dovetail Weaving's loom keeper. The herringbone throw is 130 by 180 cm, £165; the runner rug 70 by 200 cm, £210. The wool is from Herdwick and Swaledale flocks within 30 miles. Dry clean only. For colours, ask the colour card helper.",
+      "tools": [
+        "colour_card"
+      ]
+    },
+    {
+      "name": "colour_card",
+      "function": {
+        "description": "The undyed and plant-dyed colours available."
+      },
+      "instructions": "List the undyed greys and the plant-dyed colours (madder, weld, indigo) and say colours vary by batch."
+    }
+  ]
+}

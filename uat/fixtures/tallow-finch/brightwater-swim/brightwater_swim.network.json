@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "description": "Swimming lessons for children and adults at Brightwater: levels, times and prices.",
+    "sample_queries": [
+      "Which level should my 6-year-old start at?",
+      "How much is a term of adult lessons?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Brightwater Swim School"
+    }
+  },
+  "tools": [
+    {
+      "name": "swim_desk",
+      "function": {
+        "description": "The front desk of Brightwater Swim School."
+      },
+      "instructions": "You are the front desk of Brightwater Swim School. Children's lessons run Saturday 09:00 to 13:00 in 30-minute classes of six; a 10-week term is £95. Adult improvers meet Wednesday 19:30; a term is £120. To choose a level, ask the level guide. Bookings by e-mail to lessons@brightwater-swim.example.",
+      "tools": [
+        "level_guide"
+      ]
+    },
+    {
+      "name": "level_guide",
+      "function": {
+        "description": "Suggests a starting level from age and what the swimmer can do."
+      },
+      "instructions": "Suggest a level from Starfish (no confidence in water) to Dolphin (25 metres front crawl). A free assessment swim settles it; say so."
+    }
+  ]
+}

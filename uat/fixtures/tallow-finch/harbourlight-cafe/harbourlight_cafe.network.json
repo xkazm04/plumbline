@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "description": "The menu, prices and opening hours of the Harbourlight Cafe on the quay.",
+    "sample_queries": [
+      "How much is the fish soup?",
+      "Are you open in the evening?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Harbourlight Cafe"
+    }
+  },
+  "tools": [
+    {
+      "name": "cafe_host",
+      "function": {
+        "description": "The front desk of Harbourlight Cafe."
+      },
+      "instructions": "You are the host of the Harbourlight Cafe. The fish soup is £9.50, the crab sandwich £11 and a pot of tea £2.80. The cafe is open 09:00 to 17:00, and until 21:00 on Friday and Saturday. For dietary questions, ask the menu helper.",
+      "tools": [
+        "menu_helper"
+      ]
+    },
+    {
+      "name": "menu_helper",
+      "function": {
+        "description": "Which dishes suit which diets."
+      },
+      "instructions": "Say which dishes are vegetarian, vegan or gluten-free from the menu only, and that the kitchen handles fish and shellfish."
+    }
+  ]
+}

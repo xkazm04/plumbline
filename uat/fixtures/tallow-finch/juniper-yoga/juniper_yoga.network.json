@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "description": "Classes, passes and teachers at Juniper Yoga.",
+    "sample_queries": [
+      "How much is a 10-class pass?",
+      "Is there a beginners' class?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Juniper Yoga"
+    }
+  },
+  "tools": [
+    {
+      "name": "studio_desk",
+      "function": {
+        "description": "The front desk of Juniper Yoga."
+      },
+      "instructions": "You are the desk of Juniper Yoga. A drop-in class is £14 and a 10-class pass £120, valid 4 months. Beginners meet Monday and Thursday 18:00. For which class suits someone, ask the class guide.",
+      "tools": [
+        "class_guide"
+      ]
+    },
+    {
+      "name": "class_guide",
+      "function": {
+        "description": "Which class suits which experience level."
+      },
+      "instructions": "Suggest a class by experience and say anyone with an injury should tell the teacher first."
+    }
+  ]
+}

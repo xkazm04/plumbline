@@ -1,0 +1,26 @@
+{
+  "brand": "Coinbridge",
+  "networks": [
+    {
+      "name": "coinbridge_fx",
+      "front_man": "fx_front",
+      "hocon": "./coinbridge_fx.network.json",
+      "description": "Converts a price between currencies at Coinbridge's mid-market rate of the day, for any site that links us.",
+      "tags": ["agentified-website", "currency", "partner-service"],
+      "sample_queries": ["What is 1490 EUR in USD today?", "Convert 980 euros to pounds."]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "open",
+    "note": "Any agentic site may link coinbridge_fx."
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true
+  }
+}

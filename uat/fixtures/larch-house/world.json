@@ -1,0 +1,28 @@
+{
+  "world": "larch-house",
+  "journey": "j1-price-changed",
+  "character": "marta-hollis",
+  "portBase": 4100,
+  "start": "setup",
+  "sites": [
+    {
+      "name": "larch-house",
+      "role": "the guesthouse (publisher); a repository whose site/ folder is served",
+      "repo": true,
+      "runtime": "agentic-web-7ee54a3"
+    },
+    {
+      "name": "fellside-cycles",
+      "role": "the bike-rental partner the guesthouse links (a peer)",
+      "runtime": "nsdeploy-53a787c"
+    }
+  ],
+  "acts": {
+    "setup": "The site as Jonas left it: plumbline.lock.json written by init with rooms.html as a --source, the daily workflow file in the repository, the site signed with Jonas's throwaway key and its key record published. Played by up.",
+    "raise-price": "rooms.html: the double room goes from €89 to €95. The network still says €89.",
+    "fix-network": "larch_house.network.json: the double room is corrected to €95 (what Jonas would do). Needs raise-price first. Nothing is relocked or signed.",
+    "cosmetic-edit": "rooms.html: wording only (the introduction and the breakfast sentence are rewritten); every price, time and phone number the network states is still on the page.",
+    "rooms-no-cors": "Added at the coordinator's request, not in the journey file: rooms.html is served WITHOUT Access-Control-Allow-Origin (an ordinary host's default), so the Desk's reading of the rooms page from another origin can be tested. Every other file keeps the header.",
+    "rooms-cors": "The inverse of rooms-no-cors: rooms.html is served with Access-Control-Allow-Origin: * again."
+  }
+}

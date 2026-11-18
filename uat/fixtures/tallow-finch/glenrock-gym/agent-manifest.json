@@ -1,0 +1,38 @@
+{
+  "brand": "Glenrock Gym",
+  "networks": [
+    {
+      "name": "glenrock_gym",
+      "front_man": "gym_desk",
+      "hocon": "./glenrock_gym.network.json",
+      "description": "Memberships, classes and opening hours at Glenrock Gym.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "How much is a monthly membership?",
+        "When is the next spin class?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#a33b20"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

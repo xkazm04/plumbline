@@ -1,0 +1,71 @@
+{
+  "ok": false,
+  "exit": 2,
+  "playwright": {
+    "how": "npx cache",
+    "from": "C:\\Users\\kazda\\AppData\\Local\\npm-cache\\_npx\\e41f203b7505f1fb\\node_modules\\playwright",
+    "version": "1.65.1"
+  },
+  "baseUrl": "http://127.0.0.1:4199/",
+  "shotDir": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta",
+  "checks": [
+    {
+      "label": "the tool result carries what the page states now or what the network states (a price)",
+      "pass": false
+    },
+    {
+      "label": "the tool result carries the lock contents (sources and anchor counts)",
+      "pass": false
+    }
+  ],
+  "snaps": [
+    {
+      "name": "l2-40-assistant-keyless",
+      "url": "http://127.0.0.1:4199/#/drift",
+      "png": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-40-assistant-keyless.png",
+      "aria": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-40-assistant-keyless.aria.yml",
+      "txt": "C:\\Users\\kazda\\kiro\\plumbline\\uat\\runs\\2026-11-18-first-five\\shots\\marta\\l2-40-assistant-keyless.txt"
+    }
+  ],
+  "probes": [],
+  "notes": {
+    "read_drift tool result (cosmetic-edit state)": {
+      "target": "http://127.0.0.1:4100/",
+      "lockUrl": "http://127.0.0.1:4100/plumbline.lock.json",
+      "lockFound": true,
+      "lockState": "found",
+      "lockSigned": false,
+      "lock": "unsigned lock: the host can rewrite it",
+      "findings": [
+        {
+          "kind": "grounding",
+          "severity": "warn",
+          "ref": "rooms.html",
+          "expected": "fb8204b47dab5d270492f2959c1632e5da4b54312354ffabdf8661abd08e0c12",
+          "actual": "2f335822784f7c0e45077a224f79d89d0541f104c0b6a65f3da9466800e424b4",
+          "summary": "A grounding source changed since the lock was written; all 5 facts the network states from it are still on it."
+        },
+        {
+          "kind": "peer",
+          "severity": "warn",
+          "ref": "http://127.0.0.1:4101/fellside_bikes",
+          "summary": "A peer in this lock was not contacted: it is not an https address, which a published lock may not point a browser at."
+        }
+      ],
+      "unreachablePeers": []
+    },
+    "composer-present": 0,
+    "assistant-status": "Assistant needs your AI provider key. Add it in AI model settings below."
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "pageErrors": []
+}

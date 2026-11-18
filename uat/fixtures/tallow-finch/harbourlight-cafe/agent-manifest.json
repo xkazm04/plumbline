@@ -1,0 +1,38 @@
+{
+  "brand": "Harbourlight Cafe",
+  "networks": [
+    {
+      "name": "harbourlight_cafe",
+      "front_man": "cafe_host",
+      "hocon": "./harbourlight_cafe.network.json",
+      "description": "The menu, prices and opening hours of the Harbourlight Cafe on the quay.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "How much is the fish soup?",
+        "Are you open in the evening?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#c27c0e"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

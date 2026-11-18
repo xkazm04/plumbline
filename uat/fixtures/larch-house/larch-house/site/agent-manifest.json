@@ -1,0 +1,38 @@
+{
+  "brand": "Larch House",
+  "networks": [
+    {
+      "name": "larch_house",
+      "front_man": "larch_concierge",
+      "hocon": "./larch_house.network.json",
+      "description": "Rooms, prices, check-in and breakfast at Larch House, a six-room guesthouse in Fellside, and bike hire through our partner.",
+      "tags": ["agentified-website", "hospitality", "guesthouse"],
+      "sample_queries": [
+        "How much is a double room?",
+        "What time can we check in?",
+        "Is breakfast included?",
+        "Can we hire bikes nearby?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "allowed_peers": ["{{site:fellside-cycles}}"],
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Asks Fellside Cycles about bike hire only when a guest asks."
+  },
+  "theme": {
+    "primary": "#3d5a3a"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

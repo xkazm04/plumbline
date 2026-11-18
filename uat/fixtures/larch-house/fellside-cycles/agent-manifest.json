@@ -1,0 +1,26 @@
+{
+  "brand": "Fellside Cycles",
+  "networks": [
+    {
+      "name": "fellside_bikes",
+      "front_man": "bike_desk",
+      "hocon": "./fellside_bikes.network.json",
+      "description": "Bike and e-bike hire by the day or half day in Fellside, with routes around the lake.",
+      "tags": ["agentified-website", "bike-hire"],
+      "sample_queries": ["How much is an e-bike for a day?", "Do you deliver bikes to guesthouses?"]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "open",
+    "note": "Any site may link our bike desk."
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "relocked": true,
+  "previous": "found",
+  "changes": {
+    "added": [],
+    "removed": [],
+    "changed": [
+      "grounding rooms.html"
+    ]
+  },
+  "findings": [],
+  "reminder": "plumbline.lock.json is a signed file: sign the site again (plumbline sign) and commit both, or its signature reads invalid (tampered)."
+}

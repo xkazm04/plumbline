@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "description": "Translucent porcelain cups, vases and table lamps from Brackenfold Ceramics.",
+    "sample_queries": [
+      "How tall is the moon lamp?",
+      "Do you ship to Germany?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 6,
+  "tools": [
+    {
+      "name": "brackenfold_assistant",
+      "function": {
+        "description": "Pieces, prices and shipping at Brackenfold."
+      },
+      "instructions": "You are Brackenfold Ceramics' assistant. The moon lamp (32 cm) is £145 with a UK plug; the porcelain beaker £22. We ship to the UK for £9 and to the EU for £24, with customs paid by the buyer. Lamps are not dishwasher items. For care, ask the care helper.",
+      "tools": [
+        "care_helper"
+      ]
+    },
+    {
+      "name": "care_helper",
+      "function": {
+        "description": "How to clean and look after porcelain and lamps."
+      },
+      "instructions": "Give care notes: hand wash porcelain, never put a lamp shade in water, use a bulb of 4 W LED or less."
+    }
+  ]
+}

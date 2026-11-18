@@ -1,0 +1,25 @@
+{
+  "world": "tallow-finch",
+  "journey": "j4-twelve-clients",
+  "character": "priya-raman",
+  "portBase": 4400,
+  "start": "portfolio",
+  "sites": [
+    { "name": "alder-bakery", "role": "client, live", "state": "healthy and signed (locked, then signed)", "runtime": "nsdeploy-53a787c" },
+    { "name": "brightwater-swim", "role": "client, live", "state": "healthy and unsigned (locked, not signed)", "runtime": "nsdeploy-53a787c" },
+    { "name": "copperleaf-dental", "role": "client, live", "state": "the manifest's front_man (copperleaf_receptionist) does not match the network's front agent (copperleaf_front_desk); locked", "runtime": "nsdeploy-53a787c" },
+    { "name": "dunmore-books", "role": "client, ABOUT TO LAUNCH (the defective launch)", "state": "the network repeats its commondefs key: a JSON reader sees 'All sales are final', the runtime merges both, and the page says 30-day refunds; locked, not signed", "runtime": "agentic-web-7ee54a3" },
+    { "name": "elm-street-vets", "role": "client, live", "state": "a missing network file: the manifest names elm_street_vets.network.json, which answers 404; no lock", "runtime": "nsdeploy-53a787c" },
+    { "name": "fernhill-hotel", "role": "client, live", "state": "an expired signature (signed dated 60 days ago for 30 days); locked", "runtime": "nsdeploy-53a787c" },
+    { "name": "glenrock-gym", "role": "client, live", "state": "a tampered signed file: the network's membership price was edited after signing; locked", "runtime": "nsdeploy-53a787c" },
+    { "name": "harbourlight-cafe", "role": "client, live", "state": "a published lock with drift: locked with menu.html as a --source, then the fish soup went from £9.50 to £10.50 on the menu; not signed", "runtime": "agentic-web-7ee54a3" },
+    { "name": "ivy-lane-florist", "role": "client, live", "state": "no lock, not signed, otherwise healthy", "runtime": "nsdeploy-53a787c" },
+    { "name": "juniper-yoga", "role": "client, live", "state": "answers slowly: every response waits 12 s (above the 10 s default per-fetch timeout); locked and signed", "runtime": "nsdeploy-53a787c", "behaviour": { "state": "slow", "delayMs": 12000 } },
+    { "name": "kestrel-plumbing", "role": "client, live", "state": "down: its port refuses connections; locked and signed on disk", "runtime": "nsdeploy-53a787c", "behaviour": { "state": "down" } },
+    { "name": "lumen-opticians", "role": "client, live", "state": "agent-manifest.json is not JSON (a comment and a trailing comma from a hosting panel's editor); no lock", "runtime": "nsdeploy-53a787c" }
+  ],
+  "acts": {
+    "portfolio": "The twelve client sites in their states (see each site's state). Played by up: locks by init, signatures by sign with one throwaway key per client, then the edits that make the expired, tampered and drifted states.",
+    "fix-launch": "dunmore-books: the repeated commondefs key is removed; one commondefs holds the 30-day returns policy the page states."
+  }
+}

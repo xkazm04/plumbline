@@ -1,0 +1,38 @@
+{
+  "brand": "Elm Street Vets",
+  "networks": [
+    {
+      "name": "elm_street_vets",
+      "front_man": "vet_reception",
+      "hocon": "./elm_street_vets.network.json",
+      "description": "Appointments, vaccinations and emergency care at Elm Street Vets.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "How much is a puppy vaccination course?",
+        "My dog ate chocolate, what now?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#3b7a3b"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

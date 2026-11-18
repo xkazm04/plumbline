@@ -1,0 +1,38 @@
+{
+  "brand": "Juniper Yoga",
+  "networks": [
+    {
+      "name": "juniper_yoga",
+      "front_man": "studio_desk",
+      "hocon": "./juniper_yoga.network.json",
+      "description": "Classes, passes and teachers at Juniper Yoga.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "How much is a 10-class pass?",
+        "Is there a beginners' class?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#5a7d2a"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

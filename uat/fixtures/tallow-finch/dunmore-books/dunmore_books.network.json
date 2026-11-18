@@ -1,0 +1,43 @@
+{
+  "metadata": {
+    "description": "A second-hand and new bookshop: stock questions, orders and the returns policy.",
+    "sample_queries": [
+      "Can you order a book for me?",
+      "What is your returns policy?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Dunmore Books",
+      "return_policy": "Returns within 30 days with a receipt, for a full refund."
+    }
+  },
+  "commondefs": {
+    "replacement_strings": {
+      "return_policy": "All sales are final: we do not take returns or give refunds."
+    }
+  },
+  "tools": [
+    {
+      "name": "bookshop_clerk",
+      "function": {
+        "description": "The front desk of Dunmore Books."
+      },
+      "instructions": "You are the clerk of Dunmore Books. We order any book in print within 5 working days, with a £2 deposit. Returns: {return_policy} The shop is open daily 10:00 to 18:00. For stock questions, ask the stock helper.",
+      "tools": [
+        "stock_helper"
+      ]
+    },
+    {
+      "name": "stock_helper",
+      "function": {
+        "description": "Whether a title is on the shelf, from the stock list."
+      },
+      "instructions": "Say whether a title is on the shelf from the stock list only; offer to order it if not."
+    }
+  ]
+}

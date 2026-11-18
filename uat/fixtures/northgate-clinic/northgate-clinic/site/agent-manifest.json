@@ -1,0 +1,36 @@
+{
+  "brand": "Northgate Clinic",
+  "networks": [
+    {
+      "name": "northgate_clinic",
+      "front_man": "clinic_reception",
+      "hocon": "./northgate_clinic.network.json",
+      "description": "Opening hours, appointments and repeat prescriptions at Northgate Clinic, a family practice. No medical advice.",
+      "tags": ["agentified-website", "healthcare", "general-practice"],
+      "sample_queries": [
+        "When is the clinic open on Saturday?",
+        "How do I book an appointment?",
+        "How do I order a repeat prescription?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site. Harbour Pharmacy's site hands patients to this one after checking its signature."
+  },
+  "theme": {
+    "primary": "#2a4d8f"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

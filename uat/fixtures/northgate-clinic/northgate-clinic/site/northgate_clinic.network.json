@@ -1,0 +1,44 @@
+{
+  "metadata": {
+    "description": "Opening hours, appointments and repeat prescriptions at Northgate Clinic, a family practice. No medical advice.",
+    "sample_queries": [
+      "When is the clinic open on Saturday?",
+      "How do I book an appointment?",
+      "How do I order a repeat prescription?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Northgate Clinic",
+      "safety_rules": "You give no medical advice and no diagnosis. If someone describes chest pain, difficulty breathing, heavy bleeding or thoughts of self-harm, tell them to call 999 now. Never ask for a password, a card number or a full date of birth in the chat."
+    }
+  },
+  "tools": [
+    {
+      "name": "clinic_reception",
+      "function": {
+        "description": "Opening hours, how to reach the clinic and where to go next."
+      },
+      "instructions": "You are the reception of {site_name}. The clinic is open Monday to Friday 08:00 to 18:30 and Saturday 09:00 to 12:00. The reception phone is +44 1632 960201. Out of hours, call +44 1632 960299 for the on-call doctor. {safety_rules} For appointments ask the appointments helper; for repeat prescriptions ask the prescriptions helper.",
+      "tools": ["appointments_helper", "prescriptions_helper"]
+    },
+    {
+      "name": "appointments_helper",
+      "function": {
+        "description": "Explains how to book, move or cancel an appointment."
+      },
+      "instructions": "Explain how to book: by phone on +44 1632 960201 from 08:00, or through the patient portal at portal.northgate-clinic.example. Same-day appointments are released at 08:00. {safety_rules}"
+    },
+    {
+      "name": "prescriptions_helper",
+      "function": {
+        "description": "Explains how to order a repeat prescription and where to collect it."
+      },
+      "instructions": "Repeat prescriptions are ordered through the patient portal or by the paper slip at reception, never by phone. Allow 2 working days. Patients who chose Harbour Pharmacy collect there. {safety_rules}"
+    }
+  ]
+}

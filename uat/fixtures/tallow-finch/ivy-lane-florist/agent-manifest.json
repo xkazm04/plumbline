@@ -1,0 +1,38 @@
+{
+  "brand": "Ivy Lane Florist",
+  "networks": [
+    {
+      "name": "ivy_lane_florist",
+      "front_man": "florist_counter",
+      "hocon": "./ivy_lane_florist.network.json",
+      "description": "Bouquets, delivery and funeral flowers from Ivy Lane Florist.",
+      "tags": [
+        "agentified-website",
+        "small-business"
+      ],
+      "sample_queries": [
+        "Do you deliver on Sunday?",
+        "How much is a seasonal bouquet?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "Calls no other site."
+  },
+  "theme": {
+    "primary": "#2e7d4f"
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "browser_mock": false,
+    "direct_byok": true
+  }
+}

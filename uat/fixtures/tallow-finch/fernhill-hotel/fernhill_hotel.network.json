@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "description": "Rooms, dining and events at the Fernhill Hotel.",
+    "sample_queries": [
+      "What does a superior double cost?",
+      "Can we hold a wedding at Fernhill?"
+    ]
+  },
+  "llm_config": {
+    "model_name": "alibaba/qwen3.8-flash"
+  },
+  "max_steps": 8,
+  "commondefs": {
+    "replacement_strings": {
+      "site_name": "Fernhill Hotel"
+    }
+  },
+  "tools": [
+    {
+      "name": "hotel_concierge",
+      "function": {
+        "description": "The front desk of Fernhill Hotel."
+      },
+      "instructions": "You are the concierge of the Fernhill Hotel. A classic double is £145 and a superior double £185 per night with breakfast. Check-in is from 14:00, check-out by 11:00. The restaurant serves dinner 18:30 to 21:30. For weddings and events, ask the events helper.",
+      "tools": [
+        "events_helper"
+      ]
+    },
+    {
+      "name": "events_helper",
+      "function": {
+        "description": "Weddings, meetings and private dining at Fernhill."
+      },
+      "instructions": "Describe the three event rooms and say that the events team sends a quote; never quote an event price yourself."
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "world": "northgate-clinic",
+  "journey": "j3-stolen-key",
+  "character": "ines-baptista",
+  "portBase": 4300,
+  "start": "signed",
+  "sites": [
+    {
+      "name": "northgate-clinic",
+      "role": "the clinic (publisher); a repository whose site/ folder is served",
+      "repo": true,
+      "runtime": "agentic-web-7ee54a3"
+    },
+    {
+      "name": "northgate-mirror",
+      "role": "the attacker's address: a parked page until the forgery act puts a mirror of the clinic there"
+    }
+  ],
+  "extras": [
+    {
+      "name": "harbour-pharmacy",
+      "role": "the pharmacy, a verifier and not a site: its plumbline.trust.json (empty at the start) and its notes"
+    }
+  ],
+  "acts": {
+    "signed": "The clinic's site signed with key A (keys/clinic-a, a throwaway key made by keygen) for the clinic's origin, key A's record published at .well-known/plumbline-key.json; the pharmacy's trust file is empty. Played by up.",
+    "tamper": "One signed file on the clinic's site is edited after signing: the out-of-hours number in northgate_clinic.network.json changes.",
+    "forgery": "The mirror serves a copy of the clinic's agent files with altered instructions, with key A's record, validly signed with key A for the CLINIC's origin (the attacker has the stolen key file).",
+    "forgery-own-origin": "The thief re-signs the mirror (the forgery's altered files) with the stolen key A for the MIRROR's own origin, not the clinic's. Needs forgery first; refused once attacker-rotates has been played. Added after run 2026-11-18-first-five.",
+    "expire": "The clinic is signed again with key A, dated 31 days ago with a 30-day lifetime, so its expiresAt is one day past. Refused when the clinic is no longer signed by key A, or key A is revoked there.",
+    "attacker-rotates": "The mirror publishes plumbline-rotation.json from key A to the attacker's own key (keys/attacker), publishes that key's record and is signed with it. Needs forgery first."
+  }
+}

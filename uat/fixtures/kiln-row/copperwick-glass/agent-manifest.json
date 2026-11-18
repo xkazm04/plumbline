@@ -1,0 +1,32 @@
+{
+  "brand": "Copperwick Glass",
+  "networks": [
+    {
+      "name": "copperwick_glass",
+      "front_man": "glass_desk",
+      "hocon": "./copperwick_glass.network.json",
+      "description": "Hand-blown glass from Copperwick: tumblers, carafes and paperweights.",
+      "tags": [
+        "agentified-website",
+        "maker"
+      ],
+      "sample_queries": [
+        "Are the tumblers sold in pairs?",
+        "Can I visit the hot shop?"
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": "https://api.otari.ai/api/v1",
+    "mock": false,
+    "byok_router": "https://api.otari.ai/api/v1"
+  },
+  "peer_policy": {
+    "mode": "open",
+    "note": "Marketplaces that list our pieces may link our assistant."
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true
+  }
+}

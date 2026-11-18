@@ -1,0 +1,30 @@
+{
+  "world": "meridian-trips",
+  "journey": "j2-partner-changed",
+  "character": "dev-okafor",
+  "portBase": 4200,
+  "start": "fresh",
+  "sites": [
+    {
+      "name": "meridian-trips",
+      "role": "the travel agency (publisher); a fresh checkout whose site/ folder is served: no lock, no key, no workflow",
+      "repo": true,
+      "runtime": "agentic-web-7ee54a3"
+    },
+    {
+      "name": "coinbridge",
+      "role": "the currency-converter partner, run by another company (a peer)",
+      "runtime": "nsdeploy-53a787c"
+    }
+  ],
+  "acts": {
+    "fresh": "The agency's checkout with no lock, no key and no workflow; Coinbridge serving its original definition (two agents, no links.json). Played by up (it changes nothing).",
+    "partner-adds-agent": "coinbridge_fx.network.json gains the agent fee_estimator, which the front agent now calls, and fee_estimator calls a host Coinbridge never called before (mcp.ledgerline.example).",
+    "partner-adds-links": "Coinbridge starts serving a links.json (one slot, pointing at a third party).",
+    "partner-changes-again": "A second change while the first is unaccepted: fee_estimator's fee goes from 0.5% to 0.9% and rate_lookup's instructions change. Needs partner-adds-agent first.",
+    "partner-changes-fee": "A change to partner code that keeps every outline count the same: fee_estimator's conversion margin becomes 1.1% (no agent or host added or removed, front agent unchanged). Needs partner-adds-agent first. Added after run 2026-11-18-first-five.",
+    "partner-reformats": "coinbridge_fx.network.json is re-serialised (tab indentation, no change to any agent, host or the front agent).",
+    "partner-down": "Coinbridge stops answering (its port refuses connections).",
+    "partner-back": "World convenience, not in the journey: Coinbridge answers again."
+  }
+}
