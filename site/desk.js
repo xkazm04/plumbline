@@ -936,7 +936,14 @@ export class DeskPage {
     const again = await this.verifySite({ target: v.result.target });
     this.notices.trust = saved ? t("verify.trusted") : `${t("verify.trusted")} ${t("verify.storageUnavailable")}`;
     this.render("verify");
-    return { ok: true, kid, origin: v.result.fetchedFrom, ...(again && again.verdict ? { verdict: again.verdict } : {}) };
+    // UAT-32 (MAR-L2-04): the new verdict with its reason, so the page's status line can say it as a verify run does
+    return {
+      ok: true,
+      kid,
+      origin: v.result.fetchedFrom,
+      ...(again && again.verdict ? { verdict: again.verdict } : {}),
+      ...(again && again.reason ? { reason: again.reason, reasonInWords: again.reasonInWords } : {}),
+    };
   }
 
   forgetPublisher(kid, origin) {
@@ -1715,6 +1722,8 @@ function renderVerify(page) {
         status.textContent = result.reason;
       } else {
         page.notices.trustError = null;
+        // UAT-32 (MAR-L2-04): the live status line follows the verdict the page now shows, so a screen reader hears it
+        if (result.verdict) byId("verify-status").textContent = doneSentence("verify", result);
       }
     });
     box.append(h, el("p", t("verify.firstContactLead")), steps, keyFacts, label, button, status);
@@ -1793,7 +1802,7 @@ function renderTrustFile(page) {
     if (imp.rejected) box.append(el("p", t("verify.import.rejected", { n: imp.rejected }), "notice"));
     const row = el("div", null, "btnrow");
     if (imp.changes.length) {
-      const confirm = el("button", t("verify.import.confirm", { n: imp.changes.length }));
+      const confirm = el("button", importConfirmWords(imp.changes));
       confirm.type = "button";
       confirm.id = "trust-import-confirm";
       confirm.disabled = page.framed;
@@ -2171,6 +2180,18 @@ async function signFromPage() {
   }
   page.notices.sign = null;
   return page.signFiles({ expectedVersion: check.version });
+}
+
+/**
+ * The import button's words (UAT-32, INE-L2-3): what the changes do, with the grammar for one. Changes that only record
+ * revocations take trust away and say so; changes that add or replace trust say add; a mix says apply.
+ */
+export function importConfirmWords(changes) {
+  const n = changes.length;
+  const revoking = changes.every((c) => c.kind === "revokes" || c.kind === "staysRevoked");
+  const adding = changes.every((c) => c.kind === "adds" || c.kind === "replaces");
+  const key = revoking ? "confirmRevocations" : adding ? "confirm" : "confirmMixed";
+  return n === 1 ? t(`verify.import.${key}One`) : t(`verify.import.${key}`, { n });
 }
 
 /** The buttons that add trust, or make or use a key: refused in a frame, and without Ed25519. */

@@ -1988,7 +1988,8 @@ test("p-88842b: the trust store exports in the CLI's format and imports only wha
     assert.deepEqual(App.page.trust.list(), [], "an import added trust before the visitor confirmed");
     const shown = JSON.stringify(StubDocument.describe(document.getElementById("trust-io-result")));
     assert.ok(shown.includes(STRINGS.verify.import.kinds.adds) && shown.includes(STRINGS.verify.import.kinds.revokes));
-    assert.ok(shown.includes("Add these 3 to my trust list"));
+    // UAT-32 (INE-L2-3): one of the three takes trust away, so the button says apply, not add
+    assert.ok(shown.includes("Apply these 3 changes to my trust list"));
     assert.deepEqual(App.page.confirmTrustImport(), { ok: true, added: 3 });
     assert.equal(App.page.trust.find(c.key.kid, "https://c.example").adoptedVia, a.key.kid);
     assert.equal(App.page.trust.find(b.key.kid, "https://b.example").revokedAt, "2026-11-10T00:00:00.000Z");
@@ -2962,4 +2963,45 @@ test("UAT-31 (MAR-L1-12): read_drift returns the lock's sources and, per page, t
   } finally {
     restore();
   }
+});
+
+// ---- UAT-32: two small Desk honesty fixes ----
+
+test("UAT-32 (MAR-L2-04): after Trust, the live status line says the new verdict, not the one before", async () => {
+  const signer = await generateKey(NOW);
+  const { site } = await signedSite("https://statusline.example", signer);
+  App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+  const status = document.getElementById("verify-status");
+  try {
+    const before = await App.page.verifySite({ target: "https://statusline.example/" });
+    assert.equal(before.verdict, "unverifiable");
+    status.textContent = desk.doneSentence("verify", before);
+    assert.equal(status.textContent, "Verify finished: Unverifiable.");
+    // the page's own Trust button, as the visitor presses it after ticking the comparison
+    const shown = nodesOf(document.getElementById("verify-result"));
+    const box = shown.find((n) => n.id === "trust-compared");
+    const button = shown.find((n) => n.id === "trust-button");
+    assert.ok(box && button, "the first-contact box is on the page");
+    box.checked = true;
+    button.dispatch("click");
+    for (let i = 0; i < 50 && status.textContent !== "Verify finished: Verified."; i += 1) await settle();
+    assert.equal(App.page.verification.result.verdict, "verified");
+    assert.equal(status.textContent, "Verify finished: Verified.");
+  } finally {
+    status.textContent = "";
+    App.page.verification = null;
+    App.page.notices.trust = null;
+    restore();
+  }
+});
+
+test("UAT-32 (INE-L2-3): an import that only records revocations says so, with the grammar for one", () => {
+  const change = (kind) => ({ kind, entry: { kid: "a".repeat(16), origin: "https://a.example" } });
+  assert.equal(desk.importConfirmWords([change("revokes"), change("revokes")]), "Record these 2 revocations");
+  assert.equal(desk.importConfirmWords([change("revokes"), change("staysRevoked")]), "Record these 2 revocations");
+  assert.equal(desk.importConfirmWords([change("revokes")]), "Record this revocation");
+  assert.equal(desk.importConfirmWords([change("adds"), change("replaces")]), "Add these 2 to my trust list");
+  assert.equal(desk.importConfirmWords([change("adds")]), "Add this one to my trust list");
+  assert.equal(desk.importConfirmWords([change("adds"), change("revokes")]), "Apply these 2 changes to my trust list");
+  assert.equal(desk.importConfirmWords([change("replaces")]), "Add this one to my trust list");
 });
