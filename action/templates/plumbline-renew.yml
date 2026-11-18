@@ -4,8 +4,9 @@
 #     the secret store except as an environment variable of the sign step; it is never printed or written to disk);
 #   - a repository variable PLUMBLINE_ORIGIN, the https origin the site is published from (as `plumbline sign --origin`);
 #   - `root:` below set to the site folder holding plumbline.lock.json and plumbline.signature.json.
-# Weekly, it runs the watch; when the site's signature expires within 14 days, or has expired, the Action signs the same
-# files again on the branch plumbline/renew and opens (or updates) one pull request. Nothing is published until a person
+# Weekly, it runs the watch; when the site's signature expires within 14 days, has expired, or no longer covers the
+# files on the default branch (a relock pull request merged unsigned), the Action signs the files as they are on the
+# branch plumbline/renew and opens (or updates) one pull request. Nothing is published until a person
 # merges it. A run with nothing to renew closes that pull request. It keeps no drift issue (the watch workflow does).
 name: Plumbline renew
 
@@ -39,7 +40,7 @@ jobs:
       # The Action builds plumbline from its own checkout: pinning it by commit SHA pins the code that runs.
       - name: Renew the signature when it is due
         id: watch
-        uses: xkazm04/plumbline/action@69322e769b0b47febd37bd43d1ec8aa13085b290
+        uses: xkazm04/plumbline/action@931d8c831674b70f9738c2c8d823212f69708c8b
         with:
           command: watch
           root: "."
