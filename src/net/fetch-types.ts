@@ -124,3 +124,15 @@ export function describeFetchError(error: unknown, fallback = "the request faile
       return fallback;
   }
 }
+
+/**
+ * The address rule's sentence for a refusal of the address itself (not https, a private or loopback address, not a
+ * URL), in the words the watch's published reader uses for the same rule (watch/decide.ts peerAddressProblem), or
+ * undefined for any other failure. So a peer refused by safeFetch in the CLI and one refused by the Desk's check read
+ * the same (UAT-3, REC-2).
+ */
+export function addressProblemOf(error: unknown): string | undefined {
+  const code =
+    typeof error === "object" && error !== null && (error as { name?: unknown }).name === "SafeFetchError" ? (error as { code?: unknown }).code : undefined;
+  return code === "insecure-scheme" ? "it is not an https address" : code === "blocked-address" ? "it is a private or loopback address" : code === "bad-url" ? "it is not a valid URL" : undefined;
+}

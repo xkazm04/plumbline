@@ -166,7 +166,12 @@ test("peer: a peer on a private or loopback address is a warn through safeFetch'
 
 test("peer signer: a kid outside its exact pattern is never recorded or quoted; it counts as no usable signature", async () => {
   const hostile = { ...baseRoutes(), [PEER_SIGNATURE]: signed("SECRET <b>not-a-kid</b>") };
-  const root = await locked(hostile);
+  const root = copySite();
+  // a signature that cannot be read is said at capture (UAT-3), without quoting it
+  const capture = (await watch(root, hostile, { init: true })).findings;
+  assert.deepEqual(capture.map((f) => [f.severity, f.ref]), [["warn", PEER]]);
+  assert.match(capture[0]!.summary, /signature could not be read at capture \(its plumbline\.signature\.json has no valid kid\), so the lock records no key/);
+  assert.ok(capture.every((f) => !JSON.stringify(f).includes("SECRET")));
   assert.equal("kid" in (readLockOf(root).peers[PEER] ?? {}), false);
   const signedRoot = await locked({ ...baseRoutes(), [PEER_SIGNATURE]: signed("aaaaaaaaaaaaaaaa") });
   const { findings } = await watch(signedRoot, hostile);

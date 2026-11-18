@@ -126,6 +126,7 @@ export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Pr
     now: env.now,
     externals,
     extraSources,
+    ...(before !== undefined ? { previous: before } : {}),
     dropSources,
     ...(deps.runtimeDir !== undefined ? { runtimeDir: deps.runtimeDir } : {}),
   });

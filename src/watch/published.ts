@@ -30,6 +30,7 @@ import {
   peerAddressProblem,
   peerFindings,
   pendingPeerFindings,
+  type PendingObservation,
   refusedPeerFinding,
   runtimeFinding,
   type Lock,
@@ -210,6 +211,13 @@ export async function readPublishedLock(target: string, fetcher: Fetcher, option
     const finding = externalFinding(url, record, seen);
     if (finding) externalOut.push(finding);
   }
-  const peerOut = [...peers.flatMap((p) => p.findings), ...pendingPeerFindings(checked), ...externalOut];
+  // a pending peer is never contacted by a reader of a published lock (it was never pinned); one the address rule
+  // refuses says so in the rule's words, as the checkout's watch does (UAT-3, REC-2)
+  const today: Record<string, PendingObservation> = {};
+  for (const url of Object.keys(checked.pendingPeers ?? {})) {
+    const problem = peerAddressProblem(url);
+    if (problem !== null) today[url] = { notContacted: problem };
+  }
+  const peerOut = [...peers.flatMap((p) => p.findings), ...pendingPeerFindings(checked, today), ...externalOut];
   return { target, base, lockUrl, lockFound: true, lockState: "found", unreachablePeers, findings: [...grounding, ...runtime, ...peerOut] };
 }

@@ -11,7 +11,7 @@
 
 import { LINKS_FILE, PEER_LINKS_ABSENT, SIGNATURE_FILE } from "../core/types.js";
 import { hashBytes } from "../net/canonical.js";
-import { describeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
+import { addressProblemOf, describeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
 import { locatePeerFile, type Fetcher } from "../net/locate.js";
 import { readSignatureKid, type LinksRead, type Observed, type PeerObservation, type SignatureRead } from "./decide.js";
 import { peerOutline } from "./outline.js";
@@ -101,7 +101,9 @@ export async function observePeer(url: string, fetcher: Fetcher, options: PeerOb
     if (refused !== null) return { definition: { ok: false, refused }, signature: { none: true } };
     response = await fetcher(located.fileUrl, fetchOptions);
   } catch (error) {
-    return { definition: { ok: false, reason: why(error) }, signature: { none: true } };
+    // a refusal by the address rule (safeFetch's own) is said in the words the Desk's check uses (UAT-3, REC-2)
+    const addressProblem = addressProblemOf(error);
+    return { definition: { ok: false, reason: why(error), ...(addressProblem !== undefined ? { addressProblem } : {}) }, signature: { none: true } };
   }
   if (!response.ok) return { definition: { ok: false, status: response.status }, signature: { none: true } };
   const sha256 = await hashBytes(response.bytes);

@@ -47,7 +47,19 @@ export function runtimeProvenance(texts: string[]): { commit?: string; via?: Run
 
 export async function captureLock(
   env: DetectorEnv,
-  options: { extraSources?: string[]; dropSources?: string[]; runtimeDir?: string; externals?: { kind: ExternalKind; url: string }[]; now: Date },
+  options: {
+    extraSources?: string[];
+    dropSources?: string[];
+    runtimeDir?: string;
+    externals?: { kind: ExternalKind; url: string }[];
+    now: Date;
+    /**
+     * The lock a relock replaces. What cannot be re-read now keeps what this lock held (UAT-3): a pinned peer keeps its
+     * pin, a pending one its `since`, an external definition its record, and a peer whose signature cannot be read its
+     * kid. Nothing pinned is lost to an outage; each kept record is a finding that says so.
+     */
+    previous?: Lock;
+  },
 ): Promise<{ lock: Lock; findings: DriftFinding[]; coverage: FactCoverage }> {
   const findings: DriftFinding[] = [];
   const { root } = env;
@@ -158,15 +170,34 @@ export async function captureLock(
   // peers
   const peers: Lock["peers"] = {};
   const pendingPeers: Record<string, PendingPeer> = {};
+  const previous = options.previous;
+  const day = (iso: string): string => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10) : "earlier");
   for (const url of found.peers) {
     // the same reads every watch makes of a locked peer (observe.ts), with links.json always asked
     const seen = await observePeer(url, env.fetch, { fetchOptions: env.fetchOptions, links: true });
     const { definition: def, links, signature } = seen;
+    const pinned = previous?.peers[url];
     if (def.ok && links !== undefined && "state" in links) {
+      // the signer: a signature that could not be read is not "unsigned" (UAT-3, TOM-L1-08)
+      let kid = "kid" in signature ? signature.kid : undefined;
+      if ("problem" in signature) {
+        kid = pinned?.kid;
+        findings.push({
+          kind: "peer",
+          severity: "warn",
+          ref: url,
+          summary:
+            kid !== undefined
+              ? `A peer's signature could not be read at capture (${signature.problem}), so the lock keeps the key it recorded before; every watch compares the peer's signer with that key.`
+              : `A peer's signature could not be read at capture (${signature.problem}), so the lock records no key for it; re-lock once its signature answers.`,
+        });
+      } else if (kid === undefined && pinned?.kid !== undefined) {
+        findings.push({ kind: "peer", severity: "warn", ref: url, summary: "A peer the lock recorded as signed publishes no signature now; the new lock records it as unsigned." });
+      }
       peers[url] = {
         sha256: def.sha256,
         links: links.state,
-        ...("kid" in signature ? { kid: signature.kid } : {}),
+        ...(kid !== undefined ? { kid } : {}),
         ...(def.outline ? { outline: def.outline } : {}),
         checkedAt: options.now.toISOString(),
       };
@@ -175,22 +206,46 @@ export async function captureLock(
     const detail = !def.ok
       ? def.status !== undefined
         ? `answered HTTP ${def.status}`
-        : (def.refused ?? def.reason ?? "it could not be fetched")
+        : (def.addressProblem ?? def.refused ?? def.reason ?? "it could not be fetched")
       : links !== undefined && "problem" in links
         ? `its links.json ${links.problem}`
         : "it could not be fetched";
-    pendingPeers[url] = { since: options.now.toISOString() };
+    // UAT-3: what the previous lock held is kept, never replaced by "pending" because the peer is down today
+    if (pinned !== undefined) {
+      peers[url] = pinned;
+      findings.push({
+        kind: "peer",
+        severity: "warn",
+        ref: url,
+        summary: `A peer could not be re-read (${detail}), so the lock keeps its earlier pin (recorded ${day(pinned.checkedAt)}); every watch compares the peer with that pin.`,
+      });
+      continue;
+    }
+    const wasPending = previous?.pendingPeers?.[url];
+    pendingPeers[url] = wasPending ?? { since: options.now.toISOString() };
     findings.push({ kind: "peer", severity: "warn", ref: url, summary: `A peer could not be captured, so the lock holds it as pending and every watch reports it (${detail}).` });
   }
 
-  // external agent definitions (external.ts): through the same guarded fetch; one that cannot be read is left out of the
-  // lock and returned as a finding, as a missing grounding source is
+  // external agent definitions (external.ts): through the same guarded fetch. One the previous lock held that cannot be
+  // read now keeps its record (UAT-3, TOM-L1-04); a new one that cannot be read is left out of the lock and returned as
+  // a finding, as a missing grounding source is
   const external: Record<string, ExternalRecord> = {};
   for (const { kind, url } of options.externals ?? []) {
     if (url in external) continue;
     const seen = await observeExternal(url, kind, env.fetch, { fetchOptions: env.fetchOptions });
     if (!seen.ok) {
       const why = seen.unsupported ? "this build does not read that kind" : seen.status !== undefined ? `it answered HTTP ${seen.status}` : (seen.reason ?? "it could not be read");
+      const held = previous?.external?.[url];
+      if (held !== undefined && held.kind === kind) {
+        external[url] = held;
+        findings.push({
+          kind: "peer",
+          severity: "warn",
+          ref: url,
+          summary: `An external agent definition could not be re-read (${why}), so the lock keeps its earlier record (recorded ${day(held.checkedAt)}); every watch compares it with that record.`,
+        });
+        continue;
+      }
       findings.push({ kind: "peer", severity: "warn", ref: url, summary: `An external agent definition could not be locked (${why}), so it is not in the lock.` });
       continue;
     }

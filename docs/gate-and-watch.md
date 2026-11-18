@@ -104,12 +104,12 @@ a lock the browser was refused), so a drift count is a count of drift.
 | `runtime` (a) | each file in `runtime.files`, under the root | changed or missing: `block` (the vendored runtime is copy-do-not-change) |
 | `runtime` added | the locked runtime folder (the deepest folder holding every `runtime.files` key, such as `runtime` or `site/runtime`), listed | a file in it the lock does not hold: `block`, with its hash as `actual`, "added to the vendored runtime folder after the lock was written". Remove it, or review it and `--relock`. CLI only: a browser cannot list a folder |
 | `runtime` (b) | the runtime's upstream, from the GitHub API, unauthenticated (see "Which upstream the runtime check asks") | upstream moved on: `info` "Upstream is ahead" with both short SHAs. Cannot ask (timeout, rate limit, HTTP error, odd answer): `info` "Could not check upstream". Never `block` |
-| `peer` | each `peers[url]`: the network definition, hashed again | changed in any byte: `block` (a peer's definition runs in the visitor's browser, so a changed one is changed code). Unreachable: `warn` |
+| `peer` | each `peers[url]`: the network definition, hashed again | changed in any byte: `block` (a peer's definition runs in the visitor's browser, so a changed one is changed code). Unreachable: `warn`. An address the address rule refuses (not https, a private or loopback address) reads the same on every surface: "A peer in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked." |
 | `peer` outline | with a changed definition, its outline against the lock's (`src/watch/outline.ts`) | the same `block`; the summary adds what changed in counts: "In outline: agents: N added, N removed, N changed; outbound hosts: N added, N removed; front agent: changed or unchanged". The same outline is "Formatting or non-agent content only" (still `block`: the bytes the runtime reads changed). No outline in the lock: "re-lock to record one". A definition that cannot be outlined now (not JSON, a repeated key): said so |
 | `peer` links | each `peers[url].links`: the peer's `links.json` at the same site base (the runtime fetches it for every peer network it loads and lays it over that network's links) | appeared (locked `absent`, now served), changed, or gone (404/410 now): `block`. Cannot be read (timeout, HTTP 5xx): `warn`. A lock written before 2026-11-17 has no `links` for the peer: `warn`, "re-lock to track it", never a silent pass |
 | `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`. Signed when locked, no usable signature now: `warn`. Unsigned when locked, signed now: `info`. A `kid` that is not exactly 16 lowercase hex characters is never recorded or quoted; it counts as no usable signature |
 | `peer` external | each `external[url]` (an A2A Agent Card, `src/watch/external.ts`), fetched and hashed again | changed in any byte: `block`, with "In outline: skills: N added, N removed, N changed" and whether it carries JWS signatures (counted, not verified). Unreachable or an HTTP error: `warn`. An `mcp-tools` entry: `warn`, not checked by this build |
-| `peer` pending | each `pendingPeers[url]`: a peer that could not be captured when the lock was written | `warn` on every watch, reachable or not, until `--relock` captures it |
+| `peer` pending | each `pendingPeers[url]`: a peer that could not be captured when the lock was written | `warn` on every watch, reachable or not, until `--relock` captures it. The checkout's watch asks it again and says why it is still pending today: "it answers now: review it, then run watch --relock to capture it", "it still cannot be read (<cause>)", or "it was not contacted now either: it is not an https address". A reader of a published lock (`watch --url`, the Desk) never contacts a pending peer; it applies the address rule only |
 | coverage | what the site names now (the discovery `--init` uses, below) against what the lock holds | a root agent file or a manifest-named network file not in `grounding.sources`: `warn` (grounding). A peer a network or `links.json` names that is neither in `peers` nor pending: `warn` (peer). A network file that is not JSON, so its peers cannot be read: `warn` (peer). An unsafe `hocon`: `warn`, as at init |
 | signature expiry | the site's own `plumbline.signature.json` at the root, its `expiresAt` | expired: `block` (verifiers answer `invalid expired`). Expiring within 14 days: `warn`, with the date and the days left. No signature file: no finding (signing is the publisher's choice). A file with no readable `expiresAt`: `warn`. Kind `grounding`, ref `plumbline.signature.json` (the wire has three drift kinds; the signed files are the grounding). Checked whatever the lock's state |
 
@@ -299,7 +299,8 @@ A site whose assistant also depends on an A2A agent can lock that agent's card: 
 `--external a2a-card=<https url>` (repeatable). The card is fetched through
 `safeFetch` and recorded in the lock's `external` member (since 2026-11-18): its exact-byte SHA-256 and, per skill,
 SHA-256 of `canonicalJson(skill)` keyed by SHA-256 of the skill's `id` (by position when it has none), so a change is
-counted without quoting the card. A card that cannot be fetched is left out of the lock and is a `warn` at capture; one
+counted without quoting the card. A new card that cannot be fetched is left out of the lock and is a `warn` at capture
+(one the previous lock held keeps its record through a `--relock`: below); one
 that is not readable as a card (not JSON, a repeated key) is locked by its bytes only, with an `info`. `--relock` captures
 every card the lock held again; `--drop <url>` takes one out. On every watch a changed card is `block` (kind `peer`: a
 client that reads it now gets different skills or endpoints), with the counts; an unreachable one is `warn`. If the card
@@ -327,8 +328,19 @@ current state exactly as `--init` does, plus every grounding ref the previous lo
 kept; one that is gone now is a finding and leaves the lock), writes the lock in place (beside it, then renamed over it,
 so a failed write leaves the old one), and prints what changed: `added`, `removed` and `changed` refs, each labelled
 `grounding`, `runtime`, `peer`, `pending`, `runtime commit` or `runtime via`. It ends with the reminder that the lock is a
-signed file. With `--json` it prints `{ relocked, previous, changes: { added, removed, changed }, findings, reminder }`.
-Exit 0 when it wrote the lock. `--init` and `--relock` together are a usage error.
+signed file. With `--json` it prints `{ relocked, previous, changes: { added, removed, changed }, findings, facts,
+reminder }`. Exit 0 when it wrote the lock. `--init` and `--relock` together are a usage error.
+
+**A relock never forgets what it could not re-read** (UAT-3). What the previous lock held and cannot be read now is
+kept, with a `warn` that says so, never replaced by `pending` or dropped because something is down today: a pinned
+peer that cannot be reached (or whose address the address rule refuses) keeps its pin ("A peer could not be re-read
+(...), so the lock keeps its earlier pin (recorded <date>); every watch compares the peer with that pin."), so when it
+returns changed the next watch blocks with the outline; a pending peer keeps the date it was first held pending; an
+external definition keeps its record; and a peer whose `plumbline.signature.json` cannot be read (an HTTP 5xx, not JSON,
+no valid kid) keeps the kid the lock recorded (a `warn`: "A peer's signature could not be read at capture ..."; at
+`init`, with no kid to keep, the lock records none and says so). A peer that was signed and publishes no signature now
+(404) is recorded unsigned, with a `warn` saying so. So a relock with nothing reachable changes no peer or card ref. A
+peer leaves the lock only when no network names it any more.
 
 `--drop <ref>` (repeatable, with `--relock` only) takes a grounding source the publisher no longer wants watched out of
 the lock: it is not captured again, and `removed grounding <ref>` lists it. A later `--relock` does not bring it back. A

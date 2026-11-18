@@ -12,7 +12,7 @@ import { canonicalJson, sha256Hex } from "../core/canonical.js";
 import { countDuplicateKeys } from "../core/json-keys.js";
 import { EXTERNAL_KINDS, type DriftFinding, type ExternalKind, type ExternalRecord } from "../core/types.js";
 import { hashBytes } from "../net/canonical.js";
-import { describeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
+import { addressProblemOf, describeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
 import type { Fetcher } from "../net/locate.js";
 
 /** A sentence for the parentheses after "could not be reached" (observe.ts's Describe; kept here so decide.ts may import this module). */
@@ -78,7 +78,9 @@ export async function observeExternal(url: string, kind: ExternalKind, fetcher: 
   try {
     response = await fetcher(url, options.fetchOptions ?? {});
   } catch (error) {
-    return { ok: false, reason: why(error) };
+    // the address rule's refusal reads as the Desk's does (UAT-3, REC-2)
+    const refused = addressProblemOf(error);
+    return refused !== undefined ? { ok: false, refused } : { ok: false, reason: why(error) };
   }
   if (!response.ok) return { ok: false, status: response.status };
   return { ok: true, sha256: await hashBytes(response.bytes), outline: await cardOutline(response.bytes), bytes: response.bytes };
@@ -99,7 +101,7 @@ export function externalFinding(url: string, record: ExternalRecord, seen: Exter
       return { kind: "peer", severity: "warn", ref: url, summary: "An external entry of a kind this build does not read (an MCP tool list needs a JSON-RPC POST) was not checked." };
     }
     if (seen.refused !== undefined) {
-      return { kind: "peer", severity: "warn", ref: url, summary: `An external agent definition in this lock was not contacted: ${seen.refused}, which a published lock may not point a browser at.` };
+      return { kind: "peer", severity: "warn", ref: url, summary: `An external agent definition in this lock was not contacted: ${seen.refused}, an address Plumbline does not contact, so it was not checked.` };
     }
     return {
       kind: "peer",

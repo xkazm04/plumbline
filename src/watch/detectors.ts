@@ -14,7 +14,9 @@ import {
   coverageFindings,
   isRuntimeVia,
   peerFindings,
+  pendingObservation,
   pendingPeerFindings,
+  type PendingObservation,
   runtimeFinding,
   runtimeFolder,
   signatureExpiryFinding,
@@ -181,7 +183,10 @@ export async function detectPeers(lock: Lock, env: DetectorEnv): Promise<DriftFi
       peerFindings(url, record, await observePeer(url, env.fetch, { fetchOptions: env.fetchOptions, links: record.links !== undefined })),
     ),
   );
-  return [...results.flat(), ...pendingPeerFindings(lock)];
+  // a pending peer is asked too, so its line says why it is still pending today (it answers now, or why not)
+  const today: Record<string, PendingObservation> = {};
+  for (const url of Object.keys(lock.pendingPeers ?? {})) today[url] = pendingObservation(await observePeer(url, env.fetch, { fetchOptions: env.fetchOptions, links: true }));
+  return [...results.flat(), ...pendingPeerFindings(lock, today)];
 }
 
 /** Each external agent definition the lock holds (external.ts): changed is block, unreadable is warn. */

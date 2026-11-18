@@ -250,7 +250,20 @@ export interface PeerObservation {
    * when the network file the peer's manifest names is an address the driver will not contact (the Desk: a sentence
    * from destinationProblem, which never quotes it).
    */
-  definition: { ok: true; sha256: string; outline?: PeerOutline | null } | { ok: false; status?: number; reason?: string; refused?: string };
+  definition:
+    | { ok: true; sha256: string; outline?: PeerOutline | null }
+    | {
+        ok: false;
+        status?: number;
+        reason?: string;
+        refused?: string;
+        /**
+         * The peer's own address is one Plumbline does not contact (not https, a private or loopback address, not a
+         * URL), as peerAddressProblem words it ("it is not an https address"): the CLI's safeFetch refused it. Read
+         * as the Desk's refusal is, so one situation has one sentence on every surface (UAT-3, REC-2).
+         */
+        addressProblem?: string;
+      };
   /** Read only when the lock records `links`. */
   links?: LinksRead;
   signature: SignatureRead;
@@ -261,6 +274,7 @@ export function peerFindings(url: string, record: PeerRecord, seen: PeerObservat
   if (!def.ok && def.refused !== undefined) {
     return [{ kind: "peer", severity: "warn", ref: url, summary: `A peer's network file was not contacted: ${def.refused}, which a peer's manifest may not point a browser at.` }];
   }
+  if (!def.ok && def.addressProblem !== undefined) return [refusedPeerFinding(url, def.addressProblem)];
   if (!def.ok) {
     return [
       {
@@ -348,19 +362,42 @@ export function whatChanged(locked: PeerOutline | undefined, now: PeerOutline | 
   return `In outline: ${describeOutlineDiff(diff)}.`;
 }
 
-/** A peer the lock holds as pending: it could not be captured, so it is not watched until a re-lock fills it in. */
-export function pendingPeerFindings(lock: Lock): DriftFinding[] {
+/**
+ * What a watch saw of a pending peer today: it answers (a relock would capture it), it still cannot be read (why), or
+ * its address is one Plumbline does not contact. Undefined when it was not asked.
+ */
+export type PendingObservation = { answers: true } | { answers: false; why: string } | { notContacted: string };
+
+/** What a watch saw of a pending peer today, from an observation of it (observe.ts observePeer). */
+export function pendingObservation(seen: PeerObservation): PendingObservation {
+  const def = seen.definition;
+  if (def.ok) return seen.links !== undefined && "problem" in seen.links ? { answers: false, why: `its links.json ${seen.links.problem}` } : { answers: true };
+  if (def.addressProblem !== undefined) return { notContacted: def.addressProblem };
+  if (def.refused !== undefined) return { notContacted: `its network file ${def.refused.replace(/^it /, "")}` };
+  return { answers: false, why: def.status !== undefined ? `it answered HTTP ${def.status}` : (def.reason ?? "it could not be read") };
+}
+
+/**
+ * A peer the lock holds as pending: it could not be captured, so it is not watched until a re-lock fills it in. With
+ * what this watch saw of it today, the sentence says why it is still pending (UAT-3, TOM-L2-05): it answers now (so
+ * re-lock), it still cannot be read (the cause), or its address is not contacted (the address rule's words).
+ */
+export function pendingPeerFindings(lock: Lock, today: Record<string, PendingObservation> = {}): DriftFinding[] {
   return Object.entries(lock.pendingPeers ?? {})
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([url, pending]): DriftFinding => {
       // only a date is quoted, and only one in its exact form: a lock can come from a stranger (the Desk)
       const since = /^\d{4}-\d{2}-\d{2}/.test(pending.since) ? ` (pending since ${pending.since.slice(0, 10)})` : "";
-      return {
-        kind: "peer",
-        severity: "warn",
-        ref: url,
-        summary: `A peer could not be captured when the lock was written${since}, so it is not watched; run watch --relock once it answers.`,
-      };
+      const now = Object.hasOwn(today, url) ? today[url] : undefined;
+      const tail =
+        now === undefined
+          ? "run watch --relock once it answers"
+          : "notContacted" in now
+            ? `it was not contacted now either: ${now.notContacted}, an address Plumbline does not contact`
+            : now.answers
+              ? "it answers now: review it, then run watch --relock to capture it"
+              : `it still cannot be read (${now.why}); run watch --relock once it answers`;
+      return { kind: "peer", severity: "warn", ref: url, summary: `A peer could not be captured when the lock was written${since}, so it is not watched; ${tail}.` };
     });
 }
 
@@ -477,9 +514,9 @@ export function peerAddressProblem(address: string): string | null {
   return hostProblem(url);
 }
 
-/** The finding for a lock peer the Desk refuses to contact. */
+/** The finding for a lock peer that is not contacted by the address rule: the Desk's check, or safeFetch's refusal in the CLI. */
 export function refusedPeerFinding(url: string, problem: string): DriftFinding {
-  return { kind: "peer", severity: "warn", ref: url, summary: `A peer in this lock was not contacted: ${problem}, which a published lock may not point a browser at.` };
+  return { kind: "peer", severity: "warn", ref: url, summary: `A peer in this lock was not contacted: ${problem}, an address Plumbline does not contact, so it was not checked.` };
 }
 
 // ---- re-lock: what changed between two locks ----
