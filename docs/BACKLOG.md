@@ -813,6 +813,22 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: S.
 - Must not break: guardrail 3.
+- State: fixed (commit 69322e7, pin 8529fbc), awaiting recertify. For each peer whose definition or links.json changed
+  (by code), the drift issue and the relock pull request say "**Or remove the partner.** ... delete it from
+  `<the site's own files that name it>`, remove its origin from `allowed_peers` in `agent-manifest.json`, then run
+  `node dist/cli/index.js watch --root <path to your site> --relock`"; the files are read from the workspace by
+  `report.mjs` (root `*.network.json`, manifest-named files at plain paths, links.json; only plain names shown),
+  generic words when none is found; the pull request adds "Close this pull request unmerged if you cut the partner".
+  Every checkout watch notes an origin `allowed_peers` still lists that no network or links.json names a peer at:
+  `info peer <origin>: agent-manifest.json still lists this origin in allowed_peers, but no network or links.json names
+  a peer there, so the runtime may still contact it: if the partner was cut, remove it from allowed_peers.` (wire: new
+  code `allowed-peer-unused`; the watch stays exit 0). MC-4 live on meridian-trips with `run-action.mjs --harness
+  --relock-pr true`: after `partner-adds-agent`, c1 created issue #1 and PR #2, both with the cut line naming
+  `meridian_trips.network.json`; Dev cut the partner from the network (kept `allowed_peers`), relocked with the real
+  CLI (`removed peer ...`), and the CLI watch printed the `allowed_peers` note with exit 0; c2 on the unchanged remote
+  planned `none`; after the push, c3 closed the issue and the pull request, every step exit 0. Tests: "UAT-25 ..." in
+  `action/report.test.mjs`, `src/test/watch-cut.test.ts`. Ceiling: `watch --url` and the Desk do not check
+  `allowed_peers` (coverage is the checkout's).
 
 ### UAT-26. The pre-load check for a site's own peers, in the Desk's own page
 
