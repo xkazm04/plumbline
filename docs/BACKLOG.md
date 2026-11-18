@@ -44,6 +44,32 @@ even if its own acceptance check passes.
 11. **Exact-byte hashing stays exact** (`docs/gate-and-watch.md:121-127`); UAT-13 explains a line-ending difference, it
     does not ignore one.
 
+## Owner decisions
+
+- 2026-11-18: build UAT-1 to UAT-9 first, then recertify J1 and J5 (the two journeys that failed at L2). UAT-4 waits
+  for the owner's read of its accept design.
+- 2026-11-18: the CLI stays the primary surface and is kept. The run's one opposing verdict (is the Desk fit to show a
+  non-technical stakeholder: Ines yes for verify, Priya and Tomasz no for check and drift) is settled for now: Priya's
+  and Tomasz's ask to make the Desk's check and drift views stakeholder-facing is not taken up. Their correctness
+  findings on those views (UAT-7, UAT-8, UAT-9, UAT-11) stand; only the "presentable to a client or director" bar is
+  set aside until the owner reopens it.
+- 2026-11-18, UAT-4's accept design, decided:
+  1. A relock REFUSES while a signer change is pending on any peer (exit 1, nothing written, each peer named by its
+     ref), until every such peer is named with `--accept-signer <peer>` or removed from the site. Other drift is still
+     accepted by a plain relock, as today; `--accept <ref>` (repeatable) narrows a relock to the named refs, and
+     everything else keeps its old pin and keeps reporting.
+  2. The Action's pull request stays ONE proposal covering all changes. When a signer change is pending it does not
+     relock: the pull request (or, with none open, the issue) says the relock was refused, names the peers, and gives
+     the command a person runs after deciding. CI never passes `--accept-signer`.
+  3. Trust file (the owner follows the recommendation): the watch keeps needing NO trust store. `--trust <file>` is
+     opt-in on `watch` and on the relock. Without it the watch says what it can see without trusting anyone: "a
+     rotation statement from the locked key is published (not verified here)" or "a different key, with no rotation
+     published"; both stay `block`. With it, a rotation chain that verifies from a key the trust file holds for that
+     origin reads "rotated from the key the lock recorded, verified against your trust file", and `--accept-signer`
+     prints whether the trust file backs the new signer; an unbacked one is still accepted when named, with that
+     sentence in the change list. The lock does NOT start pinning peers' public keys: that would make a published,
+     signed file a second trust store, against "a verifier resolves `kid` in its own trust store".
+
 ## Order
 
 Correctness of what the product says comes first (UAT-1 to UAT-16), completeness second (UAT-17 to UAT-27), friendliness
