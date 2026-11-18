@@ -267,7 +267,8 @@ export async function captureLock(
     if (url in external) continue;
     const seen = await observeExternal(url, kind, env.fetch, { fetchOptions: env.fetchOptions });
     if (!seen.ok) {
-      const why = seen.unsupported ? "this build does not read that kind" : seen.status !== undefined ? `it answered HTTP ${seen.status}` : (seen.reason ?? "it could not be read");
+      // the address rule's refusal reads as a peer's does: one situation, one reason (TOM-RC-5)
+      const why = seen.unsupported ? "this build does not read that kind" : seen.status !== undefined ? `it answered HTTP ${seen.status}` : (seen.refused ?? seen.reason ?? "it could not be read");
       const held = previous?.external?.[url];
       if (held !== undefined && held.kind === kind) {
         external[url] = held;

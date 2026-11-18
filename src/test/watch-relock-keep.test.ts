@@ -103,3 +103,12 @@ test("UAT-3: an Agent Card the address rule refuses reads the address rule's wor
     "An external agent definition in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked.",
   );
 });
+
+test("TOM-RC-5: a relock that the address rule keeps from a peer and a card gives both the same reason", async () => {
+  const root = copySite();
+  await watch(root, { ...baseRoutes(), [CARD_URL]: { body: card() } }, { init: true, externals: [{ kind: "a2a-card", url: CARD_URL }] });
+  const refused: Route = { error: new SafeFetchError("insecure-scheme", "not https") };
+  const result = await relock(root, { ...baseRoutes(), [PEER_FILE]: refused, "https://peer.example/agent-manifest.json": refused, [CARD_URL]: refused });
+  assert.match(result.findings.find((f) => f.ref === PEER)?.summary ?? "", /could not be re-read \(it is not an https address\), so the lock keeps its earlier pin/);
+  assert.match(result.findings.find((f) => f.ref === CARD_URL)?.summary ?? "", /could not be re-read \(it is not an https address\), so the lock keeps its earlier record/);
+});
