@@ -64,7 +64,11 @@ job's token (input `token`, default `github.token`), so the job needs `permissio
 for the checkout); it never pushes or opens a pull request. On `warn` or `block` findings it opens the issue, or edits
 the open one. Editing a body notifies nobody, so when the findings themselves change it also comments, naming what is
 new (each with its sentence, which says what changed in counts) and what is no longer reported, and a new `block` comes
-first. A finding changes when its severity, kind or ref does, or when its evidence does: the hash of what it found
+first. A finding that is back with new evidence but the same sentence the issue's table already holds (a page edited
+again while the same fact is still stale) is listed under "Changed again, and what the finding says is unchanged",
+without repeating the sentence. When the only new `block` is the site's own signature no longer covering its files (what
+a relock looks like until the site is signed again), the comment leads with that and says to sign again if you or your
+developer relocked, instead of the general alarm. A finding changes when its severity, kind or ref does, or when its evidence does: the hash of what it found
 changed (`actual`), so a partner that changed again (a second agent, a links.json, a fee change that keeps every
 outline count) or a page whose price changed after a wording edit is news on an issue already open. A summary's
 wording alone is not, and an unreachable peer carries no evidence, so one that is still unreachable after 12 s instead
@@ -83,11 +87,15 @@ issue, and you can keep your own with `findings` and `issue-body`.
 from it, titled `Plumbline: accept the drift (relock)`. Its body lists what the new lock changes (`added`, `removed`,
 `changed`, as `--relock` prints them), what the relock does not accept or keeps as it was (a page that dropped a fact the
 network still states, a pin it could not re-read: those keep reporting after a merge, and are not listed as accepted),
-and the findings it accepts. When a peer's signer changed, the relock refuses (UAT-4: CI never passes
-`--accept-signer`), so nothing is pushed: an open pull request's body says the relock was refused, names each peer
-(the kid the lock recorded, the kid it is signed by now, what it publishes about it) and gives the command a person runs
-after deciding, with a comment (`pr-action: describe`); with none open, the drift issue says it, with the same
-command. The findings' summaries carry the counts (what changed in a
+the signers it records for the first time (a peer first seen, a relisted one included, or one recorded unsigned before),
+and the findings it accepts. When a peer's recorded signer changed (another key, or no signature at all now: TOM-RC-1),
+the relock refuses (UAT-4: CI never passes `--accept-signer`), so nothing is pushed and no pull request removes or
+replaces a recorded signer: an open pull request's body says the relock was refused, names each peer (the kid the lock
+recorded, and the kid it is signed by now with what it publishes about it, or that it publishes no signature) and gives
+one command per peer that a person runs after deciding (with several peers each is narrowed with `--accept`, and a new
+key gets `--trust <your trust file>`), with a comment (`pr-action: describe`); with none open, the drift issue says it,
+with the same commands. The watch keeps reporting such a peer as `block`, so the issue stays open until a person
+decides. The findings' summaries carry the counts (what changed in a
 peer, how many facts a page no longer states, how many skills a card added). With `signing-key` (a secret holding the
 JSON of `plumbline.private.json`) and `origin`, it also signs, and the body names the kid; without a key, the body says
 to sign locally and the pull request stays a draft. A person merges; the run accepts nothing. A relock that changes no

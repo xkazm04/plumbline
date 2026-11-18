@@ -121,6 +121,22 @@ export function readDigest(body) {
   }
 }
 
+/**
+ * The sentence each row of an issue body's findings table carries, keyed as the digest keys a row (severity, kind, ref),
+ * each cell as `cell` wrote it. Empty for a body with no table.
+ */
+export function tableSummaries(body) {
+  const out = new Map();
+  for (const line of String(body ?? "").replace(/\r\n/g, "\n").split("\n")) {
+    if (!line.startsWith("| ") || !line.endsWith(" |")) continue;
+    const cells = line.slice(2, -2).split(/(?<!\\) \| /);
+    if (cells.length !== 4 || cells[0] === "Severity" || cells[0] === "---") continue;
+    const unescape = (c) => c.replace(/\\\|/g, "|");
+    out.set(JSON.stringify([unescape(cells[0]), unescape(cells[1]), unescape(cells[2])]), cells[3]);
+  }
+  return out;
+}
+
 const CHECKER_NAMES = { validator: "validator", atlas: "Atlas", customs: "Customs" };
 
 /**
@@ -162,6 +178,35 @@ export function gateOutputs(report) {
   return { state, summary: [heading, ...(sentence !== "" && !alarm ? [sentence.charAt(0).toUpperCase() + sentence.slice(1) + "."] : []), ...lines].join("\n") + "\n" };
 }
 
+const KID = /^[0-9a-f]{16}$/;
+/** A peer address as a command argument or code span: no backtick, no whitespace. */
+const argOf = (ref) => String(ref ?? "").replace(/[`\s]/g, "");
+
+/**
+ * The commands a person runs after deciding on each refused peer (TOM-RC-3), src/cli/watch-command.ts refusalCommands
+ * kept word for word: one per peer, so no single command accepts two signers. With several peers each is narrowed to
+ * its peer (`--accept <peer> --accept-signer <peer>`); a peer with a new key gets `--trust <your trust file>`, so the
+ * relock says whether that file backs it.
+ */
+export function acceptCommands(peers, cli, site) {
+  return peers.map((p) => `${cli} watch --root ${site} --relock ${peers.length > 1 ? `--accept ${argOf(p.peer)} ` : ""}--accept-signer ${argOf(p.peer)}${p.newKey ? " --trust <your trust file>" : ""}`);
+}
+
+/**
+ * The watch's findings for a peer whose recorded signer changed (UAT-4, TOM-RC-1), which a relock refuses until a person
+ * names the peer: `block`, the recorded kid as `expected`, and the new kid as `actual`, or no `actual` when the peer
+ * publishes no signature now (its sentence then ends with the --accept-signer decision).
+ */
+export function signerChangeFindings(findings) {
+  return findings.filter(
+    (f) =>
+      f.kind === "peer" &&
+      f.severity === "block" &&
+      KID.test(String(f.expected ?? "")) &&
+      (KID.test(String(f.actual ?? "")) || (f.actual === undefined && /--accept-signer/.test(String(f.summary ?? "")))),
+  );
+}
+
 /**
  * The drift issue's body, built from warn and block findings only, ending with the hidden digest marker. The commands it
  * gives run in a clone of Plumbline, not in the site's repository, so the site is named as a placeholder: the workflow
@@ -171,8 +216,8 @@ export function issueBody(report) {
   const findings = openFindings(report);
   const rows = findings.map((f) => `| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
   const noLock = findings.some((f) => f.summary === "no lock");
-  // UAT-4: a peer signed by another key than the lock recorded (both kids in their pattern): a relock refuses it
-  const signerChanged = findings.filter((f) => f.kind === "peer" && /^[0-9a-f]{16}$/.test(String(f.expected ?? "")) && /^[0-9a-f]{16}$/.test(String(f.actual ?? "")));
+  // UAT-4, TOM-RC-1: a peer whose recorded signer changed (another kid, or none now): a relock refuses it
+  const signerChanged = signerChangeFindings(findings);
   const cli = "node dist/cli/index.js";
   const site = "<path to your site>";
   return (
@@ -195,7 +240,9 @@ export function issueBody(report) {
       ...(signerChanged.length > 0
         ? [
             "",
-            `**A relock refuses while a peer's signer changed** (${signerChanged.map((f) => `\`${String(f.ref).replace(/[`\r\n]/g, "")}\``).join(", ")}): CI never accepts a new signer. After deciding whether you trust the new key, run \`${cli} watch --root ${site} --relock ${signerChanged.map((f) => `--accept-signer ${String(f.ref).replace(/[`\s]/g, "")}`).join(" ")}\` in that clone.`,
+            `**A relock refuses while a peer's signer changed** (${signerChanged.map((f) => `\`${argOf(f.ref)}\``).join(", ")}): CI never accepts a signer change, so nothing is relocked and this issue stays open until a person decides. Decide each peer on its own (\`plumbline verify --url\`; \`plumbline adopt\` for a published rotation; for a different key with no rotation, or no signature, ask its publisher out of band), then run in that clone, one command per peer:`,
+            "",
+            ...acceptCommands(signerChanged.map((f) => ({ peer: f.ref, newKey: f.actual !== undefined })), cli, site).map((c) => `- \`${c}\``),
           ]
         : []),
       "",
@@ -227,7 +274,7 @@ const bullet = ([severity, kind, ref], summary) =>
  * as gone. `findings` (this run's open findings, when the caller has the report) gives each new row its summary, which
  * says what is new in counts and named units.
  */
-export function changeComment(before, now, runUrl, findings = []) {
+export function changeComment(before, now, runUrl, findings = [], beforeBody = "") {
   const key3 = (row) => JSON.stringify(row.slice(0, 3));
   const same = (a, b) => key3(a) === key3(b) && (a.length < 4 || b.length < 4 || a[3] === b[3]);
   const added = now.filter((row) => !(before ?? []).some((old) => same(old, row)));
@@ -238,8 +285,21 @@ export function changeComment(before, now, runUrl, findings = []) {
     const f = findings.find((x) => x && same([String(x.severity), String(x.kind ?? ""), String(x.ref ?? ""), ...evidenceOf(x)], row) && (row.length < 4 || evidenceOf(x)[0] === row[3]));
     return f?.summary;
   };
+  // MAR-RC-3: a row that is new only by its evidence (the page changed again) and whose sentence the issue's table already
+  // holds is said as such, not as news with the same sentence again
+  const said = tableSummaries(beforeBody);
+  const sameWords = (row) => before !== null && before.some((old) => key3(old) === key3(row)) && said.get(key3(row)) === cell(summaryOf(row) ?? "\u0000");
+  const fresh = added.filter((row) => !sameWords(row));
+  const again = added.filter((row) => sameWords(row));
   const lines = [];
-  if (added.some((row) => row[0] === "block")) lines.push("**A new `block` finding.** Look before the next release.", "");
+  // MAR-RC-2: the site's own signature no longer covering its files is what a person's own relock-and-fix looks like
+  // until it is signed again, so it is said as that, not as an alarm; any other new block keeps the alarm
+  const isResign = (row) => row[2] === SIGNATURE_REF && /no longer covers its files/.test(String(summaryOf(row) ?? ""));
+  const blocks = fresh.filter((row) => row[0] === "block");
+  if (blocks.length > 0 && blocks.every(isResign)) {
+    lines.push("**The site's signature no longer covers its files.** If you or your developer changed and relocked the site, sign it again (`plumbline sign`) and commit; if nobody did, look before the next release.", "");
+  } else if (blocks.length > 0) lines.push("**A new `block` finding.** Look before the next release.", "");
+  else if (again.some((row) => row[0] === "block")) lines.push("**A `block` finding changed again** (new evidence; what it says is unchanged). Look before the next release.", "");
   if (before === null) {
     lines.push(
       `Plumbline watch updated this issue as of ${runUrl}. The issue held no record of its earlier findings, so all of them are listed:`,
@@ -248,7 +308,8 @@ export function changeComment(before, now, runUrl, findings = []) {
     );
   } else {
     lines.push(`Plumbline watch's findings changed as of ${runUrl}. The table in the issue body is up to date.`);
-    if (added.length > 0) lines.push("", "New:", "", ...added.map((row) => bullet(row, summaryOf(row))));
+    if (fresh.length > 0) lines.push("", "New:", "", ...fresh.map((row) => bullet(row, summaryOf(row))));
+    if (again.length > 0) lines.push("", "Changed again, and what the finding says is unchanged (its sentence is in the table):", "", ...again.map((row) => bullet(row)));
     if (gone.length > 0) lines.push("", "No longer reported:", "", ...gone.map((row) => bullet(row)));
   }
   return lines.join("\n") + "\n";
@@ -274,7 +335,7 @@ export function issuePlan({ findings, body, open, runUrl, report }) {
     if (same(issue.body) === same(body)) return { action: "none", number: issue.number };
     const now = readDigest(body);
     if (now === null) throw new Error("this run's issue body carries no digest");
-    const comment = changeComment(readDigest(issue.body), now, runUrl, report ? openFindings(report) : []);
+    const comment = changeComment(readDigest(issue.body), now, runUrl, report ? openFindings(report) : [], String(issue.body ?? ""));
     return comment === null ? { action: "edit", number: issue.number } : { action: "edit", number: issue.number, comment };
   }
   if (!issue) return { action: "none" };
@@ -317,11 +378,21 @@ export function prBody({ mode, report, relock, kid, runUrl }) {
   if (mode === "relock" && relock?.refused === "signer") {
     // UAT-4: one proposal for all changes, so nothing is relocked while a signer change waits for a person
     const peers = (Array.isArray(relock.peers) ? relock.peers : []).filter((p) => p && typeof p.peer === "string");
-    const kid = (k) => (typeof k === "string" && /^[0-9a-f]{16}$/.test(k) ? k : "?");
-    lines.push(`Plumbline watch found drift as of ${runUrl}, but **the relock was refused**: a peer is signed by another key than the lock recorded, and CI never accepts a new signer. Nothing was relocked; every other change waits with it, so this pull request stays one proposal.`, "");
+    const kid = (k) => (typeof k === "string" && KID.test(k) ? k : "?");
+    lines.push(`Plumbline watch found drift as of ${runUrl}, but **the relock was refused**: a peer's signer is not the one the lock recorded, and CI never accepts a signer change. Nothing was relocked, and nothing in this pull request removes or replaces a recorded signer; every other change waits with it, so this pull request stays one proposal.`, "");
     lines.push("**Peers whose signer changed:**", "");
-    for (const p of peers) lines.push(`- \`${String(p.peer).replace(/`/g, "'").replace(/[\r\n]+/g, " ")}\`: the lock recorded \`${kid(p.from)}\`; it is now signed by \`${kid(p.to)}\` (${cell(p.how)})`);
-    lines.push("", `After deciding whether you trust the new key (\`plumbline verify --url\`, and \`plumbline adopt\` for a published rotation), in a clone of xkazm04/plumbline at the commit this workflow pins, run \`node dist/cli/index.js watch --root <path to your site> --relock ${peers.map((p) => `--accept-signer ${String(p.peer).replace(/[`\s]/g, "")}`).join(" ")}\`, sign the site again and commit both.`, "");
+    for (const p of peers) {
+      const now = typeof p.to === "string" ? `it is now signed by \`${kid(p.to)}\` (${cell(p.how)})` : "it publishes no signature now (it answers 404 or 410 for its signature)";
+      lines.push(`- \`${argOf(p.peer)}\`: the lock recorded \`${kid(p.from)}\`; ${now}`);
+    }
+    const commands = acceptCommands(peers.map((p) => ({ peer: p.peer, newKey: typeof p.to === "string" })), "node dist/cli/index.js", "<path to your site>");
+    lines.push(
+      "",
+      `Decide each peer on its own (\`plumbline verify --url\`; \`plumbline adopt\` for a published rotation; for a different key with no rotation, or no signature, ask its publisher out of band). Then, in a clone of xkazm04/plumbline at the commit this workflow pins, run one command per peer, sign the site again and commit both:`,
+      "",
+      ...commands.map((c) => `- \`${c}\``),
+      "",
+    );
     const findings = openFindings(report);
     if (findings.length > 0) {
       lines.push("**The findings waiting for that decision:**", "", "| Severity | Kind | Ref | What |", "| --- | --- | --- | --- |");
@@ -337,6 +408,26 @@ export function prBody({ mode, report, relock, kid, runUrl }) {
     const all = [...list("added", changes.added), ...list("removed", changes.removed), ...list("changed", changes.changed)];
     lines.push(`Plumbline watch found drift as of ${runUrl}, and this pull request accepts it: \`plumbline watch --relock\` rewrote \`plumbline.lock.json\` from the current state.`, "");
     lines.push("**What the new lock changes:**", "", ...(all.length > 0 ? all : ["- no ref changed (only the capture times)"]), "");
+    // a signer the lock records for the first time (TOM-RC-4), and a signer change a person named (never CI's)
+    const kidOf = (k) => (typeof k === "string" && KID.test(k) ? k : "?");
+    const first = (Array.isArray(relock?.firstSigners) ? relock.firstSigners : []).filter((f) => f && typeof f.peer === "string");
+    if (first.length > 0) {
+      lines.push("**Signers this lock records for the first time** (check each kid with its publisher before merging):", "");
+      for (const f of first) {
+        lines.push(
+          f.was === "unsigned"
+            ? `- \`${argOf(f.peer)}\`: recorded \`${kidOf(f.kid)}\`, its first signer (the lock recorded it unsigned)`
+            : `- \`${argOf(f.peer)}\`: first seen, recorded \`${kidOf(f.kid)}\`; compared with no earlier key (the lock keeps no record of a peer it no longer holds, so a peer named again is first seen too)`,
+        );
+      }
+      lines.push("");
+    }
+    const named = (Array.isArray(relock?.signers) ? relock.signers : []).filter((c) => c && typeof c.peer === "string");
+    if (named.length > 0) {
+      lines.push("**Signer changes a person named with --accept-signer:**", "");
+      for (const c of named) lines.push(`- \`${argOf(c.peer)}\`: \`${kidOf(c.from)}\` -> ${typeof c.to === "string" ? `\`${kidOf(c.to)}\`` : "no signature"} (${cell(c.how)})`);
+      lines.push("");
+    }
     // what the relock itself would not accept, or kept as it was (UAT-2: a stale fact; UAT-3: a pin it could not
     // re-read): said before the findings it does accept, and those refs are not listed as accepted
     const kept = (Array.isArray(relock?.findings) ? relock.findings : []).filter((f) => f && (f.severity === "warn" || f.severity === "block"));

@@ -466,8 +466,15 @@ test("UAT-6: new evidence for a finding already on the open issue is news: a com
   const again = { findings: [changed("b".repeat(64))] };
   const plan = issuePlan({ findings: 1, body: issueBody(again), open: [issueOf(first, 3)], runUrl, report: again });
   assert.equal(plan.action, "edit");
-  assert.match(plan.comment, /^\*\*A new `block` finding\.\*\*/);
-  assert.match(plan.comment, /New:\n\n- \*\*block\*\* peer `https:\/\/peer\.example\/a`: A peer's network definition changed since the lock was written; .*In outline: agents: 1 added/);
+  // MAR-RC-3: the same sentence with new evidence is said as such, still a comment (it notifies), still led as a block
+  assert.match(plan.comment, /^\*\*A `block` finding changed again\*\* \(new evidence; what it says is unchanged\)/);
+  assert.match(plan.comment, /Changed again, and what the finding says is unchanged \(its sentence is in the table\):\n\n- \*\*block\*\* peer `https:\/\/peer\.example\/a`\n/);
+  assert.doesNotMatch(plan.comment, /New:/);
+  // with another sentence (other counts), it is new, with its sentence
+  const recount = { findings: [changed("b".repeat(64), peerChange.summary.replace("agents: 1 added", "agents: 2 added"))] };
+  const recountPlan = issuePlan({ findings: 1, body: issueBody(recount), open: [issueOf(first, 3)], runUrl, report: recount });
+  assert.match(recountPlan.comment, /^\*\*A new `block` finding\.\*\*/);
+  assert.match(recountPlan.comment, /New:\n\n- \*\*block\*\* peer `https:\/\/peer\.example\/a`: A peer's network definition changed since the lock was written; .*In outline: agents: 2 added/);
   assert.doesNotMatch(plan.comment, /No longer reported/, "the earlier evidence is replaced, not gone");
   // a links.json that appears beside a changed definition: a second block row for the same peer
   const links = { kind: "peer", severity: "block", ref: peerChange.ref, expected: "absent", actual: "c".repeat(64), summary: "A peer now publishes a links.json it did not have when locked; the runtime lays it over the peer's links, so this is changed code." };
@@ -728,7 +735,7 @@ test("UAT-4: a refused relock (a signer change) is described on the open pull re
   const body = prBody({ mode: "relock", report: { findings: [swap] }, relock: refused, kid: null, runUrl });
   assert.match(body, /\*\*the relock was refused\*\*/);
   assert.match(body, /- `https:\/\/seller\.example\/shop`: the lock recorded `aaaaaaaaaaaaaaaa`; it is now signed by `cccccccccccccccc` \(a different key, with no rotation published\)/);
-  assert.match(body, /--relock --accept-signer https:\/\/seller\.example\/shop`/);
+  assert.match(body, /--relock --accept-signer https:\/\/seller\.example\/shop --trust <your trust file>`/);
   assert.doesNotMatch(body, /What the new lock changes/);
   const open = [{ number: 4, body: "an earlier body", isDraft: true }];
   const plan = prPlan({ mode: "relock", wanted: false, body, signed: false, open, runUrl, refused: true });
@@ -737,6 +744,76 @@ test("UAT-4: a refused relock (a signer change) is described on the open pull re
   assert.equal(prPlan({ mode: "relock", wanted: false, body, signed: false, open: [], runUrl, refused: true }).action, "none", "no pull request: the issue says it");
   const issue = issueBody({ findings: [swap] });
   assert.match(issue, /\*\*A relock refuses while a peer's signer changed\*\* \(`https:\/\/seller\.example\/shop`\)/);
-  assert.match(issue, /watch --root <path to your site> --relock --accept-signer https:\/\/seller\.example\/shop`/);
+  assert.match(issue, /watch --root <path to your site> --relock --accept-signer https:\/\/seller\.example\/shop --trust <your trust file>`/);
   assert.doesNotMatch(issueBody({ findings: [warn] }), /A relock refuses/);
+});
+
+test("TOM-RC-2: a signer that is gone is a held signer change: the pull request names it outside any 'keeps reporting' table, and the issue never closes over it", () => {
+  const gone = {
+    kind: "peer",
+    severity: "block",
+    ref: "https://seller.example/shop",
+    expected: "aaaaaaaaaaaaaaaa",
+    summary: "A peer the lock recorded as signed publishes no signature now (its plumbline.signature.json is not published), so nothing ties it to the key the lock recorded. A relock refuses it until a person decides: watch --relock --accept-signer <this peer>.",
+  };
+  const refused = { relocked: false, refused: "signer", peers: [{ peer: gone.ref, from: "aaaaaaaaaaaaaaaa", how: "it publishes no signature now" }], commands: [] };
+  const body = prBody({ mode: "relock", report: { findings: [gone] }, relock: refused, kid: null, runUrl });
+  assert.match(body, /\*\*the relock was refused\*\*/);
+  assert.match(body, /nothing in this pull request removes or replaces a recorded signer/);
+  assert.match(body, /- `https:\/\/seller\.example\/shop`: the lock recorded `aaaaaaaaaaaaaaaa`; it publishes no signature now \(it answers 404 or 410 for its signature\)/);
+  assert.match(body, /- `node dist\/cli\/index\.js watch --root <path to your site> --relock --accept-signer https:\/\/seller\.example\/shop`/, "no --trust: there is no new key to back");
+  assert.doesNotMatch(body, /keeps reporting after a merge|What the new lock changes/);
+  // the issue: held, named, with the command; open while the watch reports it, and never closed as clean
+  const issue = issueBody({ findings: [gone] });
+  assert.match(issue, /\*\*A relock refuses while a peer's signer changed\*\* \(`https:\/\/seller\.example\/shop`\): CI never accepts a signer change, so nothing is relocked and this issue stays open until a person decides/);
+  const open = [issueOf({ findings: [gone] }, 9)];
+  assert.notEqual(issuePlan({ findings: 1, body: issue, open, runUrl }).action, "close");
+  assert.equal(issuePlan({ findings: 1, body: issue, open, runUrl }).action, "none");
+});
+
+test("TOM-RC-3: the Action's pull request and issue give one command per peer, each narrowed when several wait, --trust where a new key needs backing", () => {
+  const swap = (ref, actual) => ({ kind: "peer", severity: "block", ref, expected: "aaaaaaaaaaaaaaaa", actual, summary: "A peer is now signed by a different key than the one the lock recorded: x. A relock refuses it until a person decides: watch --relock --accept-signer <this peer>." });
+  const issue = issueBody({ findings: [swap("https://a.example/s", "cccccccccccccccc"), swap("https://b.example/s", "dddddddddddddddd")] });
+  const lines = issue.split("\n").filter((l) => l.includes("--accept-signer https://"));
+  assert.deepEqual(lines, [
+    "- `node dist/cli/index.js watch --root <path to your site> --relock --accept https://a.example/s --accept-signer https://a.example/s --trust <your trust file>`",
+    "- `node dist/cli/index.js watch --root <path to your site> --relock --accept https://b.example/s --accept-signer https://b.example/s --trust <your trust file>`",
+  ]);
+  const refused = { relocked: false, refused: "signer", peers: [{ peer: "https://a.example/s", from: "aaaaaaaaaaaaaaaa", to: "cccccccccccccccc", how: "x" }, { peer: "https://b.example/s", from: "bbbbbbbbbbbbbbbb", how: "it publishes no signature now" }] };
+  const body = prBody({ mode: "relock", report: { findings: [] }, relock: refused, kid: null, runUrl });
+  assert.ok(!body.split("\n").some((l) => l.includes("--accept-signer https://a.example/s") && l.includes("--accept-signer https://b.example/s")), "no line accepts both");
+  assert.match(body, /--accept https:\/\/b\.example\/s --accept-signer https:\/\/b\.example\/s`/);
+});
+
+test("TOM-RC-4: the relock pull request lists each signer it records for the first time", () => {
+  const relock = { ...relockOut, firstSigners: [{ peer: "https://new.example/p", kid: "eeeeeeeeeeeeeeee", was: "added", backing: "not checked: no --trust file given" }, { peer: "https://old.example/p", kid: "ffffffffffffffff", was: "unsigned", backing: "not checked: no --trust file given" }] };
+  const body = prBody({ mode: "relock", report: { findings: [peerChange] }, relock, kid: null, runUrl });
+  assert.match(body, /\*\*Signers this lock records for the first time\*\*/);
+  assert.match(body, /- `https:\/\/new\.example\/p`: first seen, recorded `eeeeeeeeeeeeeeee`; compared with no earlier key/);
+  assert.match(body, /- `https:\/\/old\.example\/p`: recorded `ffffffffffffffff`, its first signer \(the lock recorded it unsigned\)/);
+  assert.doesNotMatch(prBody({ mode: "relock", report: { findings: [peerChange] }, relock: relockOut, kid: null, runUrl }), /for the first time/);
+});
+
+test("MAR-RC-2: a new block that is only the site's own signature not covering its files is said as the re-sign it most likely needs", () => {
+  const stale = { kind: "grounding", severity: "warn", ref: "rooms.html", expected: "e".repeat(64), actual: "1".repeat(64), summary: "1 of 7 facts ... the network still states it (1 price)" };
+  const resign = { kind: "grounding", severity: "block", ref: "plumbline.signature.json", summary: "The site's signature no longer covers its files: 1 of 3 signed files differs from the signed version or is missing (plumbline.lock.json), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign)." };
+  const before = { findings: [stale] };
+  const now = { findings: [stale, resign] };
+  const plan = issuePlan({ findings: 2, body: issueBody(now), open: [issueOf(before, 3)], runUrl, report: now });
+  assert.match(plan.comment, /^\*\*The site's signature no longer covers its files\.\*\* If you or your developer changed and relocked the site, sign it again/);
+  assert.doesNotMatch(plan.comment, /A new `block` finding/);
+  // beside another new block, the alarm stays
+  const both = { findings: [stale, resign, { ...peerChange, actual: "9".repeat(64) }] };
+  assert.match(issuePlan({ findings: 3, body: issueBody(both), open: [issueOf(before, 3)], runUrl, report: both }).comment, /^\*\*A new `block` finding\.\*\*/);
+});
+
+test("MAR-RC-3: a page edited again while its stale-fact sentence is unchanged is said as unchanged, not as news with the same sentence", () => {
+  const page = (actual, summary) => ({ findings: [{ kind: "grounding", severity: "warn", ref: "rooms.html", expected: "e".repeat(64), actual, summary }] });
+  const sentence = "A grounding source changed since the lock was written; 1 of 7 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.";
+  const first = page("1".repeat(64), sentence);
+  const edited = page("2".repeat(64), sentence);
+  const plan = issuePlan({ findings: 1, body: issueBody(edited), open: [issueOf(first, 3)], runUrl, report: edited });
+  assert.equal(plan.action, "edit");
+  assert.doesNotMatch(plan.comment, /New:|no longer on it/);
+  assert.match(plan.comment, /Changed again, and what the finding says is unchanged \(its sentence is in the table\):\n\n- \*\*warn\*\* grounding `rooms\.html`\n/);
 });
