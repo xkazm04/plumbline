@@ -134,6 +134,7 @@ async function watch(argv) {
   }
   const { runWatch, runRelock } = await load("watch/index.js");
   const { RESIGN_REMINDER } = await load("watch/decide.js");
+  const { factCoverageCounts, factCoverageLines } = await load("watch/anchors.js");
   const options = { root, init, ...(timeoutMs !== undefined ? { timeoutMs } : {}) };
   const deps = { fetchOptions: LOCAL, extraSources: sources, externals };
   if (relock) {
@@ -144,7 +145,9 @@ async function watch(argv) {
       process.stderr.write(`watch failed: ${error?.message ?? "unknown error"}\n`);
       return 2;
     }
-    if (json) process.stdout.write(`${JSON.stringify({ relocked: true, ...result, reminder: RESIGN_REMINDER }, null, 2)}\n`);
+    // as the CLI prints it since UAT-1: --json carries the facts as counts, the text prints the "facts" lines
+    const { coverage, ...rest } = result;
+    if (json) process.stdout.write(`${JSON.stringify({ relocked: true, ...rest, ...(coverage ? { facts: factCoverageCounts(coverage) } : {}), reminder: RESIGN_REMINDER }, null, 2)}\n`);
     else {
       process.stdout.write(`relock: wrote plumbline.lock.json (the previous lock was ${result.previous})\n`);
       const { added, removed, changed } = result.changes;
@@ -152,6 +155,7 @@ async function watch(argv) {
       for (const ref of removed) process.stdout.write(`removed ${ref}\n`);
       for (const ref of changed) process.stdout.write(`changed ${ref}\n`);
       if (added.length + removed.length + changed.length === 0) process.stdout.write("no ref changed\n");
+      for (const line of coverage ? factCoverageLines(coverage) : []) process.stdout.write(`${line}\n`);
       for (const f of result.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
       process.stdout.write(`${RESIGN_REMINDER}\n`);
     }
