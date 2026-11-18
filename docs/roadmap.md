@@ -171,6 +171,13 @@ Design:
 
 Done: tests with an injected resolver (agree, disagree, none, error, malformed, several records); docs.
 
+As built: DNS is asked by `trust --url` only (`trust --key` stays offline; `--require-dns` without `--url` is a usage
+error). A disagreement refuses `--yes` outright; the deliberate route past it is `trust --key <file> --origin <o> --yes`,
+a separate command that asks no DNS. Records that claim `v=plumbline1` but break the form count as malformed and make
+"no record" (with the count), never "disagrees". An IP literal, `localhost` or a single-label host is "could not ask"
+without a query. No DNSSEC validation (Node's resolver does none); the docs say so. The decision is one pure function,
+`trustDecision`, tested for every combination; the no-network preload now refuses TXT queries.
+
 ### D5. A standard envelope
 
 Goal: a verifier that speaks JWS can check a Plumbline signature; alignment with A2A's signed Agent Cards.
@@ -187,6 +194,14 @@ Design:
 
 Done: round-trip tests; a vector checked against an independent EdDSA JWS computation written in the test with
 WebCrypto; docs.
+
+As built: canonicalJson equals RFC 8785 on Plumbline's documents (the RFC's own samples are recorded as fixtures);
+nothing changed in the canonical bytes. `export-jws` cannot convert an existing signature: a JWS signs
+`BASE64URL(header).BASE64URL(payload)`, not the payload, so it needs the private key, and it refuses a key that did not
+make the native signature. The verifier gained `verifyStatement` (the native pipeline with the math passed in), which
+both paths run; a test compares their results in six cases. `verify --jws` reads the JWS from a local file. Also
+committed on the way (ccd4091): invisible characters the editor had written into literals (a BOM, no-break spaces,
+bidi controls) are escapes again.
 
 Owner: submit the proposal.
 
@@ -259,8 +274,8 @@ stderr or a report); docs.
 | D9 | done | 9ab1e40 | Curate `ecosystem/sites.txt`; decide whether and where to publish results. Run of 2026-11-18 (3 sites): gate pass 1 (Agent Customs), unavailable 2 (the Desk and Agent Atlas: validator and Atlas pass, no Customs receipt); lock found 1 (the Desk: no drift, info only), absent 2; signature published 1 (the Desk, kid `91971cfa8d0e630c`, unverifiable to the scan), absent 2. The Desk took 12.1 s, Atlas 1.4 s, Customs 2.2 s. |
 | D7 | done | 6c36ee8 | Relock the Desk's lock (`site/plumbline.lock.json`, signed) so its peers carry an outline; until then a changed partner says "re-lock to record one". Re-sign after. |
 | D8 | done | 7c87318, 4b9c90e | None beyond the Desk relock above (the Desk names no `--source` page today; add one with `--relock --source` if a page grounds the network). |
-| D4 | not started | | |
-| D5 | not started | | |
+| D4 | done | addcd1e | Optional: publish the Desk's `_plumbline` TXT record (`plumbline dns --key site/.well-known/plumbline-key.json --origin https://plumbline.xkazm04.workers.dev`); on a `workers.dev` host this needs a custom domain, since the workers.dev zone is Cloudflare's. |
+| D5 | done | 3b53541, ccd4091 | Submit `docs/proposals/waw-provenance.md` to cognizant-ai-labs/agentic-web (it references `docs/proposals/runtime-preload-hook.md`, written in D3). |
 | D3 | not started | | |
 | D6 | not started | | |
 | D10 | not started | | |
