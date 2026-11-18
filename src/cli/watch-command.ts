@@ -153,7 +153,7 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
       // UAT-14 (TOM-L1-14): --init says it wrote the lock, and its JSON carries lockState like every other report
       if (json) {
         const first = written.firstSigners !== undefined ? { firstSigners: written.firstSigners } : {};
-        process.stdout.write(`${JSON.stringify({ lock: "written", lockState: "found", findings: written.findings, facts: factCoverageCounts(written.coverage), ...first }, null, 2)}\n`);
+        process.stdout.write(`${JSON.stringify({ lock: "written", lockState: "found", checkedAt: written.checkedAt, findings: written.findings, records: written.records, facts: factCoverageCounts(written.coverage), ...first }, null, 2)}\n`);
       } else {
         process.stdout.write(`watch: wrote ${LOCK_FILE} (${await lockCounts(root)})\n`);
         for (const line of factCoverageLines(written.coverage)) process.stdout.write(`${line}\n`);
@@ -175,8 +175,8 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
     // UAT-14 (TOM-L1-05): a lock is already there, and --init never rewrites one. Each --source and --external it
     // could not add is said, naming the relock that does; then this is the ordinary watch of that lock.
     const notAdded: WatchReport["findings"] = [
-      ...extraSources.map((ref) => ({ kind: "grounding" as const, severity: "info" as const, ref, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --source ${ref} after a review.` })),
-      ...externals.map((e) => ({ kind: "peer" as const, severity: "info" as const, ref: e.url, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --external ${e.kind}=${e.url} after a review.` })),
+      ...extraSources.map((ref) => ({ kind: "grounding" as const, severity: "info" as const, code: "not-added" as const, ref, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --source ${ref} after a review.` })),
+      ...externals.map((e) => ({ kind: "peer" as const, severity: "info" as const, code: "not-added" as const, ref: e.url, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --external ${e.kind}=${e.url} after a review.` })),
     ];
     const kept = { ...report, findings: [...notAdded, ...report.findings] };
     if (json) {

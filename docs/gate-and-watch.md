@@ -125,8 +125,8 @@ networks Customs lists get receipts (its `tools/receipt-sites.json`), so most ta
 
 `plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--external a2a-card=<url>]... [--timeout <ms>] [--json]`. It is a dry run: it
 reports, and with `--init` and no lock yet it writes `plumbline.lock.json` and says so (`watch: wrote plumbline.lock.json (N
-grounding sources, N runtime files, N peers, N pending)`; `--json`: `{ lock: "written", lockState: "found", findings, facts,
-firstSigners? }`). With a lock present, `--init` does not overwrite it; `--relock` does (below). It says `watch: kept the
+grounding sources, N runtime files, N peers, N pending)`; `--json`: `{ lock: "written", lockState: "found", checkedAt, findings,
+records, facts, firstSigners? }`). With a lock present, `--init` does not overwrite it; `--relock` does (below). It says `watch: kept the
 plumbline.lock.json that is there (...)`, adds an `info` finding for each `--source` and `--external` it could not add,
 naming the relock that does ("Not added: a lock was already there, and --init never rewrites one; add it with watch
 --relock --external a2a-card=<url> after a review.", UAT-14), and then watches that lock as usual (`--json`: `{ lock:
@@ -158,6 +158,95 @@ a lock the browser was refused), so a drift count is a count of drift.
 | coverage | what the site names now (the discovery `--init` uses, below) against what the lock holds | a root agent file or a manifest-named network file not in `grounding.sources`: `warn` (grounding). A peer a network or `links.json` names that is neither in `peers` nor pending: `warn` (peer). A network file that is not JSON, so its peers cannot be read: `warn` (peer). An unsafe `hocon`: `warn`, as at init |
 | signature expiry | the site's own `plumbline.signature.json` at the root, its `expiresAt` | expired: `block` (verifiers answer `invalid expired`). Expiring within 14 days: `warn`, with the date and the days left. No signature file: no finding (signing is the publisher's choice). A file with no readable `expiresAt`: `warn`. Kind `grounding`, ref `plumbline.signature.json` (the wire has three drift kinds; the signed files are the grounding). Checked whatever the lock's state |
 | signature coverage | the same file's `subjects`: each path's SHA-256 against the exact bytes of the file at that path now (no trust store: the subject list is compared, not verified) | a signed file that differs or is gone: `block`, "The site's signature no longer covers its files: K of N signed files differ from the signed version or are missing (<paths>), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign)." This is how an unsigned relock that was merged shows up: the lock is a signed file. Checkout only (`watch --url` and the Desk check the signature with `verify`) |
+
+### Reason codes
+
+Since 2026-11-18 (UAT-17) every finding carries `code`, from the closed list below (`DRIFT_CODES` in
+`src/core/types.ts`), beside its sentence, so a script sorts findings without matching words. The code also fixes what
+`expected` and `actual` hold: a hash (`hash`), a key id (`kid`), a date (`date`) or a short commit (`commit`); a cell
+with `-` means the member is omitted. A report written before 2026-11-18 has no codes. A changed peer
+(`peer-changed`) and a changed card (`external-changed`) also carry `counts`, the numbers their sentence says
+(`agentsAdded`, `agentsRemoved`, `agentsChanged`, `hostsAdded`, `hostsRemoved`, `frontChanged`; for a card
+`skillsAdded`, `skillsRemoved`, `skillsChanged` and `signatures`), omitted when the sentence says what changed is not
+told.
+
+| Code | Kind | Severity | Means | expected / actual |
+| --- | --- | --- | --- | --- |
+| `grounding-changed` | grounding | warn | a grounding source changed | hash / hash |
+| `grounding-stale-fact` | grounding | warn | a changed page no longer states, where the lock recorded it, a fact the network still states | hash / hash |
+| `grounding-line-endings` | grounding | warn | changed in line endings only | hash / hash |
+| `grounding-unreadable` | grounding | warn | a grounding source could not be checked | hash / - |
+| `grounding-not-locked` | grounding | warn | a file the site names is not in the lock | - / - |
+| `runtime-changed` | runtime | block | a vendored runtime file differs | hash / hash |
+| `runtime-line-endings` | runtime | block | it differs in line endings only | hash / hash |
+| `runtime-missing` | runtime | block | a locked runtime file is missing | hash / - |
+| `runtime-unreadable` | runtime | block | a locked runtime file could not be read | hash / - |
+| `runtime-added` | runtime | block | a file was added to the runtime folder | - / hash |
+| `upstream-ahead` | runtime | info | the runtime's upstream moved on | commit / commit |
+| `upstream-no-commit` | runtime | info | the lock records no runtime commit to compare | - / commit |
+| `upstream-unchecked` | runtime | info | the upstream could not be asked | - / - |
+| `signature-expired` | grounding | block | the site's own signature expired | - / date |
+| `signature-expiring` | grounding | warn | it expires within 14 days | - / date |
+| `signature-unreadable` | grounding | warn | it could not be read, or has no readable expiry | - / - |
+| `signature-not-covering` | grounding | block | it no longer covers the site's files | - / - |
+| `network-path-unsafe` | grounding | warn | a manifest names a network file by an unsafe path | - / - |
+| `network-not-json` | peer | warn | a network file is not JSON, so its peers could not be collected | - / - |
+| `peer-changed` | peer | block | a peer's network definition changed | hash / hash |
+| `peer-unreachable` | peer | warn | a peer could not be reached or answered an HTTP error | - / - |
+| `peer-refused` | peer | warn | a peer (or the network file its manifest names) is an address Plumbline does not contact | - / - |
+| `peer-pending` | peer | warn | a peer the lock holds as pending | - / - |
+| `peer-not-locked` | peer | warn | a network names a peer the lock does not cover | - / - |
+| `peer-links-untracked` | peer | warn | the lock does not record the peer's links.json | - / - |
+| `peer-links-unreadable` | peer | warn | its links.json could not be checked | - / - |
+| `peer-links-appeared` | peer | block | it now publishes a links.json | `absent` / hash |
+| `peer-links-changed` | peer | block | its links.json changed | hash / hash |
+| `peer-links-gone` | peer | block | its links.json is gone | hash / `absent` |
+| `signer-rotated-verified` | peer | block | another key, by a rotation from the recorded key that verifies against `--trust` | kid / kid |
+| `signer-rotation-published` | peer | block | another key, and a rotation statement from the recorded key is published (not verified here) | kid / kid |
+| `signer-rotation-unverified` | peer | block | another key, and the published rotation does not verify against `--trust` | kid / kid |
+| `signer-no-rotation` | peer | block | another key, with no rotation from the recorded key published | kid / kid |
+| `signer-gone` | peer | block | a peer recorded as signed publishes no signature now | kid / - |
+| `signer-unreadable` | peer | warn | its signature could not be read, so its signer was not checked | kid / - |
+| `signer-back` | peer | info | a peer that stopped signing is signed again by the key it last had | kid / kid |
+| `signer-first` | peer | info | a peer recorded unsigned now publishes a signature | - / kid |
+| `external-changed` | peer | block | an external definition (an A2A card) changed | hash / hash |
+| `external-unreachable` | peer | warn | it could not be reached or answered an HTTP error | - / - |
+| `external-refused` | peer | warn | its address is one Plumbline does not contact | - / - |
+| `external-unsupported` | peer | warn | a kind this build does not read (`mcp-tools`) | - / - |
+| `capture-runtime-absent` | runtime | info | init or relock found no vendored runtime folder | - / - |
+| `capture-runtime-unreadable` | runtime | warn | a runtime file could not be locked | - / - |
+| `capture-runtime-commit-unknown` | runtime | info | the runtime folder names no nsdeploy commit | - / - |
+| `capture-source-unreadable` | grounding | warn | a grounding source could not be locked | - / - |
+| `capture-source-no-text` | grounding | info | a source could not be reduced to text, so no fact is anchored on it | - / - |
+| `capture-source-dropped-named` | grounding | warn | `--drop` took out a file the site still names | - / - |
+| `capture-page-no-fact` | grounding | warn | a page states none of the facts the network states | - / - |
+| `capture-stale-kept` | grounding | warn | a relock kept a page's earlier record: the network still states a fact the page no longer does | - / - |
+| `capture-no-sources` | grounding | info | no grounding sources were found at the root | - / - |
+| `capture-line-endings` | grounding | warn | locked files end their lines with CRLF (ref `.gitattributes`) | - / - |
+| `capture-signer-kept` | peer | warn | a peer's signature could not be read, so the lock keeps the kid it had | - / - |
+| `capture-signer-unrecorded` | peer | warn | a peer's signature could not be read, and the lock had no kid for it | - / - |
+| `capture-peer-kept` | peer | warn | a pinned peer could not be re-read, so the lock keeps its pin | - / - |
+| `capture-peer-pending` | peer | warn | a peer could not be captured and is held as pending | - / - |
+| `capture-external-kept` | peer | warn | an external definition could not be re-read, so the lock keeps its record | - / - |
+| `capture-external-unreadable` | peer | warn | a new external definition could not be locked | - / - |
+| `capture-external-no-outline` | peer | info | an external definition is not readable as a card; its bytes are locked | - / - |
+| `not-added` | grounding or peer | info | `--init` or `init` found a lock and did not add a `--source` or `--external` | - / - |
+| `accept-unknown` | grounding | info | `--accept` named a ref neither the lock nor the site holds | - / - |
+| `accept-signer-unused` | peer | info | `--accept-signer` named a peer whose signer this relock does not change | - / - |
+| `drop-unknown` | grounding | info | `--drop` named a ref the lock does not hold | - / - |
+| `url-not-checked` | grounding | info | what `watch --url` cannot check from a published site | - / - |
+
+**When, and one row per partner.** Every watch report also carries `checkedAt`, the UTC ISO time the watch ran (the
+checkout's watch, `watch --url`, the published reader the Desk runs), and, when the lock was found, `records`: one row
+per peer, pending peer and external definition the lock holds, sorted by part (`peer`, `pending`, `external`) and then
+address, a clean one included: `{ part, ref, externalKind?, sha256?, kid?, formerKid?, signatures?, lockedAt, state,
+codes }` (`WatchedRecord`). `sha256` is the pin, `kid` the signer the lock recorded (absent: recorded unsigned),
+`signatures` a card's JWS count when locked, `lockedAt` the record's `checkedAt` (a pending peer's `since`), `codes` this
+report's codes for that address, and `state` one of `unchanged` (checked; at most an `info`), `changed` (a code says its
+definition, links.json, signer or card changed, `signer-first` included), `partly-checked` (its definition was checked,
+its links.json or signer was not), `not-checked` (unreachable or not contacted) and `pending`. A peer row takes the
+`peer-*` and `signer-*` codes for its address; an external row the `external-*` ones. `init`, `watch --init` and
+`--relock` carry `checkedAt` and the `records` of the lock they wrote too.
 
 **Reading under the root.** Every local file the watch reads (lock references, the lock itself, the manifest, network
 files, the signature) must stay under the root twice: lexically, and, after every symlink and junction is resolved
@@ -196,8 +285,9 @@ letters, digits, `.`, `_`, `-` and `/` (run it from the repository root). It the
 lock, run the watch, name with `--source` the pages whose facts the network states, and, as the upgrade, `keygen` and
 `sign`. It makes no key and reads none. Exit 0 when the lock was written or kept with nothing `warn` or `block`, 1 for a
 capture with a gap (a pending peer, a source that could not be read) or a lock that is there and cannot be used, 2 for
-a usage or I/O error. `--json`: `{ lock: "written" | "kept", lockFile, counts: { grounding, runtime, peers, pending },
-facts?, findings, workflow?, workflowRoot?, next }`.
+a usage or I/O error. `--json`: `{ lock: "written" | "kept", lockFile, checkedAt?, counts: { grounding, runtime, peers,
+pending }, facts?, findings, records?, workflow?, workflowRoot?, next }` (`checkedAt` and `records` when it wrote the
+lock; see "Reason codes").
 
 What the new lock watches is printed with it (and by `watch --init` and `--relock`), one `facts` line each: how many
 facts the networks state, by kind; per `--source` page, how many it watches by kind and which of the network's facts
@@ -409,8 +499,8 @@ kept; one that is gone now is a finding and leaves the lock), writes the lock in
 so a failed write leaves the old one), and prints what changed: `added`, `removed` and `changed` refs, each labelled
 `grounding`, `runtime`, `peer`, `external`, `pending`, `runtime commit` or `runtime via`. When the site publishes a
 `plumbline.signature.json`, it ends with the reminder that the lock is a signed file; a site with none is not told to
-sign (UAT-12). With `--json` it prints `{ relocked, previous, changes: { added, removed, changed }, findings, signers?,
-firstSigners?, facts, reminder? }` (`reminder` only for a signed site). Exit 0 when it wrote the lock. `--init` and `--relock` together are a usage error.
+sign (UAT-12). With `--json` it prints `{ relocked, checkedAt, records, previous, changes: { added, removed, changed },
+findings, signers?, firstSigners?, facts, reminder? }` (`reminder` only for a signed site). Exit 0 when it wrote the lock. `--init` and `--relock` together are a usage error.
 
 **A relock never forgets what it could not re-read** (UAT-3). What the previous lock held and cannot be read now is
 kept, with a `warn` that says so, never replaced by `pending` or dropped because something is down today: a pinned
@@ -496,7 +586,7 @@ passes `--accept-signer`: with a signer change pending its pull request is not r
   },
   "pendingPeers": { "https://later.example/partner": { "since": "<ISO UTC>" } },
   "external": {
-    "https://agent.example/.well-known/agent-card.json": { "kind": "a2a-card", "sha256": "<sha256>", "parts": { "<sha256 of a skill id>": "<sha256 of the skill>" }, "checkedAt": "<ISO UTC>" }
+    "https://agent.example/.well-known/agent-card.json": { "kind": "a2a-card", "sha256": "<sha256>", "parts": { "<sha256 of a skill id>": "<sha256 of the skill>" }, "signatures": 1, "checkedAt": "<ISO UTC>" }
   }
 }
 ```

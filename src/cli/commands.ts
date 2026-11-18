@@ -670,20 +670,30 @@ export async function verify(argv: string[], out: Out, options: { quiet?: boolea
   // UAT-8 (TOM-L2-03): a signer this file does not trust for the origin while it trusts another key there is a swapped
   // signer, said as such (the trusted key, the signer, and whether a rotation from the trusted key is published)
   const sigOrigin = (signature as { origin?: unknown } | undefined)?.origin;
+  // UAT-17 (TOM-L1-02): the same fact as a field, so a script tells a rotation from a bare signer change without the sentence
+  let signerChange: { trusted: string[]; signer: string; rotation: "published" | "none"; rotationFrom?: string } | undefined;
   if (result.verdict === "unverifiable" && result.kid !== undefined && (expectedOrigin === undefined || sigOrigin === expectedOrigin) && typeof sigOrigin === "string") {
     const swapped = signerChangeDetail(trust.entries, result.kid, sigOrigin, rotationFrom);
-    if (swapped !== undefined) result = { ...result, detail: swapped };
+    if (swapped !== undefined) {
+      result = { ...result, detail: swapped };
+      const signer = result.kid as string;
+      const trusted = trust.entries.filter((e) => e.origin === sigOrigin && e.kid !== signer && e.revokedAt === undefined && isKid(e.kid)).map((e) => e.kid);
+      const from = trusted.find((k) => rotationFrom.includes(k));
+      signerChange = { trusted, signer, rotation: from !== undefined ? "published" : "none", ...(from !== undefined ? { rotationFrom: from } : {}) };
+    }
   }
   // A published rotation is the way to an unknown signer that an old trusted key named: point at adopt, never adopt here.
   // Read through the same source as everything else, so `--url` gets the hint too (p-58cf7d). Not for a rotation from
   // a key this file records as revoked: adopt refuses it (UAT-8, INE-L1-15).
   const fromRevoked = rotationFrom.some((k) => trust.entries.some((e) => e.kid === k && e.revokedAt !== undefined));
+  let hint: { code: "rotation-published"; rotationFrom: string[]; command: string } | undefined;
   if (result.verdict === "unverifiable" && rotationRead.state === "present" && !fromRevoked) {
     const how =
       base !== undefined
         ? `plumbline adopt --url ${base.toString()} --trust ${trustPath}${allowLocal ? " --allow-local" : ""}`
         : `plumbline adopt --root ${root} --trust ${trustPath} --origin ${expectedOrigin ?? "<origin>"}`;
     lines.push(`hint: ${ROTATION_FILE} is present; if you trust a key it rotates from, check it with ${how}`);
+    hint = { code: "rotation-published", rotationFrom, command: how };
   }
   // The verdict line stays last, so a reader of the text output finds it in the same place with or without a revocation.
   // A verified line carries its limit and the signature's expiry, so it can be pasted into a note as it is (UAT-8).
@@ -693,7 +703,7 @@ export async function verify(argv: string[], out: Out, options: { quiet?: boolea
       ? `${formatResult(result)} The signature is valid until ${expires.slice(0, 10)}. Verified means these files are the publisher's and unchanged, not that the site is safe, honest or correct.`
       : formatResult(result),
   );
-  emit(args, out, { results: [result], ...(revocation ? { revocation } : {}) }, lines);
+  emit(args, out, { results: [result], ...(revocation ? { revocation } : {}), ...(signerChange !== undefined ? { signerChange } : {}), ...(hint !== undefined ? { hint } : {}) }, lines);
   return result.verdict === "verified" ? 0 : 1;
 }
 

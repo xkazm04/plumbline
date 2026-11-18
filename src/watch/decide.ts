@@ -19,8 +19,12 @@ import {
   PEER_LINKS_ABSENT,
   SIGNATURE_FILE,
   SUBJECT_PATH_PATTERN,
+  type DriftCode,
+  type DriftCounts,
   type DriftFinding,
   type DriftReport,
+  type RecordState,
+  type WatchedRecord,
   type PeerRecord,
   type PlumblineLock,
   type RuntimeVia,
@@ -199,13 +203,13 @@ export function groundingFinding(
   lineEndings?: LineEndingChange,
 ): DriftFinding | null {
   if (!seen.ok) {
-    return { kind: "grounding", severity: "warn", ref: source.ref, expected: source.sha256, summary: `A grounding source could not be checked: it ${seen.sentence}.` };
+    return { kind: "grounding", severity: "warn", code: "grounding-unreadable", ref: source.ref, expected: source.sha256, summary: `A grounding source could not be checked: it ${seen.sentence}.` };
   }
   if (seen.sha256 === source.sha256) return null;
   const changed = "A grounding source changed since the lock was written";
   // UAT-13: a difference in line endings only is said as that, never as different facts; the severity is unchanged
   if (lineEndings !== undefined) {
-    return { kind: "grounding", severity: "warn", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary: `${changed}, ${lineEndingWords(lineEndings)}` };
+    return { kind: "grounding", severity: "warn", code: "grounding-line-endings", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary: `${changed}, ${lineEndingWords(lineEndings)}` };
   }
   const facts = (n: number) => `${n} fact${n === 1 ? "" : "s"}`;
   let summary: string;
@@ -245,7 +249,9 @@ export function groundingFinding(
             ? `${head}, and the network still states ${them} (${still.kinds}), so the agent may now answer with an old fact.`
             : `${head}; the network still states ${still.count} of them (${still.kinds}), so the agent may now answer with an old fact.`;
   }
-  return { kind: "grounding", severity: "warn", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary };
+  // UAT-17: a fact the network still states that is no longer on the page where the lock recorded it has its own code
+  const stale = anchors !== undefined && !("problem" in anchors) && (anchors.stillStated?.count ?? 0) > 0 && anchors.present + (anchors.unplaced ?? 0) < anchors.total;
+  return { kind: "grounding", severity: "warn", code: stale ? "grounding-stale-fact" : "grounding-changed", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary };
 }
 
 export function runtimeFinding(file: string, expected: string, seen: Observed, lineEndings?: LineEndingChange): DriftFinding | null {
@@ -253,6 +259,7 @@ export function runtimeFinding(file: string, expected: string, seen: Observed, l
     return {
       kind: "runtime",
       severity: "block",
+      code: seen.missing ? "runtime-missing" : "runtime-unreadable",
       ref: file,
       expected,
       summary: seen.missing
@@ -264,6 +271,7 @@ export function runtimeFinding(file: string, expected: string, seen: Observed, l
   return {
     kind: "runtime",
     severity: "block",
+    code: lineEndings !== undefined ? "runtime-line-endings" : "runtime-changed",
     ref: file,
     expected,
     actual: seen.sha256,
@@ -303,6 +311,7 @@ export function addedRuntimeFinding(file: string, seen: Observed): DriftFinding 
   return {
     kind: "runtime",
     severity: "block",
+    code: "runtime-added",
     ref: file,
     ...(seen.ok ? { actual: seen.sha256 } : {}),
     summary: "A file was added to the vendored runtime folder after the lock was written; the runtime is copy-do-not-change. Remove it, or review it and run watch --relock to accept it.",
@@ -388,10 +397,33 @@ export function signerChangeWords(rotation: PeerRotation | undefined): string {
   return "a different key, with no rotation published";
 }
 
+/** The reason code for a signer change (UAT-17, TOM-L1-02): the same three readings as signerChangeWords, as a field. */
+export function signerChangeCode(rotation: PeerRotation | undefined): DriftCode {
+  if (rotation?.verified === true) return "signer-rotated-verified";
+  if (rotation?.fromLocked === true) return rotation.verified === false ? "signer-rotation-unverified" : "signer-rotation-published";
+  return "signer-no-rotation";
+}
+
+/** A changed peer's outline counts as numbers (UAT-17, DEV-L1-11), or nothing when whatChanged says they are not told. */
+function outlineCounts(locked: PeerOutline | undefined, now: PeerOutline | null | undefined): { counts?: DriftCounts } {
+  if (locked === undefined || now === undefined || now === null) return {};
+  const d = diffOutlines(locked, now);
+  return {
+    counts: {
+      agentsAdded: d.agentsAdded.length,
+      agentsRemoved: d.agentsRemoved.length,
+      agentsChanged: d.agentsChanged.length,
+      hostsAdded: d.hostsAdded.length,
+      hostsRemoved: d.hostsRemoved.length,
+      frontChanged: d.frontChanged,
+    },
+  };
+}
+
 export function peerFindings(url: string, record: PeerRecord, seen: PeerObservation): DriftFinding[] {
   const def = seen.definition;
   if (!def.ok && def.refused !== undefined) {
-    return [{ kind: "peer", severity: "warn", ref: url, summary: `A peer's network file was not contacted: ${def.refused}, which a peer's manifest may not point a browser at.` }];
+    return [{ kind: "peer", severity: "warn", code: "peer-refused", ref: url, summary: `A peer's network file was not contacted: ${def.refused}, which a peer's manifest may not point a browser at.` }];
   }
   if (!def.ok && def.addressProblem !== undefined) return [refusedPeerFinding(url, def.addressProblem)];
   if (!def.ok) {
@@ -399,6 +431,7 @@ export function peerFindings(url: string, record: PeerRecord, seen: PeerObservat
       {
         kind: "peer",
         severity: "warn",
+        code: "peer-unreachable",
         ref: url,
         summary:
           def.status !== undefined
@@ -412,10 +445,12 @@ export function peerFindings(url: string, record: PeerRecord, seen: PeerObservat
     out.push({
       kind: "peer",
       severity: "block",
+      code: "peer-changed",
       ref: url,
       expected: record.sha256,
       actual: def.sha256,
       summary: `A peer's network definition changed since the lock was written; it runs in the visitor's browser, so a changed one is changed code. ${whatChanged(record.outline, def.outline)}`,
+      ...outlineCounts(record.outline, def.outline),
     });
   }
   // The peer's links.json: the runtime lays it over the peer network's links, so one that appears, changes or goes
@@ -424,18 +459,20 @@ export function peerFindings(url: string, record: PeerRecord, seen: PeerObservat
     out.push({
       kind: "peer",
       severity: "warn",
+      code: "peer-links-untracked",
       ref: url,
       summary: "The lock does not record this peer's links.json, so a links file it adds or changes is not seen; re-lock to track it.",
     });
   } else if (seen.links !== undefined) {
     if ("problem" in seen.links) {
-      out.push({ kind: "peer", severity: "warn", ref: url, summary: `A peer's links.json could not be checked: it ${seen.links.problem}.` });
+      out.push({ kind: "peer", severity: "warn", code: "peer-links-unreadable", ref: url, summary: `A peer's links.json could not be checked: it ${seen.links.problem}.` });
     } else if (seen.links.state !== record.links) {
       const appeared = record.links === PEER_LINKS_ABSENT;
       const gone = seen.links.state === PEER_LINKS_ABSENT;
       out.push({
         kind: "peer",
         severity: "block",
+        code: appeared ? "peer-links-appeared" : gone ? "peer-links-gone" : "peer-links-changed",
         ref: url,
         expected: record.links,
         actual: seen.links.state,
@@ -474,6 +511,7 @@ export function signerFindings(url: string, record: PeerRecord, seen: PeerObserv
         {
           kind: "peer",
           severity: "block",
+          code: signerChangeCode(seen.rotation),
           ref: url,
           expected: recorded,
           actual: kid,
@@ -486,6 +524,7 @@ export function signerFindings(url: string, record: PeerRecord, seen: PeerObserv
         {
           kind: "peer",
           severity: "block",
+          code: "signer-gone",
           ref: url,
           expected: recorded,
           summary: `A peer the lock recorded as signed publishes no signature now (its ${SIGNATURE_FILE} is not published), so nothing ties it to the key the lock recorded. ${ACCEPT_SIGNER}`,
@@ -497,6 +536,7 @@ export function signerFindings(url: string, record: PeerRecord, seen: PeerObserv
         {
           kind: "peer",
           severity: "warn",
+          code: "signer-unreadable",
           ref: url,
           expected: recorded,
           summary: `A peer's signature could not be read now (${sig.problem}), so its signer was not checked; a relock keeps the key the lock recorded.`,
@@ -508,11 +548,12 @@ export function signerFindings(url: string, record: PeerRecord, seen: PeerObserv
   if (kid === undefined) return [];
   if (former !== undefined) {
     return kid === former
-      ? [{ kind: "peer", severity: "info", ref: url, actual: kid, summary: "A peer that had stopped signing is signed again by the key the lock last recorded for it; re-lock to record it." }]
+      ? [{ kind: "peer", severity: "info", code: "signer-back", ref: url, expected: former, actual: kid, summary: "A peer that had stopped signing is signed again by the key the lock last recorded for it; re-lock to record it." }]
       : [
           {
             kind: "peer",
             severity: "block",
+            code: signerChangeCode(seen.rotation),
             ref: url,
             expected: former,
             actual: kid,
@@ -520,7 +561,7 @@ export function signerFindings(url: string, record: PeerRecord, seen: PeerObserv
           },
         ];
   }
-  return [{ kind: "peer", severity: "info", ref: url, actual: kid, summary: "A peer that was unsigned when locked now publishes a signature; re-lock to record its key." }];
+  return [{ kind: "peer", severity: "info", code: "signer-first", ref: url, actual: kid, summary: "A peer that was unsigned when locked now publishes a signature; re-lock to record its key." }];
 }
 
 /**
@@ -572,7 +613,7 @@ export function pendingPeerFindings(lock: Lock, today: Record<string, PendingObs
             : now.answers
               ? "it answers now: review it, then run watch --relock to capture it"
               : `it still cannot be read (${now.why}); run watch --relock once it answers`;
-      return { kind: "peer", severity: "warn", ref: url, summary: `A peer could not be captured when the lock was written${since}, so it is not watched; ${tail}.` };
+      return { kind: "peer", severity: "warn", code: "peer-pending", ref: url, summary: `A peer could not be captured when the lock was written${since}, so it is not watched; ${tail}.` };
     });
 }
 
@@ -587,11 +628,11 @@ export function coverageFindings(lock: Lock, named: { refs: string[]; peers: str
   const out: DriftFinding[] = [];
   for (const ref of [...new Set(named.refs)].sort()) {
     if (locked.has(ref)) continue;
-    out.push({ kind: "grounding", severity: "warn", ref, summary: "A file the site names is not in the lock, so a change to it is not seen; review it and run watch --relock." });
+    out.push({ kind: "grounding", severity: "warn", code: "grounding-not-locked", ref, summary: "A file the site names is not in the lock, so a change to it is not seen; review it and run watch --relock." });
   }
   for (const url of [...new Set(named.peers)].sort()) {
     if (peers.has(url)) continue;
-    out.push({ kind: "peer", severity: "warn", ref: url, summary: "A network names a peer the lock does not cover, so its code is not watched; review it and run watch --relock." });
+    out.push({ kind: "peer", severity: "warn", code: "peer-not-locked", ref: url, summary: "A network names a peer the lock does not cover, so its code is not watched; review it and run watch --relock." });
   }
   return out;
 }
@@ -617,13 +658,14 @@ export function signatureExpiryFinding(text: string | undefined, now: Date): Dri
   }
   const ms = typeof expiresAt === "string" ? Date.parse(expiresAt) : Number.NaN;
   if (!Number.isFinite(ms)) {
-    return { kind: "grounding", severity: "warn", ref: SIGNATURE_FILE, summary: "The site's signature file has no readable expiry, so the watch cannot say when it lapses." };
+    return { kind: "grounding", severity: "warn", code: "signature-unreadable", ref: SIGNATURE_FILE, summary: "The site's signature file has no readable expiry, so the watch cannot say when it lapses." };
   }
   const when = new Date(ms).toISOString();
   if (ms <= now.getTime()) {
     return {
       kind: "grounding",
       severity: "block",
+      code: "signature-expired",
       ref: SIGNATURE_FILE,
       actual: when.slice(0, 10),
       summary: `The site's signature expired on ${when.slice(0, 10)}; verifiers now answer invalid (expired) until the site is signed again.`,
@@ -634,6 +676,7 @@ export function signatureExpiryFinding(text: string | undefined, now: Date): Dri
   return {
     kind: "grounding",
     severity: "warn",
+    code: "signature-expiring",
     ref: SIGNATURE_FILE,
     actual: when.slice(0, 10),
     summary: `The site's signature expires on ${when.slice(0, 10)}, in ${days} day${days === 1 ? "" : "s"}; sign the site again before then.`,
@@ -661,6 +704,7 @@ export async function signatureCoverageFinding(subjects: unknown, read: (path: s
   return {
     kind: "grounding",
     severity: "block",
+    code: "signature-not-covering",
     ref: SIGNATURE_FILE,
     summary: `The site's signature no longer covers its files: ${differ.length} of ${entries.length} signed file${entries.length === 1 ? "" : "s"} ${differ.length === 1 ? "differs" : "differ"} from the signed version or ${differ.length === 1 ? "is" : "are"} missing (${named}), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign).`,
   };
@@ -717,7 +761,79 @@ export function peerAddressProblem(address: string): string | null {
 
 /** The finding for a lock peer that is not contacted by the address rule: the Desk's check, or safeFetch's refusal in the CLI. */
 export function refusedPeerFinding(url: string, problem: string): DriftFinding {
-  return { kind: "peer", severity: "warn", ref: url, summary: `A peer in this lock was not contacted: ${problem}, an address Plumbline does not contact, so it was not checked.` };
+  return { kind: "peer", severity: "warn", code: "peer-refused", ref: url, summary: `A peer in this lock was not contacted: ${problem}, an address Plumbline does not contact, so it was not checked.` };
+}
+
+// ---- the inventory: one row per thing the lock holds from someone else (UAT-17) ----
+
+/** The codes that say a peer's or external definition's state changed (its definition, links.json, signer or card). */
+const CHANGED_CODES: ReadonlySet<DriftCode> = new Set<DriftCode>([
+  "peer-changed",
+  "peer-links-appeared",
+  "peer-links-changed",
+  "peer-links-gone",
+  "signer-rotated-verified",
+  "signer-rotation-published",
+  "signer-rotation-unverified",
+  "signer-no-rotation",
+  "signer-gone",
+  "signer-back",
+  "signer-first",
+  "external-changed",
+]);
+/** The codes that say it was not checked at all. */
+const NOT_CHECKED_CODES: ReadonlySet<DriftCode> = new Set<DriftCode>(["peer-unreachable", "peer-refused", "external-unreachable", "external-refused", "external-unsupported"]);
+/** The codes that say part of it was not checked. */
+const PARTLY_CODES: ReadonlySet<DriftCode> = new Set<DriftCode>(["peer-links-untracked", "peer-links-unreadable", "signer-unreadable"]);
+
+function recordState(codes: readonly DriftCode[]): RecordState {
+  if (codes.some((c) => CHANGED_CODES.has(c))) return "changed";
+  if (codes.some((c) => NOT_CHECKED_CODES.has(c))) return "not-checked";
+  if (codes.some((c) => PARTLY_CODES.has(c))) return "partly-checked";
+  return "unchanged";
+}
+
+/**
+ * The report's `records` (UAT-17, TOM-L1-07): every peer, pending peer and external definition the lock holds, with its
+ * pin, recorded signer, when the lock recorded it, and this report's codes and state for it, so an inventory fills every
+ * column from fields, a clean row included. Sorted by part (peer, pending, external), then ref.
+ */
+export function lockRecords(lock: Lock, findings: readonly DriftFinding[]): WatchedRecord[] {
+  // a peer's rows take the peer and signer codes, an external definition's the external ones (one address could be both)
+  const codesOf = (ref: string, external: boolean): DriftCode[] =>
+    findings.filter((f) => f.ref === ref && f.kind === "peer" && f.code.startsWith("external-") === external).map((f) => f.code);
+  const byRef = (a: [string, unknown], b: [string, unknown]) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const out: WatchedRecord[] = [];
+  for (const [ref, r] of Object.entries(lock.peers).sort(byRef)) {
+    const codes = codesOf(ref, false);
+    out.push({
+      part: "peer",
+      ref,
+      sha256: r.sha256,
+      ...(r.kid !== undefined ? { kid: r.kid } : {}),
+      ...(r.formerKid !== undefined ? { formerKid: r.formerKid } : {}),
+      lockedAt: r.checkedAt,
+      state: recordState(codes),
+      codes,
+    });
+  }
+  for (const [ref, p] of Object.entries(lock.pendingPeers ?? {}).sort(byRef)) {
+    out.push({ part: "pending", ref, lockedAt: p.since, state: "pending", codes: codesOf(ref, false) });
+  }
+  for (const [ref, e] of Object.entries(lock.external ?? {}).sort(byRef)) {
+    const codes = codesOf(ref, true);
+    out.push({
+      part: "external",
+      ref,
+      externalKind: e.kind,
+      sha256: e.sha256,
+      ...(e.signatures !== undefined ? { signatures: e.signatures } : {}),
+      lockedAt: e.checkedAt,
+      state: recordState(codes),
+      codes,
+    });
+  }
+  return out;
 }
 
 // ---- re-lock: what changed between two locks ----

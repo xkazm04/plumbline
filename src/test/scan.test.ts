@@ -39,8 +39,8 @@ test("driftStateOf: a lock that was not found is not checked, never clean; other
   assert.equal(driftStateOf({ lockState: "absent", lockSummary: "no lock", findings: [] }), "not-checked");
   assert.equal(driftStateOf({ lockState: "unreadable", lockSummary: "x", findings: [] }), "not-checked");
   assert.equal(driftStateOf({ lockState: "found", findings: [] }), "clean");
-  assert.equal(driftStateOf({ lockState: "found", findings: [{ kind: "runtime", severity: "info", ref: "r", summary: "s" }] }), "info");
-  const warn = { kind: "peer" as const, severity: "warn" as const, ref: "p", summary: "s" };
+  assert.equal(driftStateOf({ lockState: "found", findings: [{ kind: "runtime", severity: "info", code: "upstream-unchecked", ref: "r", summary: "s" }] }), "info");
+  const warn = { kind: "peer" as const, severity: "warn" as const, code: "peer-unreachable" as const, ref: "p", summary: "s" };
   assert.equal(driftStateOf({ lockState: "found", findings: [warn] }), "warn");
   assert.equal(driftStateOf({ lockState: "found", findings: [warn, { ...warn, severity: "block" }] }), "block");
 });
@@ -49,7 +49,7 @@ test("summarise counts every state in its own bucket; unavailable is never count
   const sites = [
     site("https://a.example/", gate("pass", "pass"), { lockState: "found", findings: [] }, { state: "published", kid: "0123456789abcdef" }),
     site("https://b.example/", gate("unavailable", "unavailable", "unavailable"), { lockState: "absent", lockSummary: "no lock", findings: [] }),
-    site("https://c.example/", gate("fail", "fail", "pass"), { lockState: "found", findings: [{ kind: "peer", severity: "block", ref: "p", summary: "s" }] }, { state: "unknown" }),
+    site("https://c.example/", gate("fail", "fail", "pass"), { lockState: "found", findings: [{ kind: "peer", severity: "block", code: "peer-changed", ref: "p", summary: "s" }] }, { state: "unknown" }),
   ];
   assert.deepEqual(summarise(sites), {
     sites: 3,
@@ -73,7 +73,7 @@ test("renderHtml: static, no script, no external resource, every string escaped;
     sites: [
       site(hostile, { target: hostile, state: "fail", findings: [{ adapter: "validator", state: "fail", summary: "<b>bold</b> & 'quoted'" }] }, {
         lockState: "found",
-        findings: [{ kind: "peer", severity: "warn", ref: "https://p.example/<svg onload=x>", summary: "a </td> b" }],
+        findings: [{ kind: "peer", severity: "warn", code: "peer-unreachable", ref: "https://p.example/<svg onload=x>", summary: "a </td> b" }],
       }),
     ],
   };

@@ -218,6 +218,12 @@ export interface ExternalRecord {
    * so a change can be counted without quoting it. Omitted when the definition has no parts or could not be read as one.
    */
   parts?: Record<string, string>;
+  /**
+   * Since 2026-11-18 (UAT-17, TOM-L1-13): for an A2A card read as one, how many JWS signatures it carried when locked
+   * (a non-negative integer; counted, never verified). Omitted when it could not be read as a card, and in every lock
+   * written before.
+   */
+  signatures?: number;
   checkedAt: string;
 }
 
@@ -339,13 +345,160 @@ export interface GateReport {
   signature?: VerifyResult;
 }
 
+/**
+ * Since 2026-11-18 (UAT-17, TOM-L1-07): why a drift finding was written, from this closed list, so a script can sort
+ * findings without matching sentences. The sentence (`summary`) stays beside it. Each code fixes what `expected` and
+ * `actual` hold (a hash, a kid, a date or a short commit) and is listed with its kind and severity in
+ * docs/gate-and-watch.md ("Reason codes"). Grouped by what they are about:
+ *   the publisher's files:   grounding-*, runtime-*, upstream-*, signature-*, network-*
+ *   the lock's peers:        peer-*, signer-*
+ *   external definitions:    external-*
+ *   capture (init, relock):  capture-*, and what a relock or `--init` was asked to do and could not: not-added,
+ *                            accept-*, drop-*
+ *   the published reader:    url-not-checked
+ */
+export const DRIFT_CODES = [
+  // grounding sources
+  "grounding-changed",
+  "grounding-stale-fact",
+  "grounding-line-endings",
+  "grounding-unreadable",
+  "grounding-not-locked",
+  // the vendored runtime and its upstream
+  "runtime-changed",
+  "runtime-line-endings",
+  "runtime-missing",
+  "runtime-unreadable",
+  "runtime-added",
+  "upstream-ahead",
+  "upstream-no-commit",
+  "upstream-unchecked",
+  // the site's own signature
+  "signature-expired",
+  "signature-expiring",
+  "signature-unreadable",
+  "signature-not-covering",
+  // the site's network files, as discovery reads them
+  "network-path-unsafe",
+  "network-not-json",
+  // peers
+  "peer-changed",
+  "peer-unreachable",
+  "peer-refused",
+  "peer-pending",
+  "peer-not-locked",
+  "peer-links-untracked",
+  "peer-links-unreadable",
+  "peer-links-appeared",
+  "peer-links-changed",
+  "peer-links-gone",
+  // a peer's signer
+  "signer-rotated-verified",
+  "signer-rotation-published",
+  "signer-rotation-unverified",
+  "signer-no-rotation",
+  "signer-gone",
+  "signer-unreadable",
+  "signer-back",
+  "signer-first",
+  // external agent definitions (an A2A Agent Card)
+  "external-changed",
+  "external-unreachable",
+  "external-refused",
+  "external-unsupported",
+  // capture: what init, watch --init and a relock could not capture, or kept
+  "capture-runtime-absent",
+  "capture-runtime-unreadable",
+  "capture-runtime-commit-unknown",
+  "capture-source-unreadable",
+  "capture-source-no-text",
+  "capture-source-dropped-named",
+  "capture-page-no-fact",
+  "capture-stale-kept",
+  "capture-no-sources",
+  "capture-line-endings",
+  "capture-signer-kept",
+  "capture-signer-unrecorded",
+  "capture-peer-kept",
+  "capture-peer-pending",
+  "capture-external-kept",
+  "capture-external-unreadable",
+  "capture-external-no-outline",
+  // asked for and not done
+  "not-added",
+  "accept-unknown",
+  "accept-signer-unused",
+  "drop-unknown",
+  // the published reader
+  "url-not-checked",
+] as const;
+export type DriftCode = (typeof DRIFT_CODES)[number];
+
+/**
+ * Since 2026-11-18 (UAT-17, DEV-L1-11): the counts a changed definition's sentence says, as numbers. For a peer's
+ * network (`peer-changed`) with an outline on both sides: agents and outbound hosts added, removed and changed, and
+ * whether the front agent changed. For an A2A card (`external-changed`) with parts on both sides: skills added, removed
+ * and changed, and how many JWS signatures it carries now (counted, never verified). Omitted when the sentence says
+ * what changed is not told.
+ */
+export interface DriftCounts {
+  agentsAdded?: number;
+  agentsRemoved?: number;
+  agentsChanged?: number;
+  hostsAdded?: number;
+  hostsRemoved?: number;
+  frontChanged?: boolean;
+  skillsAdded?: number;
+  skillsRemoved?: number;
+  skillsChanged?: number;
+  signatures?: number;
+}
+
 export interface DriftFinding {
   kind: DriftKind;
   severity: Severity;
+  /** Since 2026-11-18 (UAT-17): every finding this build writes carries one; a report written before has none. */
+  code: DriftCode;
   ref: string;
   expected?: string;
   actual?: string;
   summary: string;
+  /** Since 2026-11-18 (UAT-17): see DriftCounts. */
+  counts?: DriftCounts;
+}
+
+/**
+ * Since 2026-11-18 (UAT-17, TOM-L1-07): what a watch found for one thing the lock holds from someone else, so an
+ * inventory has a row for every peer, pending peer and external definition, a clean one included.
+ *   unchanged       checked, and no finding says it changed or was not checked (an `info` may stand)
+ *   changed         a finding says its definition, links.json, signer or card changed (`signer-first` included)
+ *   partly-checked  its definition was checked, its links.json or signer was not
+ *   not-checked     it could not be reached, or its address is not contacted
+ *   pending         the lock holds it as pending: it was never captured
+ */
+export const RECORD_STATES = ["unchanged", "changed", "partly-checked", "not-checked", "pending"] as const;
+export type RecordState = (typeof RECORD_STATES)[number];
+
+export interface WatchedRecord {
+  /** Which member of the lock: `peers`, `pendingPeers` or `external`. */
+  part: "peer" | "pending" | "external";
+  /** The address, as the lock keys it. */
+  ref: string;
+  /** For `external`: its kind (`a2a-card`, `mcp-tools`). */
+  externalKind?: ExternalKind;
+  /** The pinned SHA-256 (of the network definition, or of the external definition's bytes). Absent for `pending`. */
+  sha256?: string;
+  /** The signer kid the lock recorded for a peer; absent when it recorded none. */
+  kid?: string;
+  /** The kid a peer had before a person accepted that it stopped signing (PeerRecord.formerKid). */
+  formerKid?: string;
+  /** For an A2A card: the JWS signatures it carried when locked (ExternalRecord.signatures), when the lock records it. */
+  signatures?: number;
+  /** When the lock recorded it: the record's `checkedAt`, or a pending peer's `since`. */
+  lockedAt: string;
+  state: RecordState;
+  /** The codes of this report's findings for this ref, in report order; empty when there are none. */
+  codes: DriftCode[];
 }
 /**
  * Where the lock stands for one report. `found`: read and checked. `absent`: none (a missing file, or a site that
@@ -361,4 +514,11 @@ export interface DriftReport {
   lockState?: LockState;
   /** Present when lockState is not `found`: why no drift was checked. */
   lockSummary?: string;
+  /** Since 2026-11-18 (UAT-17): when the watch ran, a UTC ISO timestamp. Every watch this build runs writes it. */
+  checkedAt?: string;
+  /**
+   * Since 2026-11-18 (UAT-17): one row per peer, pending peer and external definition the lock holds, sorted by part and
+   * ref. Present when lockState is `found`.
+   */
+  records?: WatchedRecord[];
 }

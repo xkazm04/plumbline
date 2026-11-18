@@ -100,6 +100,7 @@ export async function lineEndingWarning(root: string, refs: readonly string[]): 
   return {
     kind: "grounding",
     severity: "warn",
+    code: "capture-line-endings",
     ref: ".gitattributes",
     summary: (await lfPinned(root))
       ? `${files}, although .gitattributes pins LF: they were checked out before the pin. ${why} Check the files out again so the pin applies, then run this again. ${ifReal}`
@@ -138,14 +139,14 @@ export async function captureLock(
   let commit = "unknown";
   let via: RuntimeVia | undefined;
   if (runtimeRoot === undefined) {
-    findings.push({ kind: "runtime", severity: "info", ref: "runtime", summary: "No vendored runtime folder was found, so no runtime files were locked." });
+    findings.push({ kind: "runtime", severity: "info", code: "capture-runtime-absent", ref: "runtime", summary: "No vendored runtime folder was found, so no runtime files were locked." });
   } else {
     for (const full of (await listFiles(join(root, runtimeRoot))).sort()) {
       const ref = toPosix(root, full);
       try {
         files[ref] = await hashLocal(env, ref);
       } catch (error) {
-        findings.push({ kind: "runtime", severity: "warn", ref, summary: `A runtime file could not be locked: it ${(error as Error).message}.` });
+        findings.push({ kind: "runtime", severity: "warn", code: "capture-runtime-unreadable", ref, summary: `A runtime file could not be locked: it ${(error as Error).message}.` });
       }
     }
     const texts: string[] = [];
@@ -160,7 +161,7 @@ export async function captureLock(
     if (provenance.commit !== undefined) commit = provenance.commit;
     via = provenance.via;
     if (commit === "unknown") {
-      findings.push({ kind: "runtime", severity: "info", ref: runtimeRoot, summary: "The runtime folder does not name an nsdeploy commit, so the lock records \"unknown\"." });
+      findings.push({ kind: "runtime", severity: "info", code: "capture-runtime-commit-unknown", ref: runtimeRoot, summary: "The runtime folder does not name an nsdeploy commit, so the lock records \"unknown\"." });
     }
   }
 
@@ -174,6 +175,7 @@ export async function captureLock(
     findings.push({
       kind: "grounding",
       severity: "warn",
+      code: "capture-source-dropped-named",
       ref,
       summary: "Dropped from the lock as asked, but the site still names this file, so every watch reports it as not covered until the site stops naming it.",
     });
@@ -206,7 +208,7 @@ export async function captureLock(
     try {
       read = await readRef(env, ref);
     } catch (error) {
-      findings.push({ kind: "grounding", severity: "warn", ref, summary: `A grounding source could not be locked: it ${(error as Error).message}.` });
+      findings.push({ kind: "grounding", severity: "warn", code: "capture-source-unreadable", ref, summary: `A grounding source could not be locked: it ${(error as Error).message}.` });
       continue;
     }
     if (agentFiles.has(ref)) {
@@ -216,7 +218,7 @@ export async function captureLock(
     const facts = pageFacts(network, read.bytes);
     if ("problem" in facts) {
       coverage.pages.push({ ref, watched: [], notOnPage: network, problem: facts.problem });
-      findings.push({ kind: "grounding", severity: "info", ref, summary: `A grounding source could not be reduced to text (it ${facts.problem}), so no fact the network states is anchored on it; its bytes are still locked.` });
+      findings.push({ kind: "grounding", severity: "info", code: "capture-source-no-text", ref, summary: `A grounding source could not be reduced to text (it ${facts.problem}), so no fact the network states is anchored on it; its bytes are still locked.` });
       sources.push({ ref, sha256: read.sha256 });
       continue;
     }
@@ -234,6 +236,7 @@ export async function captureLock(
       findings.push({
         kind: "grounding",
         severity: "warn",
+        code: "capture-page-no-fact",
         ref,
         summary: `No fact is watched on this page: none of the ${network.length} facts the network states (${describeKinds(network)}) was found on it in a form the watch reads, so a change to it is drift with no fact counted.`,
       });
@@ -269,13 +272,14 @@ export async function captureLock(
     findings.push({
       kind: "grounding",
       severity: "warn",
+      code: "capture-stale-kept",
       ref: source.ref,
       summary: `Not accepted: the network still states ${stale.length} fact${stale.length === 1 ? "" : "s"} this page no longer states${moved > 0 ? " where the lock recorded it" : ""} (${kinds}), and no other locked page states ${stale.length === 1 ? "it" : "them"}, so the agent may answer with an old fact. The lock keeps its earlier record of this page, so every watch still reports it: correct the network (or the page), then re-lock, or take the page out with --drop.`,
     });
   }
 
   if (refs.length === 0) {
-    findings.push({ kind: "grounding", severity: "info", ref: ".", summary: "No grounding sources were found at the root; pass --source to lock some." });
+    findings.push({ kind: "grounding", severity: "info", code: "capture-no-sources", ref: ".", summary: "No grounding sources were found at the root; pass --source to lock some." });
   }
 
   // UAT-13 (DEV-L2-1): bytes locked with CRLF in a checkout that converts line endings read as changed everywhere else
@@ -304,6 +308,7 @@ export async function captureLock(
         findings.push({
           kind: "peer",
           severity: "warn",
+          code: kid !== undefined ? "capture-signer-kept" : "capture-signer-unrecorded",
           ref: url,
           summary:
             kid !== undefined
@@ -336,6 +341,7 @@ export async function captureLock(
       findings.push({
         kind: "peer",
         severity: "warn",
+        code: "capture-peer-kept",
         ref: url,
         summary: `A peer could not be re-read (${detail}), so the lock keeps its earlier pin (recorded ${day(pinned.checkedAt)}); every watch compares the peer with that pin.`,
       });
@@ -343,7 +349,7 @@ export async function captureLock(
     }
     const wasPending = previous?.pendingPeers?.[url];
     pendingPeers[url] = wasPending ?? { since: options.now.toISOString() };
-    findings.push({ kind: "peer", severity: "warn", ref: url, summary: `A peer could not be captured, so the lock holds it as pending and every watch reports it (${detail}).` });
+    findings.push({ kind: "peer", severity: "warn", code: "capture-peer-pending", ref: url, summary: `A peer could not be captured, so the lock holds it as pending and every watch reports it (${detail}).` });
   }
 
   // external agent definitions (external.ts): through the same guarded fetch. One the previous lock held that cannot be
@@ -362,19 +368,22 @@ export async function captureLock(
         findings.push({
           kind: "peer",
           severity: "warn",
+          code: "capture-external-kept",
           ref: url,
           summary: `An external agent definition could not be re-read (${why}), so the lock keeps its earlier record (recorded ${day(held.checkedAt)}); every watch compares it with that record.`,
         });
         continue;
       }
-      findings.push({ kind: "peer", severity: "warn", ref: url, summary: `An external agent definition could not be locked (${why}), so it is not in the lock.` });
+      findings.push({ kind: "peer", severity: "warn", code: "capture-external-unreadable", ref: url, summary: `An external agent definition could not be locked (${why}), so it is not in the lock.` });
       continue;
     }
     if (seen.outline === null) {
-      findings.push({ kind: "peer", severity: "info", ref: url, summary: "An external agent definition is not readable as an A2A Agent Card (not JSON, or a repeated key); its bytes are locked without an outline." });
+      findings.push({ kind: "peer", severity: "info", code: "capture-external-no-outline", ref: url, summary: "An external agent definition is not readable as an A2A Agent Card (not JSON, or a repeated key); its bytes are locked without an outline." });
     }
     const parts = seen.outline && Object.keys(seen.outline.parts).length > 0 ? { parts: seen.outline.parts } : {};
-    external[url] = { kind, sha256: seen.sha256, ...parts, checkedAt: options.now.toISOString() };
+    // UAT-17 (TOM-L1-13): the card's JWS signature count, so an inventory's signer column has a field for a card
+    const signatures = seen.outline ? { signatures: seen.outline.signatures } : {};
+    external[url] = { kind, sha256: seen.sha256, ...parts, ...signatures, checkedAt: options.now.toISOString() };
   }
 
   return {

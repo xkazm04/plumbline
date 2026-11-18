@@ -19,7 +19,7 @@
 // `refused` (the Desk only: `networkIsRefusal`) when the browser was refused, `unreadable` for another answer, a fetch
 // error or a timeout, `unusable` for one that is not JSON or not the lock's shape. Each comes with lockSummary.
 
-import { LOCK_FILE, type DriftFinding, type LockState } from "../core/types.js";
+import { LOCK_FILE, type DriftFinding, type LockState, type WatchedRecord } from "../core/types.js";
 import type { SafeFetchOptions, SafeFetchResponse } from "../net/fetch-types.js";
 import { locateTarget, type Fetcher } from "../net/locate.js";
 import { groundingFindingsWithAnchors } from "./anchors.js";
@@ -27,6 +27,7 @@ import { externalFinding, observeExternal, type ExternalObservation } from "./ex
 import {
   destinationProblem,
   lockProblem,
+  lockRecords,
   peerAddressProblem,
   peerFindings,
   pendingPeerFindings,
@@ -66,6 +67,8 @@ export interface PublishedReading {
   unreachablePeers: string[];
   /** In the DriftFinding wire shape. */
   findings: DriftFinding[];
+  /** UAT-17: one row per peer, pending peer and external definition the lock holds (decide.ts lockRecords); found only. */
+  records?: WatchedRecord[];
 }
 
 /** The sentence for a lock the browser was refused (CORS or a network failure): never "publishes no lock". */
@@ -219,5 +222,6 @@ export async function readPublishedLock(target: string, fetcher: Fetcher, option
     if (problem !== null) today[url] = { notContacted: problem };
   }
   const peerOut = [...peers.flatMap((p) => p.findings), ...pendingPeerFindings(checked, today), ...externalOut];
-  return { target, base, lockUrl, lockFound: true, lockState: "found", unreachablePeers, findings: [...grounding, ...runtime, ...peerOut] };
+  const findings = [...grounding, ...runtime, ...peerOut];
+  return { target, base, lockUrl, lockFound: true, lockState: "found", unreachablePeers, findings, records: lockRecords(checked, findings) };
 }

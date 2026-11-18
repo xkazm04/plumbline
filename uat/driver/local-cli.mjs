@@ -192,8 +192,8 @@ async function watch(argv) {
   if (init && hadLock) {
     // UAT-14: --init never rewrites a lock; each --source and --external it could not add is said, naming the relock
     const notAdded = [
-      ...sources.map((ref) => ({ kind: "grounding", severity: "info", ref, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --source ${ref} after a review.` })),
-      ...externals.map((e) => ({ kind: "peer", severity: "info", ref: e.url, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --external ${e.kind}=${e.url} after a review.` })),
+      ...sources.map((ref) => ({ kind: "grounding", severity: "info", code: "not-added", ref, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --source ${ref} after a review.` })),
+      ...externals.map((e) => ({ kind: "peer", severity: "info", code: "not-added", ref: e.url, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --external ${e.kind}=${e.url} after a review.` })),
     ];
     const kept = { ...report, findings: [...notAdded, ...report.findings] };
     if (json) {

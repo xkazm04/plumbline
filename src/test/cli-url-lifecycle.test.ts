@@ -110,9 +110,19 @@ test("adopt --url: a revocation the site does not serve cleanly refuses the adop
     forced.delete("/adopt-refusals/plumbline-revocation.json");
   }
   rmSync(path.join(site, "plumbline-rotation.json"));
+  // UAT-17 (TOM-L1-09): no rotation published is a verdict, exit 1
   const missing = await runAsync("adopt", "--url", base, "--trust", trust, "--allow-local");
-  assert.equal(missing.code, 2);
-  assert.match(missing.err, /plumbline-rotation\.json not found/);
+  assert.equal(missing.code, 1, missing.err);
+  assert.match(missing.out, /publishes no plumbline-rotation\.json/);
+  // one that cannot be fetched is still an I/O error
+  forced.set("/adopt-refusals/plumbline-rotation.json", { status: 503 });
+  try {
+    const io = await runAsync("adopt", "--url", base, "--trust", trust, "--allow-local");
+    assert.equal(io.code, 2);
+    assert.match(io.err, /cannot fetch plumbline-rotation\.json/);
+  } finally {
+    forced.delete("/adopt-refusals/plumbline-rotation.json");
+  }
 
   for (const args of [
     ["--url", base, "--origin", server.url, "--allow-local"],

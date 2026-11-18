@@ -135,7 +135,7 @@ async function newestCommit(env: DetectorEnv, url: string): Promise<{ sha: strin
 async function detectUpstream(lock: Lock, env: DetectorEnv): Promise<DriftFinding[]> {
   const via = lock.runtime.via;
   if (via !== undefined && isRuntimeVia(via)) {
-    const couldNot = (reason: string): DriftFinding[] => [{ kind: "runtime", severity: "info", ref: via.repo, summary: `Could not check upstream: ${reason}.` }];
+    const couldNot = (reason: string): DriftFinding[] => [{ kind: "runtime", severity: "info", code: "upstream-unchecked", ref: via.repo, summary: `Could not check upstream: ${reason}.` }];
     const [now, atCopy] = await Promise.all([newestCommit(env, viaCommitsUrl(via)), newestCommit(env, viaCommitsUrl(via, via.commit))]);
     if ("reason" in now) return couldNot(now.reason);
     if ("reason" in atCopy) return couldNot(atCopy.reason);
@@ -144,6 +144,7 @@ async function detectUpstream(lock: Lock, env: DetectorEnv): Promise<DriftFindin
       {
         kind: "runtime",
         severity: "info",
+        code: "upstream-ahead",
         ref: via.repo,
         expected: short(via.commit),
         actual: short(now.sha),
@@ -151,7 +152,7 @@ async function detectUpstream(lock: Lock, env: DetectorEnv): Promise<DriftFindin
       },
     ];
   }
-  const couldNot = (reason: string): DriftFinding[] => [{ kind: "runtime", severity: "info", ref: UPSTREAM_REPO, summary: `Could not check upstream: ${reason}.` }];
+  const couldNot = (reason: string): DriftFinding[] => [{ kind: "runtime", severity: "info", code: "upstream-unchecked", ref: UPSTREAM_REPO, summary: `Could not check upstream: ${reason}.` }];
   const newest = await newestCommit(env, env.upstreamUrl ?? UPSTREAM_COMMITS_URL);
   if ("reason" in newest) return couldNot(newest.reason);
   const { sha } = newest;
@@ -161,6 +162,7 @@ async function detectUpstream(lock: Lock, env: DetectorEnv): Promise<DriftFindin
       {
         kind: "runtime",
         severity: "info",
+        code: "upstream-no-commit",
         ref: UPSTREAM_REPO,
         actual: short(sha),
         summary: `The lock records no runtime commit, so upstream cannot be compared; the newest upstream commit is ${short(sha)}.`,
@@ -172,6 +174,7 @@ async function detectUpstream(lock: Lock, env: DetectorEnv): Promise<DriftFindin
     {
       kind: "runtime",
       severity: "info",
+      code: "upstream-ahead",
       ref: UPSTREAM_REPO,
       expected: short(locked),
       actual: short(sha),
@@ -224,7 +227,7 @@ export async function detectSignature(env: DetectorEnv): Promise<DriftFinding[]>
     text = new TextDecoder("utf-8").decode(await readUnderRoot(env.root, SIGNATURE_FILE));
   } catch (error) {
     if (error instanceof ReadProblem && error.missing) return [];
-    return [{ kind: "grounding", severity: "warn", ref: SIGNATURE_FILE, summary: `The site's signature file could not be read to check its expiry: it ${error instanceof ReadProblem ? error.message : "could not be read"}.` }];
+    return [{ kind: "grounding", severity: "warn", code: "signature-unreadable", ref: SIGNATURE_FILE, summary: `The site's signature file could not be read to check its expiry: it ${error instanceof ReadProblem ? error.message : "could not be read"}.` }];
   }
   const out: DriftFinding[] = [];
   const expiry = signatureExpiryFinding(text, env.now);

@@ -10,7 +10,7 @@
 
 import { canonicalJson, sha256Hex } from "../core/canonical.js";
 import { countDuplicateKeys } from "../core/json-keys.js";
-import { EXTERNAL_KINDS, type DriftFinding, type ExternalKind, type ExternalRecord } from "../core/types.js";
+import { EXTERNAL_KINDS, type DriftCounts, type DriftFinding, type ExternalKind, type ExternalRecord } from "../core/types.js";
 import { hashBytes } from "../net/canonical.js";
 import { addressProblemOf, describeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
 import type { Fetcher } from "../net/locate.js";
@@ -28,6 +28,7 @@ export function isExternalRecord(v: unknown): v is ExternalRecord {
   if (typeof v.kind !== "string" || !(EXTERNAL_KINDS as readonly string[]).includes(v.kind)) return false;
   if (typeof v.sha256 !== "string" || !HEX.test(v.sha256) || typeof v.checkedAt !== "string") return false;
   if (v.parts !== undefined && !(isObject(v.parts) && Object.entries(v.parts).every(([k, h]) => HEX.test(k) && typeof h === "string" && HEX.test(h)))) return false;
+  if (v.signatures !== undefined && !(typeof v.signatures === "number" && Number.isInteger(v.signatures) && v.signatures >= 0)) return false;
   return true;
 }
 
@@ -86,11 +87,18 @@ export async function observeExternal(url: string, kind: ExternalKind, fetcher: 
   return { ok: true, sha256: await hashBytes(response.bytes), outline: await cardOutline(response.bytes), bytes: response.bytes };
 }
 
+/** The count of skills added, removed and changed between two part maps. */
+export function partsDiff(before: Record<string, string>, after: Record<string, string>): { added: number; removed: number; changed: number } {
+  return {
+    added: Object.keys(after).filter((k) => !(k in before)).length,
+    removed: Object.keys(before).filter((k) => !(k in after)).length,
+    changed: Object.keys(after).filter((k) => k in before && before[k] !== after[k]).length,
+  };
+}
+
 /** The count of skills added, removed and changed between two part maps, in fixed words. */
 export function describePartsDiff(before: Record<string, string>, after: Record<string, string>): string {
-  const added = Object.keys(after).filter((k) => !(k in before)).length;
-  const removed = Object.keys(before).filter((k) => !(k in after)).length;
-  const changed = Object.keys(after).filter((k) => k in before && before[k] !== after[k]).length;
+  const { added, removed, changed } = partsDiff(before, after);
   return `skills: ${added} added, ${removed} removed, ${changed} changed`;
 }
 
@@ -98,14 +106,15 @@ export function describePartsDiff(before: Record<string, string>, after: Record<
 export function externalFinding(url: string, record: ExternalRecord, seen: ExternalObservation): DriftFinding | null {
   if (!seen.ok) {
     if (seen.unsupported) {
-      return { kind: "peer", severity: "warn", ref: url, summary: "An external entry of a kind this build does not read (an MCP tool list needs a JSON-RPC POST) was not checked." };
+      return { kind: "peer", severity: "warn", code: "external-unsupported", ref: url, summary: "An external entry of a kind this build does not read (an MCP tool list needs a JSON-RPC POST) was not checked." };
     }
     if (seen.refused !== undefined) {
-      return { kind: "peer", severity: "warn", ref: url, summary: `An external agent definition in this lock was not contacted: ${seen.refused}, an address Plumbline does not contact, so it was not checked.` };
+      return { kind: "peer", severity: "warn", code: "external-refused", ref: url, summary: `An external agent definition in this lock was not contacted: ${seen.refused}, an address Plumbline does not contact, so it was not checked.` };
     }
     return {
       kind: "peer",
       severity: "warn",
+      code: "external-unreachable",
       ref: url,
       summary:
         seen.status !== undefined
@@ -115,19 +124,23 @@ export function externalFinding(url: string, record: ExternalRecord, seen: Exter
   }
   if (seen.sha256 === record.sha256) return null;
   let detail: string;
+  let counts: DriftCounts | undefined;
   if (seen.outline === null) detail = "It cannot be read as an A2A Agent Card now (not JSON, or a repeated key), so what changed is not told.";
   else if (record.parts === undefined) detail = "The lock holds no outline of it, so what changed is not told; after a review, re-lock to record one.";
   else {
-    const counts = describePartsDiff(record.parts, seen.outline.parts);
-    detail = `In outline: ${counts}${seen.outline.signatures > 0 ? `; it carries ${seen.outline.signatures} JWS signature${seen.outline.signatures === 1 ? "" : "s"}, not verified here` : "; it carries no signature"}.`;
+    const d = partsDiff(record.parts, seen.outline.parts);
+    counts = { skillsAdded: d.added, skillsRemoved: d.removed, skillsChanged: d.changed, signatures: seen.outline.signatures };
+    detail = `In outline: ${describePartsDiff(record.parts, seen.outline.parts)}${seen.outline.signatures > 0 ? `; it carries ${seen.outline.signatures} JWS signature${seen.outline.signatures === 1 ? "" : "s"}, not verified here` : "; it carries no signature"}.`;
   }
   return {
     kind: "peer",
     severity: "block",
+    code: "external-changed",
     ref: url,
     expected: record.sha256,
     actual: seen.sha256,
     summary: `An external A2A Agent Card changed since the lock was written; a client that reads it now gets different skills or endpoints. ${detail}`,
+    ...(counts !== undefined ? { counts } : {}),
   };
 }
 

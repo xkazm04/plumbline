@@ -191,9 +191,20 @@ test("adopt without --yes shows the verified rotation and changes nothing; with 
   assert.equal(stranger.code, 1);
   assert.match(stranger.out, /^unverifiable/m);
   assert.match(stranger.out, /plumbline adopt/, "verify points at adopt when a rotation is published");
+  // UAT-17 (TOM-L1-02): the hint and the signer change are fields in --json, not only text
+  const strangerJson = JSON.parse(run("verify", "--root", site, "--trust", trust, "--json").out);
+  assert.equal(strangerJson.hint?.code, "rotation-published");
+  assert.deepEqual(strangerJson.hint?.rotationFrom, [oldKeys.record.kid]);
+  assert.match(strangerJson.hint?.command ?? "", /^plumbline adopt --root /);
+  assert.deepEqual(strangerJson.signerChange, { trusted: [oldKeys.record.kid], signer: newKeys.record.kid, rotation: "published", rotationFrom: oldKeys.record.kid });
 
   const dry = run("adopt", "--root", site, "--trust", trust, "--origin", ORIGIN);
   assert.equal(dry.code, 1, dry.err);
+  // UAT-17 (TOM-L1-10): nothing adopted, so the JSON names the offered key under `successors`, never `adopted`
+  const dryJson = JSON.parse(run("adopt", "--root", site, "--trust", trust, "--origin", ORIGIN, "--json").out);
+  assert.equal(dryJson.added, false);
+  assert.deepEqual(dryJson.successors, [newKeys.record.kid]);
+  assert.equal("adopted" in dryJson, false);
   assert.match(dry.out, new RegExp(`${oldKeys.record.kid} -> ${newKeys.record.kid}`));
   assert.match(dry.out, /rerun with --yes/);
   assert.equal(readFileSync(trust, "utf8"), before, "nothing adopted without --yes");
@@ -201,6 +212,8 @@ test("adopt without --yes shows the verified rotation and changes nothing; with 
   const yes = run("adopt", "--root", site, "--trust", trust, "--origin", ORIGIN, "--yes", "--json");
   assert.equal(yes.code, 0, yes.err);
   assert.equal(JSON.parse(yes.out).added, true);
+  assert.deepEqual(JSON.parse(yes.out).adopted, [newKeys.record.kid]);
+  assert.equal("successors" in JSON.parse(yes.out), false);
   const entries = readTrust(trust).entries;
   assert.deepEqual(entries[1], { kid: newKeys.record.kid, origin: ORIGIN, publicKey: newKeys.record.publicKey, adoptedVia: oldKeys.record.kid });
   assert.equal(run("verify", "--root", site, "--trust", trust).code, 0);
@@ -233,9 +246,15 @@ test("adopt refuses a rotation from a key it does not trust, from a revoked key,
   assert.ok(readTrust(trust).entries.every((e) => e.adoptedVia === undefined), "no successor adopted");
   assert.ok(readTrust(trust).entries.every((e) => e.revokedAt !== undefined), "the revocation was recorded");
 
+  // UAT-17 (TOM-L1-09): a site with no rotation is a verdict, exit 1, with a JSON field; not a usage or I/O error
   const missing = run("adopt", "--root", root, "--trust", trust, "--origin", ORIGIN);
-  assert.equal(missing.code, 2);
-  assert.match(missing.err, /plumbline-rotation\.json not found/);
+  assert.equal(missing.code, 1, missing.err);
+  assert.match(missing.out, /^unverifiable .*publishes no plumbline-rotation\.json/m);
+  assert.match(missing.out, /nothing adopted: there is no rotation to adopt/);
+  const missingJson = JSON.parse(run("adopt", "--root", root, "--trust", trust, "--origin", ORIGIN, "--json").out);
+  assert.equal(missingJson.refusedBy, "no-rotation");
+  assert.equal(missingJson.added, false);
+  assert.equal(missingJson.results[0].verdict, "unverifiable");
 });
 
 // ---- Dowser 1e601ffd: each signing command shows its own options on a usage error ----

@@ -41,7 +41,7 @@ test("watch --init --external a2a-card: the card is locked with its skills hashe
   const record = lock.external?.[CARD_URL];
   assert.equal(record?.kind, "a2a-card");
   assert.equal(Object.keys(record?.parts ?? {}).length, 2);
-  assert.deepEqual(Object.keys(record ?? {}).sort(), ["checkedAt", "kind", "parts", "sha256"]);
+  assert.deepEqual(Object.keys(record ?? {}).sort(), ["checkedAt", "kind", "parts", "sha256", "signatures"]);
   assert.equal(lockProblem(lock), null);
   assert.deepEqual((await watch(root, routes)).findings.filter((f) => f.ref === CARD_URL), [], "unchanged: no finding");
 

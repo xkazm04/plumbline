@@ -3,11 +3,11 @@
 // nothing else; `runRelock` rewrites it after a person reviewed the drift. Opening, editing and closing the drift issue is
 // the Action's job (action/action.yml with `issues: true`), never this library's.
 
-import { LOCK_FILE, SIGNATURE_FILE, type DriftFinding, type TrustEntry } from "../core/types.js";
+import { LOCK_FILE, SIGNATURE_FILE, type DriftFinding, type TrustEntry, type WatchedRecord } from "../core/types.js";
 import { DEFAULT_TIMEOUT_MS, safeFetch } from "../net/safe-fetch.js";
 import type { FactCoverage } from "./anchors.js";
 import { captureLock } from "./capture.js";
-import { lockChanges, signatureExpiryFinding, signerChangeWords, type Lock, type LockChanges, type LockState, type WatchReport } from "./decide.js";
+import { lockChanges, lockRecords, signatureExpiryFinding, signerChangeWords, type Lock, type LockChanges, type LockState, type WatchReport } from "./decide.js";
 import { readPeerRotation } from "./observe.js";
 import { locatePeerFile } from "../net/locate.js";
 import { detectCoverage, detectExternal, detectGrounding, detectPeers, detectRuntime, detectSignature, type DetectorEnv } from "./detectors.js";
@@ -63,12 +63,16 @@ async function captureFirstLock(env: DetectorEnv, options: WatchOptions, deps: W
   const firstSigners = Object.entries(lock.peers).flatMap(([peer, r]): FirstSigner[] =>
     r.kid === undefined ? [] : [{ peer, kid: r.kid, was: "added", backing: backingOf(env.trust, peer, r.kid) }],
   );
-  return { findings, coverage, ...(firstSigners.length > 0 ? { firstSigners } : {}) };
+  return { checkedAt: env.now.toISOString(), findings, coverage, records: lockRecords(lock, findings), ...(firstSigners.length > 0 ? { firstSigners } : {}) };
 }
 
 /** What `init` and `watch --init` wrote: what could not be captured, what the lock watches, and the signers it records. */
 export interface InitReport {
+  /** UAT-17: when the lock was captured (UTC ISO). */
+  checkedAt: string;
   findings: DriftFinding[];
+  /** UAT-17: one row per peer, pending peer and external definition the new lock holds (decide.ts lockRecords). */
+  records: WatchedRecord[];
   coverage: FactCoverage;
   firstSigners?: FirstSigner[];
 }
@@ -92,10 +96,15 @@ export async function runWatch(options: WatchOptions, deps: WatchDeps = {}): Pro
   const env = envOf(options, deps);
   const read = await readLock(options.root);
 
-  if (read.kind === "missing" && options.init === true) return { findings: (await captureFirstLock(env, options, deps)).findings };
+  // UAT-17: every report carries the time the watch ran
+  const checkedAt = env.now.toISOString();
+  if (read.kind === "missing" && options.init === true) {
+    const first = await captureFirstLock(env, options, deps);
+    return { checkedAt, findings: first.findings, records: first.records };
+  }
 
   const signature = await detectSignature(env);
-  if (read.kind !== "ok") return { ...stateOf(read), findings: signature };
+  if (read.kind !== "ok") return { ...stateOf(read), checkedAt, findings: signature };
 
   const [grounding, runtime, peer, external, coverage] = await Promise.all([
     detectGrounding(read.lock, env),
@@ -105,10 +114,14 @@ export async function runWatch(options: WatchOptions, deps: WatchDeps = {}): Pro
     detectCoverage(read.lock, env),
   ]);
   const findings: DriftFinding[] = [...grounding, ...runtime, ...peer, ...external, ...coverage, ...signature];
-  return { lockState: "found", findings };
+  return { lockState: "found", checkedAt, findings, records: lockRecords(read.lock, findings) };
 }
 
 export interface RelockReport {
+  /** UAT-17: when the lock was captured (UTC ISO). */
+  checkedAt: string;
+  /** UAT-17: one row per peer, pending peer and external definition the new lock holds (decide.ts lockRecords). */
+  records: WatchedRecord[];
   /** What the lock held before: `found`, or why there was none to compare with. */
   previous: LockState;
   changes: LockChanges;
@@ -244,13 +257,15 @@ export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Pr
   if (unnamed.length > 0) throw new RelockRefused({ refused: "signer", peers: unnamed });
   for (const c of changes) if (c.to !== undefined) c.backing = backingOf(env.trust, c.peer, c.to, c.how);
   for (const ref of [...acceptSigners].filter((p) => !changes.some((c) => c.peer === p))) {
-    findings.push({ kind: "peer", severity: "info", ref, summary: "Named with --accept-signer, but this relock changes no signer for it, so there was nothing to accept." });
+    findings.push({ kind: "peer", severity: "info", code: "accept-signer-unused", ref, summary: "Named with --accept-signer, but this relock changes no signer for it, so there was nothing to accept." });
   }
   for (const ref of dropSources.filter((r) => !held.includes(r) && !(r in (before?.external ?? {})))) {
-    findings.push({ kind: "grounding", severity: "info", ref, summary: "This ref was not in the lock, so there was nothing to drop." });
+    findings.push({ kind: "grounding", severity: "info", code: "drop-unknown", ref, summary: "This ref was not in the lock, so there was nothing to drop." });
   }
   await replaceLock(options.root, lock);
   return {
+    checkedAt: env.now.toISOString(),
+    records: lockRecords(lock, findings),
     previous: stateOf(read).lockState,
     changes: lockChanges(before, lock),
     findings,
@@ -304,7 +319,7 @@ function narrowed(before: Lock, after: Lock, accept: Set<string>, findings: Drif
     ...Object.keys(after.runtime.files),
   ]);
   for (const ref of accept) {
-    if (!known.has(ref)) findings.push({ kind: "grounding", severity: "info", ref, summary: "Named with --accept, but neither the lock nor the site holds this ref, so there was nothing to accept." });
+    if (!known.has(ref)) findings.push({ kind: "grounding", severity: "info", code: "accept-unknown", ref, summary: "Named with --accept, but neither the lock nor the site holds this ref, so there was nothing to accept." });
   }
   const out: Lock = {
     version: before.version,
@@ -384,11 +399,12 @@ export async function runWatchUrl(options: UrlWatchOptions, deps: WatchDeps = {}
   const now = (deps.now ?? (() => new Date()))();
   const reading = await readPublishedLock(options.url, fetch, { fetchOptions });
   const signature = await publishedSignatureExpiry(reading.base, fetch, fetchOptions, now);
+  const checkedAt = now.toISOString();
   if (reading.lockState !== "found") {
-    return { lockState: reading.lockState, ...(reading.lockSummary !== undefined ? { lockSummary: reading.lockSummary } : {}), findings: signature };
+    return { lockState: reading.lockState, ...(reading.lockSummary !== undefined ? { lockSummary: reading.lockSummary } : {}), checkedAt, findings: signature };
   }
-  const notChecked: DriftFinding = { kind: "grounding", severity: "info", ref: LOCK_FILE, summary: NOT_CHECKED_FROM_URL };
-  return { lockState: "found", findings: [...reading.findings, ...signature, notChecked] };
+  const notChecked: DriftFinding = { kind: "grounding", severity: "info", code: "url-not-checked", ref: LOCK_FILE, summary: NOT_CHECKED_FROM_URL };
+  return { lockState: "found", checkedAt, findings: [...reading.findings, ...signature, notChecked], records: reading.records ?? [] };
 }
 
 /** The published signature's expiry, by the rule the checkout's watch applies to the file on disk (decide.ts). */
@@ -398,11 +414,11 @@ async function publishedSignatureExpiry(base: string, fetch: NonNullable<WatchDe
     const response = await fetch(`${base}${SIGNATURE_FILE}`, fetchOptions);
     if (response.status === 404 || response.status === 410) return [];
     if (!response.ok) {
-      return [{ kind: "grounding", severity: "warn", ref: SIGNATURE_FILE, summary: `The site's signature file could not be read to check its expiry: it answered HTTP ${response.status}.` }];
+      return [{ kind: "grounding", severity: "warn", code: "signature-unreadable", ref: SIGNATURE_FILE, summary: `The site's signature file could not be read to check its expiry: it answered HTTP ${response.status}.` }];
     }
     text = response.text();
   } catch (error) {
-    return [{ kind: "grounding", severity: "warn", ref: SIGNATURE_FILE, summary: `The site's signature file could not be read to check its expiry: it could not be fetched (${describeWatchError(error)}).` }];
+    return [{ kind: "grounding", severity: "warn", code: "signature-unreadable", ref: SIGNATURE_FILE, summary: `The site's signature file could not be read to check its expiry: it could not be fetched (${describeWatchError(error)}).` }];
   }
   const finding = signatureExpiryFinding(text, now);
   return finding ? [finding] : [];

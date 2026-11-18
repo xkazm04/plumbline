@@ -11,7 +11,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
-import { LOCK_FILE, type DriftFinding } from "../core/types.js";
+import { LOCK_FILE, type DriftFinding, type WatchedRecord } from "../core/types.js";
 import { factCoverageCounts, factCoverageLines, type FactCoverage } from "../watch/anchors.js";
 import { firstSignerWords, runInit, type FirstSigner } from "../watch/index.js";
 import { readLock } from "../watch/lock.js";
@@ -126,12 +126,14 @@ export async function runInitCommand(argv: string[]): Promise<number> {
   let findings: DriftFinding[] = [];
   let coverage: FactCoverage | undefined;
   let firstSigners: FirstSigner[] = [];
+  let captured: { checkedAt: string; records: WatchedRecord[] } | undefined;
   if (before.kind === "missing") {
     try {
       const written = await runInit({ root, init: true, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }, { extraSources: sources });
       if (written === null) throw new Error(`${LOCK_FILE} appeared while init ran`);
       ({ findings, coverage } = written);
       firstSigners = written.firstSigners ?? [];
+      captured = { checkedAt: written.checkedAt, records: written.records };
     } catch (error) {
       process.stderr.write(`init failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
@@ -140,7 +142,7 @@ export async function runInitCommand(argv: string[]): Promise<number> {
   } else if (before.kind === "ok") {
     lockAction = "kept";
     for (const ref of sources) {
-      findings.push({ kind: "grounding", severity: "info", ref, summary: "Not added: a lock was already there, and init never rewrites one; add it with watch --relock --source after a review." });
+      findings.push({ kind: "grounding", severity: "info", code: "not-added", ref, summary: "Not added: a lock was already there, and init never rewrites one; add it with watch --relock --source after a review." });
     }
   } else {
     const why = before.why;
@@ -174,10 +176,12 @@ export async function runInitCommand(argv: string[]): Promise<number> {
         {
           lock: lockAction,
           lockFile: LOCK_FILE,
+          ...(captured !== undefined ? { checkedAt: captured.checkedAt } : {}),
           counts,
           ...(coverage !== undefined ? { facts: factCoverageCounts(coverage) } : {}),
           ...(firstSigners.length > 0 ? { firstSigners } : {}),
           findings,
+          ...(captured !== undefined ? { records: captured.records } : {}),
           ...(workflowRel !== undefined ? { workflow: WORKFLOW_PATH, workflowRoot: workflowRel } : {}),
           next: steps,
         },

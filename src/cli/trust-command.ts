@@ -258,7 +258,22 @@ export async function adopt(argv: string[], out: Out): Promise<number> {
     revocation = await applyRevocationToTrust(site.label(REVOCATION_FILE), decode(revocationRead.bytes), store, yes);
   }
 
-  const text = await readRequired(site, ROTATION_FILE);
+  // UAT-17 (TOM-L1-09): a site that publishes no rotation is a verdict (exit 1, `refusedBy: "no-rotation"`), not an I/O
+  // error: "this seller did not rotate" is the answer a person asked for. One that cannot be fetched stays exit 2.
+  const rotationRead = await site.read(ROTATION_FILE);
+  if (rotationRead.state === "absent") {
+    const result: VerifyResult = {
+      verdict: "unverifiable",
+      origin,
+      detail: `This site publishes no ${ROTATION_FILE} (${site.where}), so there is no rotation to adopt: a signer you do not trust yet is a first contact (plumbline trust), or a question for the publisher out of band.`,
+    };
+    const noRotationLines = revocation ? revocationLines(revocation, store, yes) : [];
+    noRotationLines.push(formatResult(result), "nothing adopted: there is no rotation to adopt");
+    emit(args, out, { ...(revocation ? { revocation } : {}), results: [result], origin, trustFile: trustPath, added: false, refusedBy: "no-rotation" }, noRotationLines);
+    return 1;
+  }
+  if (rotationRead.state === "unknown") throw new CliError(`cannot fetch ${ROTATION_FILE} from ${site.where} (${rotationRead.why})`);
+  const text = decode(rotationRead.bytes);
   let parsed: unknown;
   let notJson = false;
   try {
@@ -337,7 +352,8 @@ export async function adopt(argv: string[], out: Out): Promise<number> {
       trustFile: trustPath,
       added,
       alreadyTrusted: toAdd.length === 0,
-      ...(toAdd.length > 0 && forks.length === 0 ? { adopted: toAdd.map((e) => e.kid) } : {}),
+      // UAT-17 (TOM-L1-10): `adopted` only once something was; until then the offered keys are `successors`
+      ...(added ? { adopted: toAdd.map((e) => e.kid) } : toAdd.length > 0 ? { successors: toAdd.map((e) => e.kid) } : {}),
       ...(forks.length > 0 ? { forks, refusedBy: "fork" } : {}),
     },
     lines,

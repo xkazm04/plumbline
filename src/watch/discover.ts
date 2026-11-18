@@ -61,6 +61,7 @@ export async function discover(root: string): Promise<Discovered> {
       findings.push({
         kind: "grounding",
         severity: "warn",
+        code: "network-path-unsafe",
         ref: MANIFEST_FILE,
         summary: `A network file could not be locked: the manifest's networks[${index}].hocon is not a safe site-relative path, so it was not read.`,
       });
@@ -75,7 +76,7 @@ export async function discover(root: string): Promise<Discovered> {
     if (!network.ok) {
       // a missing named file is the grounding check's finding; a file that is there and not JSON hides its peers
       if (!network.missing) {
-        findings.push({ kind: "peer", severity: "warn", ref, summary: "A network file is not JSON, so the peers it names could not be collected." });
+        findings.push({ kind: "peer", severity: "warn", code: "network-not-json", ref, summary: "A network file is not JSON, so the peers it names could not be collected." });
       }
       continue;
     }
