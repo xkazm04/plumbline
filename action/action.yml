@@ -245,13 +245,21 @@ runs:
       run: |
         push() {
           # Only the lock and the signature are committed. The branch is this Action's own and is rebuilt from the
-          # checked-out commit on every run, so it is replaced (--force-with-lease against what was fetched).
+          # checked-out commit on every run, so it is replaced, with a lease that names what was fetched: the branch's
+          # commit when it exists, or "must not exist" when it does not. A push to a URL has no remote-tracking ref, so a
+          # lease without an expected value is refused as stale (UAT-5); one with a value replaces the branch on the
+          # second run and after a merged pull request whose branch was kept.
           cd "$GITHUB_WORKSPACE"
+          remote="https://x-access-token:$GH_TOKEN@github.com/$GH_REPO.git"
           git add -- "$PLUMBLINE_ROOT/plumbline.lock.json"
           if [ -f "$PLUMBLINE_ROOT/plumbline.signature.json" ]; then git add -- "$PLUMBLINE_ROOT/plumbline.signature.json"; fi
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "$TITLE" --quiet
-          git fetch --quiet "https://x-access-token:$GH_TOKEN@github.com/$GH_REPO.git" "+refs/heads/$BRANCH:refs/remotes/plumbline/$BRANCH" || true
-          git push --quiet --force-with-lease="refs/heads/$BRANCH" "https://x-access-token:$GH_TOKEN@github.com/$GH_REPO.git" "HEAD:refs/heads/$BRANCH"
+          if git fetch --quiet "$remote" "+refs/heads/$BRANCH:refs/remotes/plumbline/$BRANCH" 2>/dev/null; then
+            lease="refs/heads/$BRANCH:$(git rev-parse --verify --quiet "refs/remotes/plumbline/$BRANCH")"
+          else
+            lease="refs/heads/$BRANCH:"
+          fi
+          git push --quiet --force-with-lease="$lease" "$remote" "HEAD:refs/heads/$BRANCH"
         }
         case "$PR_ACTION" in
           create)

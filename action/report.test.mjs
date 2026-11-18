@@ -527,13 +527,97 @@ test(
       };
       const created = steps({ PR_ACTION: "create", DRAFT: "true" });
       assert.deepEqual(created.slice(0, 2), ["git add -- site/plumbline.lock.json", `git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com commit -m ${PR_TITLES.relock} --quiet`]);
-      assert.ok(created.some((l) => l.startsWith("git push --quiet --force-with-lease=refs/heads/plumbline/relock ") && l.endsWith("HEAD:refs/heads/plumbline/relock")), created.join("\n"));
+      assert.ok(created.some((l) => l.startsWith("git push --quiet --force-with-lease=refs/heads/plumbline/relock:") && l.endsWith("HEAD:refs/heads/plumbline/relock")), created.join("\n"));
       assert.equal(created[created.length - 1], `gh pr create --draft --head plumbline/relock --title ${PR_TITLES.relock} --body-file ${join(dir, "body.md")}`);
       const edited = steps({ PR_ACTION: "edit", DRAFT: "false", NUMBER: "3" });
       assert.deepEqual(edited.slice(-2), [`gh pr edit 3 --body-file ${join(dir, "body.md")}`, "gh pr ready 3"]);
       const closed = steps({ PR_ACTION: "close", DRAFT: "false", NUMBER: "3" });
       assert.deepEqual(closed, ["gh pr close 3 --comment no longer needed"], "closing pushes nothing");
       assert.deepEqual(steps({ PR_ACTION: "none", DRAFT: "false" }), []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+// UAT-5: the push, with the real git against a local bare remote behind the Action's own URL (url.<remote>.insteadOf,
+// given through GIT_CONFIG_* so no config file is written) and a stub gh. The branch is created, replaced on a second
+// run while it exists, and replaced again after a merged pull request whose branch was kept; the same for renewal.
+test(
+  "the Action's pull request push, with the real git: create, a second drift on the existing branch, and a run after a merge whose branch remains all push",
+  { skip: !bash && "no POSIX bash (set PLUMBLINE_TEST_BASH)" },
+  () => {
+    const apply = stepScript("Open, update or close the pull request");
+    const dir = mkdtempSync(join(tmpdir(), "plumbline-pr-push-"));
+    const g = (cwd, ...args) => {
+      const r = spawnSync("git", ["-c", "core.autocrlf=false", "-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd, encoding: "utf8" });
+      assert.equal(r.status, 0, `git ${args.join(" ")}: ${r.stderr}`);
+      return r.stdout.trim();
+    };
+    try {
+      const stubs = join(dir, "bin");
+      mkdirSync(stubs);
+      writeFileSync(join(stubs, "gh"), `#!/usr/bin/env bash\nprintf 'gh %s\\n' "$*" >> "$TOOL_LOG"\n`, { mode: 0o755 });
+      const remote = join(dir, "remote.git").replace(/\\/g, "/");
+      const seed = join(dir, "seed");
+      mkdirSync(join(seed, "site"), { recursive: true });
+      writeFileSync(join(seed, "site", "plumbline.lock.json"), '{"v":0}\n');
+      g(dir, "init", "--quiet", "--bare", "-b", "main", remote);
+      g(seed, "init", "--quiet", "-b", "main");
+      g(seed, "add", "-A");
+      g(seed, "commit", "--quiet", "-m", "seed");
+      g(seed, "push", "--quiet", remote, "HEAD:refs/heads/main");
+      const run = (label, mode, lock, prAction) => {
+        const ws = join(dir, `ws-${label}`);
+        g(dir, "clone", "--quiet", remote, ws);
+        const branch = mode === "relock" ? PR_BRANCHES.relock : PR_BRANCHES.renew;
+        g(ws, "switch", "--quiet", "-C", branch);
+        writeFileSync(join(ws, "site", "plumbline.lock.json"), lock);
+        const log = join(dir, `${label}.log`);
+        writeFileSync(log, "");
+        const env = {
+          ...process.env,
+          TOOL_LOG: log,
+          STUB_DIR: stubs,
+          GITHUB_WORKSPACE: ws.replace(/\\/g, "/"),
+          GH_TOKEN: "t0ken",
+          GH_REPO: "o/r",
+          TITLE: PR_TITLES[mode],
+          BRANCH: branch,
+          BODY: join(dir, "body.md"),
+          COMMENT: join(dir, "comment.md"),
+          PLUMBLINE_ROOT: "site",
+          PR_ACTION: prAction,
+          DRAFT: "true",
+          NUMBER: prAction === "edit" ? "3" : "",
+          GIT_CONFIG_COUNT: "2",
+          GIT_CONFIG_KEY_0: `url.${remote}.insteadOf`,
+          GIT_CONFIG_VALUE_0: "https://x-access-token:t0ken@github.com/o/r.git",
+          GIT_CONFIG_KEY_1: "core.autocrlf",
+          GIT_CONFIG_VALUE_1: "false",
+        };
+        const prefix = 'PATH="$(cygpath -u "$STUB_DIR" 2>/dev/null || printf %s "$STUB_DIR"):$PATH"\n';
+        const r = spawnSync(bash, ["-eo", "pipefail", "-c", prefix + apply], { env, encoding: "utf8" });
+        assert.equal(r.status, 0, `${label}: ${r.stderr}`);
+        return readFileSync(log, "utf8").trim().split("\n");
+      };
+      writeFileSync(join(dir, "body.md"), "body");
+      const lockOn = (branch) => spawnSync("git", ["--git-dir", remote, "show", `refs/heads/${branch}:site/plumbline.lock.json`], { encoding: "utf8" }).stdout;
+      for (const mode of ["relock", "renew"]) {
+        const branch = PR_BRANCHES[mode];
+        const v = (n) => `{"${mode}":${n}}\n`;
+        assert.match(run(`${mode}-1`, mode, v(1), "create").at(-1), /^gh pr create --draft --head /);
+        assert.equal(lockOn(branch), v(1), "the first run pushed the branch");
+        assert.deepEqual(run(`${mode}-2`, mode, v(2), "edit").slice(0, 1), ["gh pr edit 3 --body-file " + join(dir, "body.md")]);
+        assert.equal(lockOn(branch), v(2), "a second drift replaced the existing branch");
+        // a person merges the pull request on main; the branch is kept
+        const merger = join(dir, `merge-${mode}`);
+        g(dir, "clone", "--quiet", remote, merger);
+        g(merger, "merge", "--quiet", "--no-edit", `origin/${branch}`);
+        g(merger, "push", "--quiet", "origin", "HEAD:refs/heads/main");
+        run(`${mode}-3`, mode, v(3), "create");
+        assert.equal(lockOn(branch), v(3), "after a merge whose branch remains, a new run replaced it");
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

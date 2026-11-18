@@ -74,7 +74,11 @@ JSON of `plumbline.private.json`) and `origin`, it also signs, and the body name
 to sign locally and the pull request stays a draft. A person merges; the run accepts nothing. A relock that changes no
 ref opens nothing; a body that has not changed pushes nothing; the next run with nothing to accept closes the pull
 request with a comment. Output `pr-action`: `create`, `edit`, `close` or `none`. The job needs `contents: write` and
-`pull-requests: write`, and the branch is the Action's own (it is replaced on each push, `--force-with-lease`).
+`pull-requests: write`, and the branch is the Action's own: it is replaced on each push, with a lease that names what
+the run fetched (`--force-with-lease=refs/heads/<branch>:<the fetched commit>`, or `:` with nothing after it, "must not
+exist", when there was no branch). So a second drift while the pull request is open replaces the branch and edits the
+same pull request, and a run after a merged pull request whose branch was kept opens a new one on it. A branch someone
+else moved between the fetch and the push is not overwritten: the push is refused and the step fails.
 
 ```yaml
 - uses: xkazm04/plumbline/action@COMMIT_SHA
@@ -114,8 +118,10 @@ a watch `root` that is not a folder in the workspace, a `relock-pr` or `renew` o
 
 Every decision is in `action/report.mjs` (plain Node, no dependencies): the input check, the one read of the report, and
 what to do with the drift issue; the Action's shell only carries them out. `node --test "action/*.test.mjs"` tests them,
-and runs the Action's two issue steps through bash against a stub `gh` (on Windows, set `PLUMBLINE_TEST_BASH` to Git
-Bash, or that one test is skipped).
+and runs the Action's issue steps and its pull request step through bash against a stub `gh` (the push once with the
+real `git` against a local bare remote: create, a second drift on the existing branch, and a run after a merge whose
+branch remains, for the relock and the renewal branch; on Windows, set `PLUMBLINE_TEST_BASH` to Git Bash, or those
+tests are skipped).
 
 **The watch template** (`action/templates/plumbline-watch.yml`) uses the Action pinned by commit SHA. `plumbline init
 --workflow` writes it to `.github/workflows/plumbline-watch.yml` with your site folder as `root:`, or copy it there by
