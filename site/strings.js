@@ -35,6 +35,9 @@ export const STRINGS = {
     invalidMeaning: "Something is wrong: a signed file changed or is missing, the signature expired, it does not check out under the key you trust, or that key has been revoked. Do not treat these files as the publisher's.",
     unverifiableTitle: "Unverifiable",
     unverifiableMeaning: "You have not met this signer yet, or the site publishes no signature. The files may be fine, but nothing here can vouch for them until you trust the publisher's key yourself.",
+    unverifiableOriginMeaning: "These files were signed for another address than {fetchedFrom}, where they were fetched: a copy signed for another address is not attested here, whoever signed it. Do not treat them as that publisher's site.",
+    unverifiableRotatedMeaning: "A different key signed this site than the one you trust for its address, and the site publishes a rotation from your key: check that rotation (adopt) before trusting the new key. This is not a first contact.",
+    unverifiableSwappedMeaning: "A different key signed this site than the one you trust for its address, and no rotation you can check links them: this is not a first contact. Ask the publisher out of band before trusting the new key.",
   },
 
   publish: {
@@ -137,6 +140,7 @@ export const STRINGS = {
     signer: "Signer key id",
     origin: "Signed for origin",
     fetchedFrom: "Files fetched from",
+    validUntil: "Signature valid until",
     covered: "Signed files",
     unsigned: "This site publishes no plumbline.signature.json, so nothing can be verified.",
     sigUnreadable: "The signature file could not be fetched (the browser could not read it), so nothing was verified.",
@@ -152,7 +156,7 @@ export const STRINGS = {
       expired: "the signature has expired",
       "kid-mismatch": "your trust entry for this key is defective (its key id does not belong to its key)",
       malformed: "the signature file is not well formed",
-      revoked: "the key that signed it has been revoked by its holder, so nothing it signs is accepted, whatever the dates",
+      revoked: "the key that signed it is revoked, so nothing it signs is accepted, whatever the dates",
     },
     revocation: {
       applied: "This site publishes plumbline-revocation.json, and it verifies under a key you trust: that key revoked itself. It is now marked revoked in your trust list, so nothing it signs is accepted.",

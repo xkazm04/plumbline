@@ -20,6 +20,7 @@ import {
   KEY_FILE,
   KEY_TYPE,
   REVOCATION_FILE,
+  ROTATION_FILE,
   SIGNATURE_FILE,
   applyRevocationText,
   derivePublicKey,
@@ -36,7 +37,9 @@ import {
   revokeKey,
   signSubjects,
   signedPathsOf,
+  signerChangeDetail,
   spreadRevocations,
+  statementsOf,
   subjectDigest,
   verifySignature,
 } from "./lib/plumbline/core/index.js";
@@ -647,7 +650,14 @@ export class DeskPage {
       ...(r.kid ? { kid: r.kid } : {}),
       ...(r.origin ? { origin: r.origin } : {}),
       ...(r.detail ? { detail: r.detail } : {}),
-      meaning: t(`verdicts.${r.verdict}Meaning`),
+      // UAT-8 (INE-L2-1): the first line names an origin mismatch or a swapped signer, never "not met this signer"
+      meaning:
+        r.verdict === "unverifiable" && check.signed && check.originMismatch
+          ? t("verdicts.unverifiableOriginMeaning", { fetchedFrom: safeUrl(check.fetchedFrom) })
+          : r.verdict === "unverifiable" && check.signed && check.swapped
+            ? t(check.swapped === "rotation" ? "verdicts.unverifiableRotatedMeaning" : "verdicts.unverifiableSwappedMeaning")
+            : t(`verdicts.${r.verdict}Meaning`),
+      ...(check.signed && check.expiresAt ? { expiresAt: check.expiresAt } : {}),
       revocation: { ...check.revocation.report, file: safeUrl(check.revocation.report.file) },
       signed: check.signed,
       ...(check.signed
@@ -782,8 +792,26 @@ export class DeskPage {
     // ever takes trust away, so it is honoured here even when this browser never trusted the key.
     // a revocation file may list several keys (core: kids); the site revokes its own signing key if any of them is it
     const keyRevokedBySite = signedKid !== null && (Array.isArray(revocation.kids) ? revocation.kids.includes(signedKid) : revocation.kid === signedKid);
+    // UAT-8 (TOM-L2-03): a signer this browser has not trusted here while it trusts another key for this origin is a
+    // swapped signer: said as such (core's sentence, the CLI's too), and never offered as a first contact
+    let swapped;
+    if (result.verdict === "unverifiable" && !originMismatch && signedKid !== null) {
+      let rotationFrom = [];
+      try {
+        const rotation = await this.fetch(`${base}${ROTATION_FILE}`);
+        const listed = rotation.ok ? statementsOf(JSON.parse(rotation.text())) : {};
+        if (Array.isArray(listed.statements)) rotationFrom = listed.statements.map((s) => (isRecord(s) ? s.from : undefined)).filter(isKid);
+      } catch {
+        rotationFrom = [];
+      }
+      const sentence = signerChangeDetail(this.trust.entries, signedKid, fetchedFrom, rotationFrom);
+      if (sentence !== undefined) {
+        result = { ...result, detail: sentence };
+        swapped = this.trust.entries.some((e) => e.origin === fetchedFrom && e.revokedAt === undefined && rotationFrom.includes(e.kid)) ? "rotation" : "none";
+      }
+    }
     const firstContact =
-      result.verdict === "unverifiable" && !originMismatch && !keyRevokedBySite && !knownRevoked && publishedKey && isKid(publishedKey.kid) && publishedKey.kid === signedKid && isPublicKey(publishedKey.publicKey)
+      result.verdict === "unverifiable" && swapped === undefined && !originMismatch && !keyRevokedBySite && !knownRevoked && publishedKey && isKid(publishedKey.kid) && publishedKey.kid === signedKid && isPublicKey(publishedKey.publicKey)
         ? { kid: publishedKey.kid, publicKey: publishedKey.publicKey }
         : null;
     return {
@@ -792,6 +820,8 @@ export class DeskPage {
       signed: true,
       originMismatch,
       keyRevokedBySite,
+      ...(swapped !== undefined ? { swapped } : {}),
+      expiresAt: isRecord(signature) && isIsoUtc(signature.expiresAt) ? signature.expiresAt : undefined,
       firstContact,
       signedFiles: listed.map((x) => (x && typeof x.path === "string" ? x.path : "?")),
       subjects: listed.filter((x) => x && isSafeSubjectPath(x.path)).map((x) => x.path),
@@ -1499,6 +1529,8 @@ function renderVerify(page) {
   fact(t("verify.signer"), r.kid);
   fact(t("verify.origin"), r.origin);
   fact(t("verify.fetchedFrom"), r.fetchedFrom);
+  // UAT-8: a verdict carries the signature's expiry, so a note can date it
+  fact(t("verify.validUntil"), r.expiresAt ? r.expiresAt.slice(0, 10) : undefined);
   if (r.signedFiles && r.signedFiles.length) fact(t("verify.covered"), r.signedFiles.join(", "));
   nodes.push(facts);
   if (r.originMismatch) nodes.push(el("p", t("verify.originMismatch"), "notice"));

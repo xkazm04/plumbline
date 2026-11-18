@@ -2594,3 +2594,42 @@ test("p-a41521: the Desk applies a revocation with core's applyRevocationText an
   assert.doesNotMatch(code, /\bapplyRevocation\(/, "desk.js still loops over applyRevocation itself");
   assert.doesNotMatch(code, /\.type === PRIVATE_KEY_TYPE/, "desk.js still checks the private key file's shape itself");
 });
+
+test("UAT-8: a swapped signer is named against the trusted key and gets no first-contact offer; an origin mismatch's first line names it", async () => {
+  const SITE = "https://swapped.example";
+  const trusted = await generateKey(NOW);
+  const other = await generateKey(NOW);
+  const { site } = await signedSite(SITE, other, SITE);
+  site.set(`${SITE}/plumbline-rotation.json`, "not found", 404);
+  App.page.configure({ fetch: site.fetch, storage: new MemoryStorage() });
+  try {
+    App.page.trust.add({ kid: trusted.key.kid, origin: SITE, publicKey: trusted.key.publicKey });
+    const r = await App.page.verifySite({ target: `${SITE}/` });
+    assert.equal(r.verdict, "unverifiable");
+    assert.equal(r.detail, `This origin's trusted key is ${trusted.key.kid}; this signature is by ${other.key.kid}, with no rotation from ${trusted.key.kid}: a different key signing for an origin you trust is not a first contact, so ask the publisher out of band before trusting it.`);
+    assert.equal(r.meaning, STRINGS.verdicts.unverifiableSwappedMeaning);
+    assert.equal(r.publishedKey, undefined, "no first-contact offer for a swapped signer");
+    assert.match(r.expiresAt, /^\d{4}-\d{2}-\d{2}T/);
+    // a stranger (nobody trusted for the origin) is still a first contact
+    App.page.configure({ storage: new MemoryStorage() });
+    const stranger = await App.page.verifySite({ target: `${SITE}/` });
+    assert.equal(stranger.meaning, STRINGS.verdicts.unverifiableMeaning);
+    assert.equal(stranger.publishedKey.kid, other.key.kid);
+  } finally {
+    restore();
+  }
+  // the forgery: signed for another address; the first line names the mismatch, never "not met this signer"
+  const MIRROR = "https://mirror-uat8.example";
+  const signer = await generateKey(NOW);
+  const { site: mirror } = await signedSite(MIRROR, signer, SITE);
+  App.page.configure({ fetch: mirror.fetch, storage: new MemoryStorage() });
+  try {
+    App.page.trust.add({ kid: signer.key.kid, origin: SITE, publicKey: signer.key.publicKey });
+    const m = await App.page.verifySite({ target: `${MIRROR}/` });
+    assert.equal(m.meaning, STRINGS.verdicts.unverifiableOriginMeaning.replace("{fetchedFrom}", MIRROR));
+    assert.doesNotMatch(m.meaning, /not met this signer/);
+    assert.match(m.detail, new RegExp(`^The signature names ${SITE.replace(/\./g, "\.")}, but these files were checked as ${MIRROR.replace(/\./g, "\.")}`));
+  } finally {
+    restore();
+  }
+});
