@@ -384,6 +384,23 @@ may run in parallel, because it adds no claim.
 - standard: `signed-artifacts/verification-ux`.
 - Size: M (wire: a report time).
 - Must not break: guardrail 1 and PRI-L1-S5 (never green for not checked; the word always written).
+- State: fixed (commit dac868f, pin 6bb1ee1), awaiting recertify. Wire: `GateReport.checkedAt` (every gate run) and
+  `GateReport.signature` (a `VerifyResult`, only with the new `gate --trust <file>`, which runs `verify --url` itself),
+  documented in `docs/signature-format.md`. The badge writes the gate part (pass, fail, partly checked, unreachable, not
+  checked), the signature part (signature verified, signature invalid (<reason>), signature unverifiable, signature not
+  checked) and the report's `checkedAt` date; green only for a full pass with a verified signature, red for a failed
+  checker or an invalid signature, dark amber for an unreachable site, grey otherwise; `--now` is refused and a report
+  without `checkedAt` is refused. The gate's text output, the Action's job summary and the Desk's check view each say
+  the signature was not checked (or its verdict). Live on tallow-finch (trust file made by `trust --url --yes` for 4400,
+  4405, 4406; `gate --adapters validator --allow-local --trust`): 4400 "pass, signature verified" (green), 4405 "pass,
+  signature invalid (expired)" (red), 4406 "pass, signature invalid (tampered)" (red), 4410 "unreachable, signature
+  unverifiable" (amber), 4400 without `--trust` "pass, signature not checked" (grey); `--now 2025-01-01...` exit 2.
+  Tests: "UAT-10 ..." in `src/test/scan.test.ts`, `src/test/cli-verify-url.test.ts`, `action/report.test.mjs`,
+  `site/tests/desk.test.mjs`. Release note: the badge refuses `--now` and reports written before `checkedAt`. Open for
+  the owner: (1) the signature verdict never changes the gate's state or exit code (a tampered site still exits 0 under
+  `--trust`), by the three-state rule; whether `--trust` should fail the gate on `invalid` is a product choice; (2) a
+  site that publishes no signature is "signature unverifiable" and never green; (3) the Action has no `trust` input, so
+  its summary always says "not checked". Changed Desk files: `site/desk.js`, `site/strings.js`.
 
 ### UAT-11. No address to Agent Atlas that the gate itself refused; say so where it happens
 
