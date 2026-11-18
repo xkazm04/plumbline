@@ -289,6 +289,27 @@ may run in parallel, because it adds no claim.
 - standard: `signed-artifacts/verification-ux`.
 - Size: M. Signed Desk files.
 - Must not break: guardrails 2 (a file path is a safe subject; a reason a stranger wrote is not), 4, 8.
+- State: fixed (commits d90c239, 90b26cd), awaiting recertify. Causes confirmed. Live on northgate-clinic, real CLI:
+  stale arm (the thief's rotation adopted before the revocation): "revocation recorded in ... (2 entries:
+  ccfba72b8f9cda05 for http://127.0.0.1:4300; a421444650ae0a1f for http://127.0.0.1:4300 (adopted through revoked key
+  ccfba72b8f9cda05))", the per-entry line "the revocation statement verified under the trusted key ccfba72b8f9cda05
+  (...): that key is revoked" (no `verified kid=` line), and the thief's files "invalid revoked kid=a421444650ae0a1f
+  ... is revoked because it was adopted through revoked key ccfba72b8f9cda05"; wrong-order arm (A -> B rotated and
+  adopted, then A revoked): B reads the same cascade sentence. `verified ... The signature is valid until 2027-02-16.
+  Verified means these files are the publisher's and unchanged, not that the site is safe, honest or correct.`;
+  `tamper`: "invalid tampered ... differs from the version that was signed: northgate_clinic.network.json."; `expire`:
+  "invalid expired ... expired on 2026-11-17 ..."; `forgery` by the mirror's URL: CLI "The signature names
+  http://127.0.0.1:4300, but these files were checked as http://127.0.0.1:4301 ..." and the Desk's first line "These
+  files were signed for another address than http://127.0.0.1:4301 ..." (no "not met this signer"). kiln-row: after
+  `seller-signer-swapped`, CLI "This origin's trusted key is 5369084f6f15eeaa; this signature is by 58f55da9417772e5,
+  with no rotation from 5369084f6f15eeaa ..."; the Desk (trusted through its own first-contact panel, then the act)
+  says the same, its first line "A different key signed this site ... this is not a first contact.", and shows no
+  first-contact panel; after `seller-rotates`, CLI "... and the site publishes a rotation from 73a7a20e763e6207: check
+  it with adopt ...". The adopt hint's absence for a rotation from a revoked key is proved by
+  `src/test/cli-lifecycle.test.ts` (not re-walked live). Ceiling: the cascade is told from the entry's `revokedAt`
+  equal to its parent's (a key that revoked itself at the same instant would read as cascaded); the Desk's trust-list
+  chip for a cascaded key (INE-L1-01's "trust the publisher's new key" hint) is unchanged; the watch half of telling a
+  rotation from a swap is UAT-4's.
 
 ### UAT-9. "Partly checked" is not "not checked", on every surface
 
