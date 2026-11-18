@@ -4,7 +4,7 @@ author: Plumbline
 
 inputs:
   target:
-    description: For `gate` (required there), the site address or the network address to check, for example https://example.com/ or https://example.com/my_network.
+    description: For `gate`, the site address or the network address to check, for example https://example.com/ or https://example.com/my_network. Empty, the gate checks the site's files at `root` instead (a branch before deployment), with the validator only and nothing sent to a third party.
     required: false
     default: ""
   adapters:
@@ -20,7 +20,7 @@ inputs:
     required: false
     default: gate
   root:
-    description: For `watch`, the site folder holding plumbline.lock.json, relative to the workspace. Default is the workspace itself. A path that is not a folder is refused.
+    description: For `watch`, the site folder holding plumbline.lock.json, relative to the workspace; for `gate` with no `target`, the folder of the site's files to check (a build output). Default is the workspace itself. A path that is not a folder is refused.
     required: false
     default: "."
   issues:
@@ -116,7 +116,12 @@ runs:
             # The exit code is read straight from the command: 0 passed by fail-on, 1 failed by it (or nothing was
             # checked), 2 usage. The gate never gets --allow-local here: CI checks public https sites only.
             set +e
-            node "$cli" gate "$PLUMBLINE_TARGET" --adapters "$PLUMBLINE_ADAPTERS" --fail-on "$PLUMBLINE_FAIL_ON" --json > "$report"
+            if [ -n "$PLUMBLINE_TARGET" ]; then
+              node "$cli" gate "$PLUMBLINE_TARGET" --adapters "$PLUMBLINE_ADAPTERS" --fail-on "$PLUMBLINE_FAIL_ON" --json > "$report"
+            else
+              # UAT-22: no target: the site's files at root, before deployment; the validator only, nothing sent out
+              node "$cli" gate --root "$GITHUB_WORKSPACE/$PLUMBLINE_ROOT" --fail-on "$PLUMBLINE_FAIL_ON" --json > "$report"
+            fi
             code=$?
             set -e
             cat "$report"

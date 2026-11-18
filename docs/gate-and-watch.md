@@ -7,7 +7,9 @@ Everything here was checked against the live services on 2026-11-17; the recorde
 
 ## The gate
 
-`plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--trust <plumbline.trust.json>] [--allow-local] [--json]`.
+`plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--trust <plumbline.trust.json>] [--allow-local] [--json]`,
+or `plumbline gate --root <site folder> [--adapters validator] [--fail-on fail|unavailable] [--json]` for a site's files
+before they are published (UAT-22, below).
 The target is a site address, a network address (site address plus network name), the address of an `agent-manifest.json`, or
 the address of a `<name>.network.json`. The report state is the worst finding: `fail`, then `unavailable`, then `pass`. Asking
 for no adapters is `unavailable`, not `pass`. Adapters run independently, each with its own deadline (five times the per-fetch
@@ -53,6 +55,17 @@ same. A trust file that cannot be read is a usage error (exit 2) before anything
 this run, and prints a one-line warning to stderr. It still refuses every private range (`10/8`, `172.16/12`,
 `192.168/16`, `169.254/16`, `fc00::/7` and the rest of rule 2 below) and `http` to a public address. The Action never
 passes it.
+
+### Before launch: `gate --root`
+
+`plumbline gate --root <folder>` (UAT-22) runs the validator's rules on a site's files, a build output or a branch, before
+anything is published: the manifest and every network file it names are read under the folder (exact bytes, nothing
+outside the folder's real path; a manifest that names another site's network file is not fetched), at a base address
+that is never contacted. Only the validator runs: Agent Atlas and Agent Customs check a published address, so they are
+refused with `--root` (exit 2), and nothing is sent to a third party, which the gate says on stderr first. `--trust` and
+`--allow-local` go with an address (a folder's signature is `plumbline verify --root`'s). The report is the gate's
+(`target` is the folder as given), the exit codes are the gate's (a broken rule exits 1, a clean folder 0), and the
+Action uses it for `command: gate` with no `target` (`action/README.md`).
 
 ### `validator`: a port, not the reference validator
 

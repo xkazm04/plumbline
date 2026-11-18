@@ -30,7 +30,8 @@ const SEVERITY_RANK = { block: 0, warn: 1 };
 /**
  * Why the Action's inputs cannot run, or null when they can. Checked before the build, so a misconfigured workflow goes
  * red at once with the reason, never after a minute of npm ci, and never as a quiet run that checked nothing.
- * `rootIsFolder` says whether `root` names a folder in the workspace; only `watch` asks.
+ * `rootIsFolder` says whether `root` names a folder in the workspace: `watch` needs one, and so does a `gate` with no
+ * target, which checks the files there (UAT-22).
  */
 export function inputProblem({ command, target, failOn, issues, rootIsFolder, relockPr = "false", renew = "false", signingKey = false, origin = "" }) {
   if (command !== "gate" && command !== "watch") return "command must be gate or watch";
@@ -39,7 +40,8 @@ export function inputProblem({ command, target, failOn, issues, rootIsFolder, re
   if (renew !== "true" && renew !== "false") return "renew must be true or false";
   if (command === "gate") {
     if (failOn !== "fail" && failOn !== "unavailable") return "fail-on must be fail or unavailable";
-    if (!target) return "command gate needs a target";
+    // UAT-22: with no target the gate checks the files at `root` (a branch before deployment), with the validator only
+    if (!target && !rootIsFolder) return "command gate needs a target (an https address) or a root folder in the workspace (the site's files, to gate a branch before deployment)";
     if (issues === "true") return "issues: true goes with command watch only (the gate keeps no drift issue)";
     if (relockPr === "true" || renew === "true") return "relock-pr and renew go with command watch only";
     return null;

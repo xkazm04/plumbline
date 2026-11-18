@@ -32,7 +32,7 @@ with no clone.
 - uses: xkazm04/plumbline/action@COMMIT_SHA   # pin by full commit SHA
   with:
     command: gate                           # default
-    target: https://example.com/            # required for gate: a site or network address
+    target: https://example.com/            # a site or network address (leave it out to gate the files at root, below)
     adapters: validator,atlas,customs       # default: all three
     fail-on: fail                           # or `unavailable`
 ```
@@ -47,6 +47,18 @@ checked, so this is not a pass" and "nothing was checked: every checker was unav
 summary ends with a signature line: the Action's gate is not given a trust file, so it reads "**signature**: not
 checked", and a site's signature is checked with `plumbline verify` (or `plumbline gate --trust <file>`, whose report
 the summary reads the same way). The Action never passes `--allow-local`: in CI the gate checks public https sites only.
+
+**Gate a branch before deployment** (UAT-22). With `command: gate` and no `target`, the Action checks the site's files
+at `root` (a build output in the workspace, default the workspace itself) with `plumbline gate --root`: the validator's
+rules only, and nothing is sent to Agent Atlas or Agent Customs (`adapters` does not apply). A rule the files break
+fails the step, so a launch defect (a repeated `commondefs`) stops the pull request before the site is published.
+
+```yaml
+- uses: xkazm04/plumbline/action@COMMIT_SHA
+  with:
+    command: gate
+    root: dist                              # the site's files; no target
+```
 
 **Watch** (`command: watch`, `root:` the site folder holding `plumbline.lock.json`). It reports grounding, runtime and
 peer drift; outputs `report` (the JSON path), `findings` (how many are `warn` or `block`) and `issue-body` (the path of a

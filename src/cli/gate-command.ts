@@ -1,4 +1,6 @@
 // plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--trust <file>] [--allow-local] [--json]
+// plumbline gate --root <folder> [--adapters validator] [--fail-on fail|unavailable] [--json]: the validator's rules over
+// a site's files before it is published (UAT-22; gate-root.ts): nothing is sent to a third party.
 // Exit 0: the gate passed by --fail-on (with --fail-on fail, `unavailable` on SOME adapters alone does not fail it).
 // 1: the gate failed by --fail-on, or NOTHING was checked (every adapter `unavailable`, whatever --fail-on says).
 // 2: usage error, including a target that is not an http(s) URL (refused before any adapter runs), and a trust file
@@ -13,11 +15,19 @@ import { safeFetch } from "../net/safe-fetch.js";
 import { siteBase } from "../watch/published.js";
 import { ArgsError, CliError, parseArgs } from "./args.js";
 import { verify } from "./commands.js";
+import { gateFolder } from "./gate-root.js";
+import { existsSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { readTrustFile } from "./files.js";
 import type { GateReport, VerifyResult } from "../core/types.js";
 
 const USAGE =
-  "usage: plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--trust <plumbline.trust.json>] [--allow-local] [--json]\n";
+  "usage: plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--trust <plumbline.trust.json>] [--allow-local] [--json]\n" +
+  "       plumbline gate --root <site folder> [--adapters validator] [--fail-on fail|unavailable] [--json]\n";
+
+/** Said on stderr before a folder is gated (UAT-22): what is checked, and that nothing leaves the machine. */
+export const ROOT_DISCLOSURE =
+  "the files under the folder are checked with the validator's rules only (Plumbline's port of the reference validation rules); nothing is sent to a third party";
 
 /** Said before any adapter runs whenever Atlas is asked (UAT-11): the one third party a gate sends the address to. */
 export const ATLAS_DISCLOSURE =
@@ -106,7 +116,7 @@ function refuse(sentence: string): 2 {
 export async function runGateCommand(argv: string[]): Promise<number> {
   let args;
   try {
-    args = parseArgs(argv, ["adapters", "fail-on", "timeout", "trust"], ["allow-local"], { positionals: 1 });
+    args = parseArgs(argv, ["adapters", "fail-on", "timeout", "trust", "root"], ["allow-local"], { positionals: 1 });
   } catch (error) {
     if (error instanceof ArgsError) return refuse(usageSentence(error));
     throw error;
@@ -136,6 +146,29 @@ export async function runGateCommand(argv: string[]): Promise<number> {
     const n = Number(timeoutValue);
     if (!Number.isFinite(n) || n <= 0) return refuse(BAD_VALUE.timeout);
     timeoutMs = n;
+  }
+
+  // UAT-22 (PRI-L1-06): a pre-launch gate over files: the validator only, nothing sent anywhere
+  const rootValue = args.values.get("root");
+  if (rootValue !== undefined) {
+    if (args.positionals.length > 0) return refuse("--root gates the files in a folder; give a folder or an address, not both");
+    if (rootValue === "") return refuse("--root takes a folder: the site's files, such as a build output");
+    if (args.values.has("trust") || allowLocal) return refuse("--trust and --allow-local go with an address: --root reads files on this machine (check a folder's signature with plumbline verify --root)");
+    if (adapters !== undefined && adapters.some((a) => a !== "validator")) {
+      return refuse("--root checks files with the validator only: Agent Atlas and Agent Customs check a published address, and nothing is sent to them from a folder");
+    }
+    const root = resolve(rootValue);
+    if (!existsSync(root) || !statSync(root).isDirectory()) return refuse("--root must name a folder: the site's files, such as a build output");
+    process.stderr.write(`plumbline gate: ${ROOT_DISCLOSURE}\n`);
+    const report = await gateFolder(root, rootValue, timeoutMs !== undefined ? { timeoutMs } : {});
+    if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    else {
+      process.stdout.write(`gate ${report.state}: ${report.target} (files) - ${gateSentence(report)}\n`);
+      for (const f of report.findings) process.stdout.write(`  ${f.state.padEnd(11)} ${f.adapter}: ${f.summary}\n`);
+      process.stdout.write("  signature: not checked: a folder's signature is checked with plumbline verify --root\n");
+    }
+    if (nothingChecked(report)) process.stderr.write(`plumbline gate: ${NOTHING_CHECKED}\n`);
+    return gateExitCode(report, failOn);
   }
 
   const target = args.positionals[0];

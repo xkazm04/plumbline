@@ -207,6 +207,8 @@ test("refusals: a bad command, a gate without target, a bad fail-on, a bad issue
   assert.match(inputProblem({ ...ok, command: "nope" }), /command must be gate or watch/);
   assert.match(inputProblem({ ...ok, command: undefined }), /command must be gate or watch/);
   assert.match(inputProblem({ ...ok, target: "" }), /needs a target/);
+  // UAT-22: no target and a root folder: the gate checks the files there
+  assert.equal(inputProblem({ ...ok, target: "", rootIsFolder: true }), null);
   assert.match(inputProblem({ ...ok, failOn: "maybe" }), /fail-on must be fail or unavailable/);
   assert.match(inputProblem({ ...ok, issues: "maybe" }), /issues must be true or false/);
   assert.match(inputProblem({ ...ok, issues: "true" }), /watch only/);
@@ -893,4 +895,51 @@ test("UAT-18 (DEV-L1-03): the issue names the diff command once per changed peer
 test("UAT-18: the relock pull request commits the lock's kept peer copies with the lock", () => {
   const yml = read("action/action.yml");
   assert.match(yml, /if \[ -d "\$PLUMBLINE_ROOT\/\.plumbline\/peers" \]; then git add -- "\$PLUMBLINE_ROOT\/\.plumbline\/peers"; fi/);
+});
+
+test("UAT-22 (PRI-L1-06): the Action's gate step checks the files at root when no target is given, and never sends them anywhere", { skip: !bash && "no POSIX bash (set PLUMBLINE_TEST_BASH)" }, () => {
+  const step = stepScript("Run plumbline");
+  const dir = mkdtempSync(join(tmpdir(), "plumbline-gate-root-"));
+  try {
+    // a stub CLI beside a copy of report.mjs, laid out as the Action's checkout is: it logs its arguments and answers a report
+    mkdirSync(join(dir, "action"));
+    mkdirSync(join(dir, "dist", "cli"), { recursive: true });
+    writeFileSync(join(dir, "action", "report.mjs"), readFileSync(script));
+    writeFileSync(
+      join(dir, "dist", "cli", "index.js"),
+      'import { appendFileSync } from "node:fs";\nappendFileSync(process.env.CLI_LOG, JSON.stringify(process.argv.slice(2)) + String.fromCharCode(10));\nprocess.stdout.write(JSON.stringify({ target: "x", state: "fail", findings: [{ adapter: "validator", state: "fail", summary: "duplicate keys" }] }));\nprocess.exitCode = 1;\n',
+    );
+    mkdirSync(join(dir, "ws", "site"), { recursive: true });
+    const runStep = (target) => {
+      const log = join(dir, `cli-${target ? "url" : "root"}.log`);
+      writeFileSync(log, "");
+      const r = spawnSync(bash, ["-eo", "pipefail", "-c", step], {
+        env: {
+          ...process.env,
+          CLI_LOG: log,
+          GITHUB_ACTION_PATH: join(dir, "action"),
+          GITHUB_WORKSPACE: join(dir, "ws"),
+          GITHUB_OUTPUT: join(dir, "out"),
+          GITHUB_STEP_SUMMARY: join(dir, "summary"),
+          RUNNER_TEMP: dir,
+          PLUMBLINE_COMMAND: "gate",
+          PLUMBLINE_TARGET: target,
+          PLUMBLINE_ADAPTERS: "validator,atlas,customs",
+          PLUMBLINE_FAIL_ON: "fail",
+          PLUMBLINE_ROOT: "site",
+        },
+        encoding: "utf8",
+      });
+      assert.notEqual(readFileSync(log, "utf8").trim(), "", r.stderr + r.stdout);
+      return { code: r.status, args: JSON.parse(readFileSync(log, "utf8").trim().split("\n")[0]) };
+    };
+    const files = runStep("");
+    assert.equal(files.code, 1, "the gate's own exit code: a failed rule fails the step");
+    assert.deepEqual(files.args, ["gate", "--root", `${join(dir, "ws")}/site`, "--fail-on", "fail", "--json"]);
+    assert.ok(!files.args.includes("--adapters"), "a folder is checked by the validator only");
+    const address = runStep("https://example.com/");
+    assert.deepEqual(address.args, ["gate", "https://example.com/", "--adapters", "validator,atlas,customs", "--fail-on", "fail", "--json"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
