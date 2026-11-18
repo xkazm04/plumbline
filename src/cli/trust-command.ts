@@ -17,7 +17,7 @@
 //     appended. A chain that breaks or does not verify is refused (exit 1) and the statement where it stopped is named.
 // Exit 0 when the entry was added or was already there, 1 when nothing was added, 2 on a usage or I/O error.
 
-import { CliError, UsageError, parseArgs, required, type ParsedArgs } from "./args.js";
+import { CliError, UsageError, nowFrom, parseArgs, required, type ParsedArgs } from "./args.js";
 import {
   ORIGIN_RULE,
   applyRevocationToTrust,
@@ -134,7 +134,9 @@ export interface TrustDeps {
 }
 
 export async function trust(argv: string[], out: Out, deps: TrustDeps = {}): Promise<number> {
-  const args = parseArgs(argv, ["key", "origin", "file", "url"], ["yes", "allow-local", "require-dns"]);
+  const args = parseArgs(argv, ["key", "origin", "file", "url", "now"], ["yes", "allow-local", "require-dns"]);
+  // UAT-23 (INE-L1-11): an entry records when it was added
+  const now = nowFrom(args) ?? new Date();
   const file = required(args, "file");
   const requireDns = args.flags.has("require-dns");
   if (requireDns && args.values.get("url") === undefined) throw new UsageError("--require-dns goes with --url: DNS is asked for the site's host");
@@ -166,7 +168,7 @@ export async function trust(argv: string[], out: Out, deps: TrustDeps = {}): Pro
   // A revocation recorded for this kid anywhere is final: never trusted again, at any origin.
   if (store.entries.some((e) => e.kid === kid && e.revokedAt !== undefined)) throw new CliError(revokedSentence(file, kid));
   const already = store.entries.some((e) => e.kid === kid && e.origin === origin);
-  const entry: TrustEntry = { kid, origin, publicKey };
+  const entry: TrustEntry = { kid, origin, publicKey, addedAt: now.toISOString() };
   const yes = args.flags.has("yes");
   // the second channel: what DNS says about this kid for the site's host (--url only). It adds no trust either way.
   const dns: DnsCheck | undefined = base !== undefined ? await askDns(base.hostname, kid, deps.resolveTxt) : undefined;
@@ -239,7 +241,9 @@ export async function dnsRecord(argv: string[], out: Out): Promise<number> {
 }
 
 export async function adopt(argv: string[], out: Out): Promise<number> {
-  const args = parseArgs(argv, ["root", "trust", "origin", "url"], ["yes", "allow-local"]);
+  const args = parseArgs(argv, ["root", "trust", "origin", "url", "now"], ["yes", "allow-local"]);
+  // UAT-23 (INE-L1-11, INE-L1-12): an adopted entry records when it was added, and a revocation when it was recorded
+  const now = nowFrom(args) ?? new Date();
   const trustPath = required(args, "trust");
   const { site: maybeSite, origin } = siteOf(args, "root");
   const site = maybeSite as SiteSource;
@@ -255,7 +259,7 @@ export async function adopt(argv: string[], out: Out): Promise<number> {
     throw new CliError(`cannot fetch ${REVOCATION_FILE} from ${site.where} (${revocationRead.why}), so nothing is adopted: whether the rotating key is revoked cannot be told`);
   }
   if (revocationRead.state === "present") {
-    revocation = await applyRevocationToTrust(site.label(REVOCATION_FILE), decode(revocationRead.bytes), store, yes);
+    revocation = await applyRevocationToTrust(site.label(REVOCATION_FILE), decode(revocationRead.bytes), store, yes, now);
   }
 
   // UAT-17 (TOM-L1-09): a site that publishes no rotation is a verdict (exit 1, `refusedBy: "no-rotation"`), not an I/O
@@ -332,7 +336,7 @@ export async function adopt(argv: string[], out: Out): Promise<number> {
     lines.push("nothing adopted: adopting a successor is your decision; rerun with --yes to add it");
     code = 1;
   } else {
-    for (const entry of toAdd) appendEntry(store, entry);
+    for (const entry of toAdd) appendEntry(store, { ...entry, addedAt: now.toISOString() });
     await writeTrustFile(store);
     added = true;
     for (const entry of toAdd) lines.push(`adopted ${entry.kid} for ${origin} into ${trustPath}, recorded as adopted via ${entry.adoptedVia}`);

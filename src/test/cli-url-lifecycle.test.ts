@@ -91,7 +91,7 @@ test("verify --url points at adopt --url when the site publishes a rotation, and
 
   const yes = await runAsync("adopt", "--url", base, "--trust", trust, "--allow-local", "--yes");
   assert.equal(yes.code, 0, yes.out + yes.err);
-  assert.deepEqual(readTrust(trust).entries[1], { kid: b.record.kid, origin: server.url, publicKey: b.record.publicKey, adoptedVia: a.record.kid });
+  assert.deepEqual({ ...readTrust(trust).entries[1], addedAt: undefined }, { kid: b.record.kid, origin: server.url, publicKey: b.record.publicKey, adoptedVia: a.record.kid, addedAt: undefined });
   const verified = await runAsync("verify", "--url", base, "--trust", trust, "--allow-local");
   assert.equal(verified.code, 0, verified.out);
 });
@@ -157,7 +157,7 @@ test("trust --url fetches the site's key record, binds the URL's origin, keeps t
 
   const yes = await runAsync("trust", "--url", base, "--file", file, "--allow-local", "--yes");
   assert.equal(yes.code, 0, yes.err);
-  assert.deepEqual(readTrust(file).entries, [{ kid: keys.record.kid, origin: server.url, publicKey: keys.record.publicKey }]);
+  assert.deepEqual(readTrust(file).entries.map((e) => ({ ...e, addedAt: undefined })), [{ kid: keys.record.kid, origin: server.url, publicKey: keys.record.publicKey, addedAt: undefined }]);
   assert.equal((await runAsync("verify", "--url", base, "--trust", file, "--allow-local")).code, 0);
 
   // a record that lies about its kid is refused by URL as it is from a file; --origin beside --url is a usage error

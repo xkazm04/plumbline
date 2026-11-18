@@ -307,6 +307,18 @@ export interface TrustEntry {
    * contact.
    */
   adoptedVia?: string;
+  /**
+   * Since 2026-11-18 (UAT-23, INE-L1-11): when this verifier added the entry (`trust`, `adopt`), a UTC ISO timestamp.
+   * Absent in an entry written before, or by hand. Informational: no verdict reads it.
+   */
+  addedAt?: string;
+  /**
+   * Since 2026-11-18 (UAT-23, INE-L1-12): when this verifier recorded `revokedAt` in its trust file. `revokedAt` is the
+   * revocation's own time (for a key revoked by cascade, the time of the key it was adopted through), so a key adopted
+   * after that time can read revoked "before" it was adopted; this says when the revocation was learned here. Absent
+   * when `revokedAt` is, and in an entry written before. Informational: no verdict reads it.
+   */
+  revokedRecordedAt?: string;
 }
 export interface TrustStore {
   find(kid: string, origin: string): TrustEntry | undefined;

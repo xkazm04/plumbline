@@ -336,6 +336,7 @@ export async function applyRevocationToTrust(
   text: string,
   trust: TrustFile,
   record: boolean,
+  now: Date = new Date(),
 ): Promise<RevocationReport> {
   const outcome = await applyRevocationText(text, trust.entries);
   if (!outcome.applied) return { file, applied: false, recorded: false, results: outcome.results };
@@ -344,7 +345,7 @@ export async function applyRevocationToTrust(
   const newly = outcome.entries
     .filter((e, i) => e.revokedAt !== undefined && before[i] !== e.revokedAt)
     .map((e) => ({ kid: e.kid, origin: e.origin, ...(e.adoptedVia !== undefined && outcome.entries.some((p) => p.kid === e.adoptedVia && p.revokedAt === e.revokedAt) ? { adoptedVia: e.adoptedVia } : {}) }));
-  const changed = markRevoked(trust, outcome.entries);
+  const changed = markRevoked(trust, outcome.entries, now);
   if (record && changed > 0) await writeTrustFile(trust);
   const recorded = record && changed > 0;
   return {
@@ -544,7 +545,10 @@ export async function verify(argv: string[], out: Out, options: { quiet?: boolea
     throw new UsageError("--origin must be an https:// origin with no path and no trailing slash, like https://example.com");
   }
   const trustPath = required(args, "trust");
-  const trust = await readTrustFile(trustPath);
+  // UAT-23 (INE-L1-12): a trust file that is not there is an empty one, so a first verify is a verdict (unverifiable:
+  // nothing is trusted yet) that names how to make one, never an I/O error
+  const trustAbsent = (await readTextIfPresent(trustPath)) === undefined;
+  const trust = await readTrustFile(trustPath, { missingIsEmpty: true });
   if (allowLocal && options.quiet !== true) process.stderr.write("WARNING: --allow-local: http and loopback addresses are allowed for this run (private ranges stay refused)\n");
   const site = base !== undefined ? remoteSite(base, allowLocal, deadlineMs) : localSite(root as string);
 
@@ -555,7 +559,7 @@ export async function verify(argv: string[], out: Out, options: { quiet?: boolea
   let revocation: RevocationReport | undefined;
   const revocationRead = await site.read(REVOCATION_FILE);
   if (revocationRead.state === "present") {
-    revocation = await applyRevocationToTrust(site.label(REVOCATION_FILE), decode(revocationRead.bytes), trust, true);
+    revocation = await applyRevocationToTrust(site.label(REVOCATION_FILE), decode(revocationRead.bytes), trust, true, nowFrom(args) ?? new Date());
   } else if (revocationRead.state === "unknown") unread.push(REVOCATION_FILE);
 
   // 2. The signature.
@@ -656,6 +660,10 @@ export async function verify(argv: string[], out: Out, options: { quiet?: boolea
   }
 
   const lines = revocation ? revocationLines(revocation, trust, true) : [];
+  if (trustAbsent) {
+    const first = base !== undefined ? `plumbline trust --file ${trustPath} --url ${base.toString()}${allowLocal ? " --allow-local" : ""}` : `plumbline trust --file ${trustPath} --key <the publisher's plumbline-key.json> --origin <origin>`;
+    lines.push(`note: there is no trust file at ${trustPath}, so nothing is trusted yet and no signature can verify; make one by a first contact, after you confirm the key out of band: ${first}`);
+  }
   // The rotation the site publishes, if any: its statements' `from` kids, held to their pattern.
   const rotationRead = await site.read(ROTATION_FILE);
   let rotationFrom: string[] = [];
@@ -703,7 +711,7 @@ export async function verify(argv: string[], out: Out, options: { quiet?: boolea
       ? `${formatResult(result)} The signature is valid until ${expires.slice(0, 10)}. Verified means these files are the publisher's and unchanged, not that the site is safe, honest or correct.`
       : formatResult(result),
   );
-  emit(args, out, { results: [result], ...(revocation ? { revocation } : {}), ...(signerChange !== undefined ? { signerChange } : {}), ...(hint !== undefined ? { hint } : {}) }, lines);
+  emit(args, out, { results: [result], ...(revocation ? { revocation } : {}), ...(trustAbsent ? { trustFileAbsent: true } : {}), ...(signerChange !== undefined ? { signerChange } : {}), ...(hint !== undefined ? { hint } : {}) }, lines);
   return result.verdict === "verified" ? 0 : 1;
 }
 

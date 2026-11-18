@@ -202,7 +202,8 @@ test("plumbline export-jws and verify --jws: the same trust file, the same verdi
 
   const trust = path.join(tmp, "plumbline.trust.json");
   const stranger = run("verify", "--root", site, "--trust", trust, "--origin", ORIGIN, "--jws", jwsFile);
-  assert.equal(stranger.status === 2 ? "no trust file" : stranger.status, "no trust file", "an absent trust file is an I/O error, as without --jws");
+  assert.equal(stranger.status, 1, "an absent trust file is an empty one (UAT-23): unverifiable, as without --jws");
+  assert.match(stranger.stdout, /^unverifiable/m);
   writeFileSync(trust, '{"version":1,"entries":[]}');
   const unknown = run("verify", "--root", site, "--trust", trust, "--origin", ORIGIN, "--jws", jwsFile);
   assert.equal(unknown.status, 1);

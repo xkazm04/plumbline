@@ -175,7 +175,11 @@ test("sign exits 2 on a bad origin, a mismatched key file, a path that escapes t
 
   assert.equal(run("sign", "--bogus", "x").code, 2);
   assert.equal(run("sign").code, 2);
-  assert.equal(run("verify", "--root", site, "--trust", path.join(tmp, "nope.json")).code, 2);
+  // UAT-23 (INE-L1-12): an absent trust file is an empty one: the verdict is unverifiable (exit 1), and it says how to make one
+  const absent = run("verify", "--root", site, "--trust", path.join(tmp, "nope.json"));
+  assert.equal(absent.code, 1);
+  assert.match(absent.out, /^note: there is no trust file at .*nope\.json, so nothing is trusted yet and no signature can verify; make one by a first contact, after you confirm the key out of band: plumbline trust --file /m);
+  assert.match(absent.out, /^unverifiable/m);
   // UAT-7: a folder with no signature is a verdict (unverifiable, exit 1), not an I/O error
   assert.equal(run("verify", "--root", tmp, "--trust", path.join(tmp, "empty.trust.json")).code, 1, "no signature file is unverifiable");
 });

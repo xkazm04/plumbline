@@ -182,7 +182,9 @@ export async function readTrustFile(file: string, options: { missingIsEmpty?: bo
       !isAcceptableOrigin(e.origin) ||
       !isPublicKey(e.publicKey) ||
       (e.revokedAt !== undefined && !isIsoUtc(e.revokedAt)) ||
-      (e.adoptedVia !== undefined && !isKid(e.adoptedVia))
+      (e.adoptedVia !== undefined && !isKid(e.adoptedVia)) ||
+      (e.addedAt !== undefined && !isIsoUtc(e.addedAt)) ||
+      (e.revokedRecordedAt !== undefined && !isIsoUtc(e.revokedRecordedAt))
     ) {
       throw new CliError(`a trust store entry is malformed: ${file}`);
     }
@@ -192,6 +194,8 @@ export async function readTrustFile(file: string, options: { missingIsEmpty?: bo
       publicKey: e.publicKey,
       ...(typeof e.revokedAt === "string" ? { revokedAt: e.revokedAt } : {}),
       ...(typeof e.adoptedVia === "string" ? { adoptedVia: e.adoptedVia } : {}),
+      ...(typeof e.addedAt === "string" ? { addedAt: e.addedAt } : {}),
+      ...(typeof e.revokedRecordedAt === "string" ? { revokedRecordedAt: e.revokedRecordedAt } : {}),
     });
   }
   return { file, raw: value as TrustFile["raw"], entries: spreadRevocations(read) };
@@ -213,18 +217,24 @@ export function trustStoreOf(entries: readonly TrustEntry[]): TrustStore {
 
 /**
  * Copies `revokedAt` from `entries` (the trust file's entries after a revocation was applied, same order) into the
- * file's raw entries, keeping every other member, and returns how many entries changed. Writes nothing.
+ * file's raw entries, keeping every other member, and returns how many entries changed. An entry that gains `revokedAt`
+ * here for the first time also gains `revokedRecordedAt`, `now` (UAT-23): when this verifier learned it, beside the
+ * revocation's own time. Writes nothing.
  */
-export function markRevoked(trust: TrustFile, entries: readonly TrustEntry[]): number {
+export function markRevoked(trust: TrustFile, entries: readonly TrustEntry[], now: Date = new Date()): number {
   let changed = 0;
+  const out = [...entries];
   trust.raw.entries.forEach((raw, i) => {
     const at = entries[i]?.revokedAt;
     if (at !== undefined && raw.revokedAt !== at) {
+      if (raw.revokedRecordedAt === undefined) raw.revokedRecordedAt = now.toISOString();
       raw.revokedAt = at;
       changed += 1;
     }
+    const e = out[i];
+    if (e !== undefined && typeof raw.revokedRecordedAt === "string" && e.revokedRecordedAt === undefined) out[i] = { ...e, revokedRecordedAt: raw.revokedRecordedAt };
   });
-  trust.entries = [...entries];
+  trust.entries = out;
   return changed;
 }
 

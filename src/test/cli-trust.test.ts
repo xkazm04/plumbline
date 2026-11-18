@@ -135,7 +135,10 @@ test("trust --yes appends {kid, origin, publicKey}, and verify then answers veri
 
   const added = run("trust", "--key", keys.recordFile, "--origin", ORIGIN, "--file", file, "--yes");
   assert.equal(added.code, 0, added.err);
-  assert.deepEqual(readTrust(file).entries, [{ kid: keys.record.kid, origin: ORIGIN, publicKey: keys.record.publicKey }]);
+  // UAT-23 (INE-L1-11): the entry records when it was added
+  const [entry] = readTrust(file).entries as ({ addedAt?: string } & Record<string, unknown>)[];
+  assert.match(entry?.addedAt ?? "", /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  assert.deepEqual({ ...entry, addedAt: undefined }, { kid: keys.record.kid, origin: ORIGIN, publicKey: keys.record.publicKey, addedAt: undefined });
   assert.equal(run("verify", "--root", site, "--trust", file).code, 0);
 
   const twice = run("trust", "--key", keys.recordFile, "--origin", ORIGIN, "--file", file, "--yes", "--json");
@@ -215,7 +218,8 @@ test("adopt without --yes shows the verified rotation and changes nothing; with 
   assert.deepEqual(JSON.parse(yes.out).adopted, [newKeys.record.kid]);
   assert.equal("successors" in JSON.parse(yes.out), false);
   const entries = readTrust(trust).entries;
-  assert.deepEqual(entries[1], { kid: newKeys.record.kid, origin: ORIGIN, publicKey: newKeys.record.publicKey, adoptedVia: oldKeys.record.kid });
+  assert.match((entries[1] as { addedAt?: string }).addedAt ?? "", /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, "UAT-23: an adopted entry records when it was added");
+  assert.deepEqual({ ...entries[1], addedAt: undefined }, { kid: newKeys.record.kid, origin: ORIGIN, publicKey: newKeys.record.publicKey, adoptedVia: oldKeys.record.kid, addedAt: undefined });
   assert.equal(run("verify", "--root", site, "--trust", trust).code, 0);
 
   const twice = run("adopt", "--root", site, "--trust", trust, "--origin", ORIGIN, "--yes", "--json");
@@ -273,9 +277,31 @@ test("every signing command prints its own usage line on a usage error, and --js
   assert.match(json.error, /missing --root/);
   assert.match(json.usage, /^usage: plumbline sign --root/);
 
-  // an I/O error is not a usage error: no usage line
+  // an I/O error is not a usage error: no usage line (a trust file that is not JSON; an absent one is empty since UAT-23)
   const root = scratchDir();
-  const io = run("verify", "--root", root, "--trust", path.join(root, "absent.json"));
+  writeFileSync(path.join(root, "broken.json"), "{");
+  const io = run("verify", "--root", root, "--trust", path.join(root, "broken.json"));
   assert.equal(io.code, 2);
   assert.doesNotMatch(io.err, /usage:/);
+});
+
+test("UAT-23 (INE-L1-11, INE-L1-12): trust and adopt stamp addedAt; a cascaded revocation records when it was recorded here beside the source's time", () => {
+  const { site, trust, oldKeys, newKeys } = rotatedSite();
+  const adopted = run("adopt", "--root", site, "--trust", trust, "--origin", ORIGIN, "--yes", "--now", "2026-11-18T10:00:00.000Z");
+  assert.equal(adopted.code, 0, adopted.err);
+  const successor = readTrust(trust).entries.find((e) => e.kid === newKeys.record.kid) as Record<string, unknown>;
+  assert.equal(successor.addedAt, "2026-11-18T10:00:00.000Z");
+  // the old key is revoked with a time BEFORE the successor was adopted here (a leak found later, dated back)
+  assert.equal(run("revoke", "--root", site, "--key", oldKeys.privateFile, "--now", "2026-11-18T09:00:00.000Z").code, 0);
+  const seen = run("verify", "--root", site, "--trust", trust, "--origin", ORIGIN, "--now", "2026-11-18T11:00:00.000Z");
+  assert.equal(seen.code, 1, seen.out + seen.err);
+  const after = readTrust(trust).entries as Record<string, unknown>[];
+  const old = after.find((e) => e.kid === oldKeys.record.kid);
+  const next = after.find((e) => e.kid === newKeys.record.kid);
+  assert.deepEqual([old?.revokedAt, old?.revokedRecordedAt], ["2026-11-18T09:00:00.000Z", "2026-11-18T11:00:00.000Z"]);
+  // the cascade: the successor carries the source's time, before it was added here, and when this verifier learned it
+  assert.deepEqual([next?.revokedAt, next?.addedAt, next?.revokedRecordedAt], ["2026-11-18T09:00:00.000Z", "2026-11-18T10:00:00.000Z", "2026-11-18T11:00:00.000Z"]);
+  // an entry with a malformed stamp makes the file unusable, as every other member does
+  writeTrust(trust, [{ kid: oldKeys.record.kid, origin: ORIGIN, publicKey: oldKeys.record.publicKey, addedAt: "yesterday" } as never]);
+  assert.equal(run("verify", "--root", site, "--trust", trust, "--origin", ORIGIN).code, 2);
 });
