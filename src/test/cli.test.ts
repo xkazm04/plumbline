@@ -223,7 +223,7 @@ test("gate without a target is a usage error; any unknown command is a usage err
   const unknown = run("nonsense");
   assert.equal(unknown.code, 2);
   assert.match(unknown.err, /unknown command: nonsense/);
-  assert.match(unknown.err, /^usage: plumbline <init\|watch\|gate\|keygen\|sign\|verify\|rotate\|revoke\|trust\|adopt>/m);
+  assert.match(unknown.err, /^usage: plumbline <init\|watch\|gate\|badge\|keygen\|sign\|verify\|rotate\|revoke\|trust\|adopt>/m);
   assert.equal(run("init", "--verbose").code, 2, "init refuses an unknown option");
   assert.equal(run("toString").code, 2, "only own command names dispatch");
   assert.equal(run().code, 2);

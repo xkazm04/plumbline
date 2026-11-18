@@ -17,3 +17,6 @@ site/lib/
 .dev.vars*
 !.dev.vars.example
 !.env.example
+
+# the ecosystem scan writes here; publishing results about named sites is the owner's decision
+ecosystem/out/

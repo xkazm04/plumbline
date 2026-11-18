@@ -107,7 +107,11 @@
       "category": "lib",
       "description": "The three-state gate: validator port, Agent Atlas check API, Agent Customs signed receipts; a pure runner for the browser and a Node wrapper.",
       "file_paths": [
+        "docs/ecosystem-scan.md",
         "docs/gate-and-watch.md",
+        "ecosystem/sites.txt",
+        "scripts/scan-ecosystem.mjs",
+        "src/cli/badge-command.ts",
         "src/gate/adapter-atlas.ts",
         "src/gate/adapter-customs.ts",
         "src/gate/adapter-validator.ts",
@@ -115,6 +119,9 @@
         "src/gate/index.ts",
         "src/gate/run.ts",
         "src/gate/validator.ts",
+        "src/scan/badge.ts",
+        "src/scan/report.ts",
+        "src/scan/run.ts",
         "src/test/fixtures/wp2/atlas-check-conformant.json",
         "src/test/fixtures/wp2/atlas-check-no-manifest.json",
         "src/test/fixtures/wp2/atlas-check-not-conformant.json",
@@ -127,7 +134,8 @@
         "src/test/gate-atlas.test.ts",
         "src/test/gate-customs.test.ts",
         "src/test/gate-run.test.ts",
-        "src/test/gate-validator.test.ts"
+        "src/test/gate-validator.test.ts",
+        "src/test/scan.test.ts"
       ],
       "entry_points": [
         "src/gate/index.ts"

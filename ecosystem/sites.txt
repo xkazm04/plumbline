@@ -1,0 +1,11 @@
+# Plumbline ecosystem scan: the seed list (node scripts/scan-ecosystem.mjs ecosystem/sites.txt --out ecosystem/out).
+# One https address per line; `#` starts a comment. Only sites this repository already names. The owner extends it,
+# and decides whether and where to publish results about named sites (ecosystem/out/ is git-ignored).
+#
+# Left out on 2026-11-18: the agentic-web example sites (cognizant-ai-labs/agentic-web examples/sites) are not served
+# publicly (its GitHub Pages address answered 404), and Agent Customs' test range (agent-customs-range.github.io) is
+# a target range for Customs' own inspections, not a site of its own.
+
+https://plumbline.xkazm04.workers.dev/
+https://agent-atlas-phi.vercel.app/
+https://montbaga.github.io/agent-customs/
