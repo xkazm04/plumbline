@@ -1,6 +1,6 @@
 // Watch: three drift detectors (grounding, runtime, peer) against plumbline.lock.json, plus what the lock does not cover
-// and the site's own signature expiry. Dry-run by default: it reports. With `init` and no lock it writes the lock and
-// nothing else; `runRelock` rewrites it after a person reviewed the drift. Opening, editing and closing the drift issue is
+// and the site's own signature expiry. Dry-run by default: it reports. With `init` and no lock it writes the lock and its
+// kept peer copies (kept.ts), nothing else; `runRelock` rewrites them after a person reviewed the drift. Opening, editing and closing the drift issue is
 // the Action's job (action/action.yml with `issues: true`), never this library's.
 
 import { LOCK_FILE, SIGNATURE_FILE, type DriftFinding, type TrustEntry, type WatchedRecord } from "../core/types.js";
@@ -14,6 +14,7 @@ import { detectCoverage, detectExternal, detectGrounding, detectPeers, detectRun
 import { readLock, replaceLock, writeLock, type LockRead, type WatchDeps } from "./lock.js";
 import { describeWatchError } from "./observe.js";
 import { readPublishedLock } from "./published.js";
+import { keepCopies } from "./kept.js";
 
 export type { WatchDeps } from "./lock.js";
 export type { LockChanges, LockState, WatchReport } from "./decide.js";
@@ -52,18 +53,21 @@ function stateOf(read: LockRead): { lockState: LockState; lockSummary?: string }
 }
 
 async function captureFirstLock(env: DetectorEnv, options: WatchOptions, deps: WatchDeps): Promise<InitReport> {
-  const { lock, findings, coverage } = await captureLock(env, {
+  const captured = await captureLock(env, {
     now: env.now,
     ...(deps.externals !== undefined ? { externals: deps.externals } : {}),
     ...(deps.extraSources !== undefined ? { extraSources: deps.extraSources } : {}),
     ...(deps.runtimeDir !== undefined ? { runtimeDir: deps.runtimeDir } : {}),
   });
+  const { lock, findings, coverage } = captured;
   await writeLock(options.root, lock);
+  // UAT-18: a copy of what the lock pinned of each peer, beside it, so a later change can be shown by name
+  const kept = await keepCopies(options.root, lock, captured.copies);
   // every peer is first seen: its signer is said, so no first key is recorded without a line (TOM-RC-4)
   const firstSigners = Object.entries(lock.peers).flatMap(([peer, r]): FirstSigner[] =>
     r.kid === undefined ? [] : [{ peer, kid: r.kid, was: "added", backing: backingOf(env.trust, peer, r.kid) }],
   );
-  return { checkedAt: env.now.toISOString(), findings, coverage, records: lockRecords(lock, findings), ...(firstSigners.length > 0 ? { firstSigners } : {}) };
+  return { checkedAt: env.now.toISOString(), findings, coverage, records: lockRecords(lock, findings), kept, ...(firstSigners.length > 0 ? { firstSigners } : {}) };
 }
 
 /** What `init` and `watch --init` wrote: what could not be captured, what the lock watches, and the signers it records. */
@@ -74,6 +78,8 @@ export interface InitReport {
   /** UAT-17: one row per peer, pending peer and external definition the new lock holds (decide.ts lockRecords). */
   records: WatchedRecord[];
   coverage: FactCoverage;
+  /** UAT-18: the kept copies written now (kept.ts), refs relative to the root, sorted. */
+  kept: string[];
   firstSigners?: FirstSigner[];
 }
 
@@ -129,6 +135,8 @@ export interface RelockReport {
   findings: DriftFinding[];
   /** What the new lock watches: the facts the networks state, per page (anchors.ts). Its literals go to the terminal only. */
   coverage: FactCoverage;
+  /** UAT-18: the kept copies written now (kept.ts), refs relative to the root, sorted. */
+  kept: string[];
   /** The signer changes a person accepted with --accept-signer (UAT-4), each with its backing. */
   signers?: SignerChange[];
   /**
@@ -263,9 +271,11 @@ export async function runRelock(options: WatchOptions, deps: WatchDeps = {}): Pr
     findings.push({ kind: "grounding", severity: "info", code: "drop-unknown", ref, summary: "This ref was not in the lock, so there was nothing to drop." });
   }
   await replaceLock(options.root, lock);
+  const kept = await keepCopies(options.root, lock, captured.copies);
   return {
     checkedAt: env.now.toISOString(),
     records: lockRecords(lock, findings),
+    kept,
     previous: stateOf(read).lockState,
     changes: lockChanges(before, lock),
     findings,

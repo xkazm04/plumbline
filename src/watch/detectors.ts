@@ -3,7 +3,9 @@
 // and not a crash. Severity rules: decide.ts and docs/gate-and-watch.md.
 
 import { join } from "node:path";
-import { SIGNATURE_FILE, type DriftFinding, type TrustEntry } from "../core/types.js";
+import { PEER_LINKS_ABSENT, SIGNATURE_FILE, type DriftFinding, type TrustEntry } from "../core/types.js";
+import { readKept } from "./kept.js";
+import { linksHostHashes } from "./outline.js";
 import { hashBytes } from "../net/canonical.js";
 import type { Fetcher } from "../net/locate.js";
 import type { SafeFetchOptions } from "../net/safe-fetch.js";
@@ -185,18 +187,20 @@ async function detectUpstream(lock: Lock, env: DetectorEnv): Promise<DriftFindin
 
 export async function detectPeers(lock: Lock, env: DetectorEnv): Promise<DriftFinding[]> {
   const results = await Promise.all(
-    Object.entries(lock.peers).map(async ([url, record]) =>
-      peerFindings(
-        url,
-        record,
-        await observePeer(url, env.fetch, {
-          fetchOptions: env.fetchOptions,
-          links: record.links !== undefined,
-          ...((record.kid ?? record.formerKid) !== undefined ? { lockedKid: (record.kid ?? record.formerKid) as string } : {}),
-          ...(env.trust !== undefined ? { trust: env.trust } : {}),
-        }),
-      ),
-    ),
+    Object.entries(lock.peers).map(async ([url, record]) => {
+      const seen = await observePeer(url, env.fetch, {
+        fetchOptions: env.fetchOptions,
+        links: record.links !== undefined,
+        ...((record.kid ?? record.formerKid) !== undefined ? { lockedKid: (record.kid ?? record.formerKid) as string } : {}),
+        ...(env.trust !== undefined ? { trust: env.trust } : {}),
+      });
+      // UAT-18 (DEV-L1-10): a changed links.json is counted against the publisher's kept copy of the locked one
+      if (record.links !== undefined && record.links !== PEER_LINKS_ABSENT && seen.links !== undefined && "state" in seen.links && seen.links.state !== record.links) {
+        const kept = await readKept(env.root, record.links);
+        seen.lockedLinksHosts = "bytes" in kept ? await linksHostHashes(kept.bytes) : null;
+      }
+      return peerFindings(url, record, seen);
+    }),
   );
   // a pending peer is asked too, so its line says why it is still pending today (it answers now, or why not)
   const today: Record<string, PendingObservation> = {};

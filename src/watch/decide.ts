@@ -343,8 +343,12 @@ export function readSignatureKid(answer: { status: number; text: string } | { er
   return { problem: `its ${SIGNATURE_FILE} has no valid kid` };
 }
 
-/** The state of a peer's links.json: its hash or PEER_LINKS_ABSENT, or a sentence completing "it ..." saying why not. */
-export type LinksRead = { state: string } | { problem: string };
+/**
+ * The state of a peer's links.json: its hash or PEER_LINKS_ABSENT, or a sentence completing "it ..." saying why not.
+ * A served one also carries its bytes (never serialised; capture keeps a copy of them, UAT-18) and `hosts`, the sorted
+ * SHA-256 of every outbound host it names (outline.ts linksHostHashes), or null when it cannot be read as JSON.
+ */
+export type LinksRead = { state: string; bytes?: Uint8Array; hosts?: string[] | null } | { problem: string };
 
 /** What a driver saw of one locked peer. */
 export interface PeerObservation {
@@ -354,7 +358,7 @@ export interface PeerObservation {
    * from destinationProblem, which never quotes it).
    */
   definition:
-    | { ok: true; sha256: string; outline?: PeerOutline | null }
+    | { ok: true; sha256: string; outline?: PeerOutline | null; bytes?: Uint8Array }
     | {
         ok: false;
         status?: number;
@@ -372,6 +376,12 @@ export interface PeerObservation {
   signature: SignatureRead;
   /** Read only when the peer is signed by another key than the locked one (UAT-4). */
   rotation?: PeerRotation;
+  /**
+   * UAT-18 (DEV-L1-10): the hosts (sorted SHA-256) the locked links.json named, from the publisher's kept copy of it
+   * (watch/kept.ts); null when the lock records a links.json and no copy of it is at hand (a reader of a published site
+   * never has one).
+   */
+  lockedLinksHosts?: string[] | null;
 }
 
 /** What a peer signed by another key than the locked one publishes about it: see observe.ts readPeerRotation. */
@@ -402,6 +412,26 @@ export function signerChangeCode(rotation: PeerRotation | undefined): DriftCode 
   if (rotation?.verified === true) return "signer-rotated-verified";
   if (rotation?.fromLocked === true) return rotation.verified === false ? "signer-rotation-unverified" : "signer-rotation-published";
   return "signer-no-rotation";
+}
+
+/**
+ * How many outbound hosts a peer's links.json now names that the lock saw for the peer in neither its locked definition
+ * (the outline's hosts) nor its locked links.json (UAT-18, DEV-L1-10): a links.json routes a network's links to
+ * addresses, so a new host there is new code reaching out, whatever the definition says. In counts, never a host.
+ */
+function linksHostsAdded(record: PeerRecord, now: string[] | null | undefined, locked: string[] | null | undefined): { added?: number; words: string } {
+  if (now === undefined) return { words: "" };
+  if (now === null) return { words: "It cannot be read as JSON, so the outbound hosts it names are not told." };
+  if (locked === null || locked === undefined) {
+    return { words: "How many outbound hosts it adds is not told: no copy of the locked links.json is at hand (the publisher's checkout keeps one from the next relock)." };
+  }
+  const seen = new Set([...(record.outline?.hosts ?? []), ...locked]);
+  const added = now.filter((h) => !seen.has(h)).length;
+  const words =
+    added === 0
+      ? "It names no outbound host the lock did not already see for this peer."
+      : `It names ${added} outbound host${added === 1 ? "" : "s"} the lock did not see for this peer (in neither its locked definition nor its locked links.json).`;
+  return { added, words };
 }
 
 /** A changed peer's outline counts as numbers (UAT-17, DEV-L1-11), or nothing when whatChanged says they are not told. */
@@ -469,6 +499,7 @@ export function peerFindings(url: string, record: PeerRecord, seen: PeerObservat
     } else if (seen.links.state !== record.links) {
       const appeared = record.links === PEER_LINKS_ABSENT;
       const gone = seen.links.state === PEER_LINKS_ABSENT;
+      const hosts = gone ? undefined : linksHostsAdded(record, seen.links.hosts, appeared ? [] : seen.lockedLinksHosts);
       out.push({
         kind: "peer",
         severity: "block",
@@ -476,11 +507,14 @@ export function peerFindings(url: string, record: PeerRecord, seen: PeerObservat
         ref: url,
         expected: record.links,
         actual: seen.links.state,
-        summary: appeared
-          ? "A peer now publishes a links.json it did not have when locked; the runtime lays it over the peer's links, so this is changed code."
-          : gone
-            ? "A peer's links.json is gone since the lock was written; the peer's links now resolve differently."
-            : "A peer's links.json changed since the lock was written; the runtime lays it over the peer's links, so this is changed code.",
+        summary:
+          (appeared
+            ? "A peer now publishes a links.json it did not have when locked; the runtime lays it over the peer's links, so this is changed code."
+            : gone
+              ? "A peer's links.json is gone since the lock was written; the peer's links now resolve differently."
+              : "A peer's links.json changed since the lock was written; the runtime lays it over the peer's links, so this is changed code.") +
+          (hosts === undefined || hosts.words === "" ? "" : ` ${hosts.words}`),
+        ...(hosts?.added !== undefined ? { counts: { hostsAdded: hosts.added } } : {}),
       });
     }
   }

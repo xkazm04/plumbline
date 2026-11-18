@@ -91,6 +91,38 @@ export async function peerOutline(bytes: Uint8Array | string): Promise<PeerOutli
   return { agents, hosts, ...(named.front !== null ? { front: await sha256Hex(named.front) } : {}) };
 }
 
+/**
+ * The outbound hosts a links.json names (UAT-18, DEV-L1-10): the host of every http(s) address among its values, at any
+ * depth, lowercased; null when it is not JSON. The runtime lays a links.json over a network's links, so each address in
+ * it is somewhere the network can reach.
+ */
+export function linksHosts(bytes: Uint8Array | string): Set<string> | null {
+  let value: unknown;
+  try {
+    value = JSON.parse((typeof bytes === "string" ? bytes : new TextDecoder("utf-8").decode(bytes)).replace(/^\uFEFF/, ""));
+  } catch {
+    return null;
+  }
+  const hosts = new Set<string>();
+  const walk = (v: unknown, depth: number): void => {
+    if (depth > 32) return;
+    if (isHttp(v)) {
+      const host = hostOf(v);
+      if (host !== null) hosts.add(host);
+    } else if (Array.isArray(v)) for (const x of v) walk(x, depth + 1);
+    else if (isObject(v)) for (const x of Object.values(v)) walk(x, depth + 1);
+  };
+  walk(value, 0);
+  return hosts;
+}
+
+/** linksHosts as the lock's outline keeps hosts: each SHA-256, sorted; null when it is not JSON. */
+export async function linksHostHashes(bytes: Uint8Array | string): Promise<string[] | null> {
+  const hosts = linksHosts(bytes);
+  if (hosts === null) return null;
+  return [...new Set(await Promise.all([...hosts].map((h) => sha256Hex(h))))].sort();
+}
+
 const HEX = /^[0-9a-f]{64}$/;
 
 /** True for a value in the outline's exact shape: the lock's rule for `peers[url].outline`. */

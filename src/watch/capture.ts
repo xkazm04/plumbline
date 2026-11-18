@@ -123,7 +123,7 @@ export async function captureLock(
      */
     previous?: Lock;
   },
-): Promise<{ lock: Lock; findings: DriftFinding[]; coverage: FactCoverage }> {
+): Promise<{ lock: Lock; findings: DriftFinding[]; coverage: FactCoverage; copies: Map<string, Uint8Array> }> {
   const findings: DriftFinding[] = [];
   const { root } = env;
 
@@ -289,6 +289,8 @@ export async function captureLock(
   // peers
   const peers: Lock["peers"] = {};
   const pendingPeers: Record<string, PendingPeer> = {};
+  // UAT-18: the bytes of every definition and links.json read here, by hash, for the publisher's kept copies (kept.ts)
+  const copies = new Map<string, Uint8Array>();
   const previous = options.previous;
   const day = (iso: string): string => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10) : "earlier");
   for (const url of found.peers) {
@@ -297,6 +299,8 @@ export async function captureLock(
     const { definition: def, links, signature } = seen;
     const pinned = previous?.peers[url];
     if (def.ok && links !== undefined && "state" in links) {
+      if (def.bytes !== undefined) copies.set(def.sha256, def.bytes);
+      if (links.bytes !== undefined) copies.set(links.state, links.bytes);
       // the signer: a signature that could not be read is not "unsigned" (UAT-3, TOM-L1-08). One the peer says it does
       // not have (404, 410) is captured as none, and the lock remembers the kid it had (formerKid), so a later signature
       // by another key is still a signer change (TOM-RC-1). Whether a person named that change is runRelock's decision.
@@ -397,5 +401,6 @@ export async function captureLock(
     },
     findings,
     coverage,
+    copies,
   };
 }

@@ -15,6 +15,8 @@ import { LOCK_FILE, type DriftFinding, type WatchedRecord } from "../core/types.
 import { factCoverageCounts, factCoverageLines, type FactCoverage } from "../watch/anchors.js";
 import { firstSignerWords, runInit, type FirstSigner } from "../watch/index.js";
 import { readLock } from "../watch/lock.js";
+import { KEPT_DIR } from "../watch/kept.js";
+import { keptLine } from "./watch-command.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
 
 const USAGE = "usage: plumbline init [--root <site dir>] [--source <path-or-https-url>]... [--workflow] [--timeout <ms>] [--json]\n";
@@ -38,9 +40,11 @@ const BAD_VALUE = {
  * What a publisher does next, in order. The lock alone is enough for the watch; the signature is the upgrade. The
  * grounding line says what turns byte hashing into a check of the facts the network states (D8: anchors).
  */
-export function nextSteps(rootArg: string, workflow: boolean, sourcesGiven = false): string[] {
+export function nextSteps(rootArg: string, workflow: boolean, sourcesGiven = false, kept = false): string[] {
+  const files = [LOCK_FILE, ...(kept ? [`${KEPT_DIR}/`] : []), ...(workflow ? [WORKFLOW_PATH] : [])];
+  const listed = files.length === 1 ? files[0] : `${files.slice(0, -1).join(", ")} and ${files[files.length - 1]}`;
   return [
-    `Commit ${LOCK_FILE}${workflow ? ` and ${WORKFLOW_PATH}` : ""}. The watch needs nothing else: no key, no trust file.`,
+    `Commit ${listed}.${kept ? ` ${KEPT_DIR}/ holds a copy of what the lock pins of each peer, so plumbline diff --root ${rootArg} --peer <address> can show a partner's change by name.` : ""} The watch needs nothing else: no key, no trust file.`,
     workflow
       ? "The workflow runs daily and keeps one drift issue (it needs issues: write)."
       : `Run the watch: plumbline watch --root ${rootArg} (or add --workflow to write the daily CI workflow).`,
@@ -127,6 +131,7 @@ export async function runInitCommand(argv: string[]): Promise<number> {
   let coverage: FactCoverage | undefined;
   let firstSigners: FirstSigner[] = [];
   let captured: { checkedAt: string; records: WatchedRecord[] } | undefined;
+  let kept: string[] = [];
   if (before.kind === "missing") {
     try {
       const written = await runInit({ root, init: true, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }, { extraSources: sources });
@@ -134,6 +139,7 @@ export async function runInitCommand(argv: string[]): Promise<number> {
       ({ findings, coverage } = written);
       firstSigners = written.firstSigners ?? [];
       captured = { checkedAt: written.checkedAt, records: written.records };
+      kept = written.kept;
     } catch (error) {
       process.stderr.write(`init failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
@@ -169,7 +175,7 @@ export async function runInitCommand(argv: string[]): Promise<number> {
     }
   }
 
-  const steps = nextSteps(rootArg, workflow, lockAction === "written" && sources.length > 0);
+  const steps = nextSteps(rootArg, workflow, lockAction === "written" && sources.length > 0, kept.length > 0);
   if (json) {
     process.stdout.write(
       `${JSON.stringify(
@@ -182,6 +188,7 @@ export async function runInitCommand(argv: string[]): Promise<number> {
           ...(firstSigners.length > 0 ? { firstSigners } : {}),
           findings,
           ...(captured !== undefined ? { records: captured.records } : {}),
+          ...(kept.length > 0 ? { kept } : {}),
           ...(workflowRel !== undefined ? { workflow: WORKFLOW_PATH, workflowRoot: workflowRel } : {}),
           next: steps,
         },
@@ -199,6 +206,7 @@ export async function runInitCommand(argv: string[]): Promise<number> {
     for (const line of coverage !== undefined ? factCoverageLines(coverage) : []) process.stdout.write(`${line}\n`);
     // the key each peer is recorded with: a first key is never recorded without a line (TOM-RC-4)
     for (const f of firstSigners) process.stdout.write(`signer  peer ${f.peer}: ${firstSignerWords(f)}\n`);
+    if (kept.length > 0) process.stdout.write(`${keptLine(kept)}\n`);
     for (const f of findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
     if (workflowRel !== undefined) process.stdout.write(`init: wrote ${WORKFLOW_PATH} (root: ${workflowRel})\n`);
     process.stdout.write("next:\n");

@@ -23,6 +23,7 @@ import { parseExternalArg } from "../watch/external.js";
 import type { ExternalKind } from "../core/types.js";
 import { ALLOW_LOCAL_WARNING, isHttpUrl } from "./gate-command.js";
 import { printable } from "./diff-command.js";
+import { KEPT_DIR } from "../watch/kept.js";
 
 const USAGE =
   "usage: plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]... [--accept-signer <peer>]... [--accept <ref>]...] [--source <path-or-https-url>]... [--external a2a-card=<https url>]... [--trust <trust file>] [--timeout <ms>] [--json]\n" +
@@ -153,11 +154,12 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
       // UAT-14 (TOM-L1-14): --init says it wrote the lock, and its JSON carries lockState like every other report
       if (json) {
         const first = written.firstSigners !== undefined ? { firstSigners: written.firstSigners } : {};
-        process.stdout.write(`${JSON.stringify({ lock: "written", lockState: "found", checkedAt: written.checkedAt, findings: written.findings, records: written.records, facts: factCoverageCounts(written.coverage), ...first }, null, 2)}\n`);
+        process.stdout.write(`${JSON.stringify({ lock: "written", lockState: "found", checkedAt: written.checkedAt, findings: written.findings, records: written.records, facts: factCoverageCounts(written.coverage), ...first, ...(written.kept.length > 0 ? { kept: written.kept } : {}) }, null, 2)}\n`);
       } else {
         process.stdout.write(`watch: wrote ${LOCK_FILE} (${await lockCounts(root)})\n`);
         for (const line of factCoverageLines(written.coverage)) process.stdout.write(`${line}\n`);
         for (const f of written.firstSigners ?? []) process.stdout.write(`signer  peer ${f.peer}: ${firstSignerWords(f)}\n`);
+        if (written.kept.length > 0) process.stdout.write(`${keptLine(written.kept)}\n`);
         for (const f of written.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
       }
       return exitOf({ findings: written.findings });
@@ -216,10 +218,19 @@ export function relockOutput(result: RelockReport, json: boolean, siteSigned = t
   // a first signer, of a peer first seen (a relisted one included) or recorded unsigned before (TOM-RC-4)
   for (const f of result.firstSigners ?? []) lines.push(`signer  peer ${f.peer}: ${firstSignerWords(f)}`);
   if (added.length + removed.length + changed.length === 0) lines.push("no ref changed");
+  if (result.kept.length > 0) lines.push(keptLine(result.kept));
   lines.push(...factCoverageLines(coverage));
   for (const f of result.findings) lines.push(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}`);
   if (siteSigned) lines.push(RESIGN_REMINDER);
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * The line init, `watch --init` and a relock print when they kept copies of what the new lock pins of its peers (UAT-18):
+ * how many, where, and that they are committed with the lock so `plumbline diff --peer` can show a later change by name.
+ */
+export function keptLine(kept: readonly string[]): string {
+  return `kept    ${kept.length} ${kept.length === 1 ? "copy" : "copies"} of what the lock pins of its peers in ${KEPT_DIR}/ (commit ${kept.length === 1 ? "it" : "them"} with the lock: plumbline diff --peer <address> shows a later change by name)`;
 }
 
 /**

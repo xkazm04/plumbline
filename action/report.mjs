@@ -223,6 +223,33 @@ export function signerChangeFindings(findings) {
   );
 }
 
+/** The codes of a peer whose definition or links.json changed (src/core/types.ts DRIFT_CODES, UAT-17). */
+const PEER_CHANGE_CODES = new Set(["peer-changed", "peer-links-appeared", "peer-links-changed", "peer-links-gone"]);
+
+/**
+ * The peers a person can see by name with `plumbline diff --peer` (UAT-18, DEV-L1-03): one whose definition or
+ * links.json changed. Read from the finding's code; a report from a CLI before codes is read from its sentence.
+ */
+export function changedPeers(findings) {
+  const refs = findings
+    .filter((f) => f.kind === "peer" && (PEER_CHANGE_CODES.has(f.code) || (f.code === undefined && /^A peer's network definition changed|^A peer now publishes a links\.json|^A peer's links\.json (changed|is gone)/.test(String(f.summary ?? "")))))
+    .map((f) => argOf(f.ref))
+    .filter((r) => r !== "");
+  return [...new Set(refs)];
+}
+
+/** The lines that name the diff command for each changed peer (UAT-18): what changed, by name, in the person's own terminal. */
+export function diffLines(findings, cli, site) {
+  const peers = changedPeers(findings);
+  if (peers.length === 0) return [];
+  return [
+    "",
+    `**To see what changed in ${peers.length === 1 ? "this partner" : "these partners"} by name** (agents added, removed and changed, each changed agent's fields before and after, new outbound hosts, and what its links.json now routes to), run in that clone, from the copy the lock kept beside it (\`.plumbline/peers/\`, committed with the lock):`,
+    "",
+    ...peers.map((p) => `- \`${cli} diff --root ${site} --peer ${p}\``),
+  ];
+}
+
 /**
  * The drift issue's body, built from warn and block findings only, ending with the hidden digest marker. The commands it
  * gives run in a clone of Plumbline, not in the site's repository, so the site is named as a placeholder: the workflow
@@ -255,6 +282,7 @@ export function issueBody(report, { siteSigned = true } = {}) {
           (siteSigned ? "sign the site again (the lock is a signed file) and commit both." : "and commit the lock.") +
           " The next clean run closes this issue.",
       "",
+      ...diffLines(findings, cli, site),
       ...(signerChanged.length > 0
         ? [
             "",

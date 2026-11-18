@@ -867,3 +867,30 @@ test("UAT-12 (DEV-L1-04): a keyless site's issue and pull request say nothing ab
   assert.match(refused, /run one command per peer, and commit the lock:/);
   assert.doesNotMatch(refused.replace(/signer|signed by|no signature/gi, ""), /\bsign\b/i);
 });
+
+test("UAT-18 (DEV-L1-03): the issue names the diff command once per changed peer, from the code, and nothing of the peer but its address", async () => {
+  const { changedPeers } = await import("./report.mjs");
+  const peer = "https://coinbridge.example/coinbridge_fx";
+  const report = {
+    lockState: "found",
+    findings: [
+      { kind: "peer", severity: "block", code: "peer-changed", ref: peer, summary: "A peer's network definition changed ... In outline: agents: 1 added." },
+      { kind: "peer", severity: "block", code: "peer-links-appeared", ref: peer, summary: "A peer now publishes a links.json ..." },
+      { kind: "peer", severity: "warn", code: "peer-unreachable", ref: "https://down.example/x", summary: "A peer could not be reached" },
+    ],
+  };
+  assert.deepEqual(changedPeers(openFindings(report)), [peer]);
+  const body = issueBody(report);
+  const lines = body.split("\n").filter((l) => l.includes(" diff --root "));
+  assert.deepEqual(lines, [`- \`node dist/cli/index.js diff --root <path to your site> --peer ${peer}\``]);
+  assert.match(body, /\*\*To see what changed in this partner by name\*\*/);
+  // a report from a CLI before codes is read from the sentence
+  assert.deepEqual(changedPeers([{ kind: "peer", severity: "block", ref: peer, summary: "A peer's network definition changed since the lock was written" }]), [peer]);
+  // no changed peer: no diff line
+  assert.ok(!issueBody({ lockState: "found", findings: [report.findings[2]] }).includes(" diff --root "));
+});
+
+test("UAT-18: the relock pull request commits the lock's kept peer copies with the lock", () => {
+  const yml = read("action/action.yml");
+  assert.match(yml, /if \[ -d "\$PLUMBLINE_ROOT\/\.plumbline\/peers" \]; then git add -- "\$PLUMBLINE_ROOT\/\.plumbline\/peers"; fi/);
+});

@@ -124,7 +124,7 @@ networks Customs lists get receipts (its `tools/receipt-sites.json`), so most ta
 ## The watch
 
 `plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--external a2a-card=<url>]... [--timeout <ms>] [--json]`. It is a dry run: it
-reports, and with `--init` and no lock yet it writes `plumbline.lock.json` and says so (`watch: wrote plumbline.lock.json (N
+reports, and with `--init` and no lock yet it writes `plumbline.lock.json` (and its kept peer copies, below) and says so (`watch: wrote plumbline.lock.json (N
 grounding sources, N runtime files, N peers, N pending)`; `--json`: `{ lock: "written", lockState: "found", checkedAt, findings,
 records, facts, firstSigners? }`). With a lock present, `--init` does not overwrite it; `--relock` does (below). It says `watch: kept the
 plumbline.lock.json that is there (...)`, adds an `info` finding for each `--source` and `--external` it could not add,
@@ -151,7 +151,7 @@ a lock the browser was refused), so a drift count is a count of drift.
 | `runtime` (b) | the runtime's upstream, from the GitHub API, unauthenticated (see "Which upstream the runtime check asks") | upstream moved on: `info` "Upstream is ahead" with both short SHAs. Cannot ask (timeout, rate limit, HTTP error, odd answer): `info` "Could not check upstream". Never `block` |
 | `peer` | each `peers[url]`: the network definition, hashed again | changed in any byte: `block` (a peer's definition runs in the visitor's browser, so a changed one is changed code). Unreachable: `warn`. An address the address rule refuses (not https, a private or loopback address) reads the same on every surface: "A peer in this lock was not contacted: it is not an https address, an address Plumbline does not contact, so it was not checked." |
 | `peer` outline | with a changed definition, its outline against the lock's (`src/watch/outline.ts`) | the same `block`; the summary adds what changed in counts: "In outline: agents: N added, N removed, N changed; outbound hosts: N added, N removed; front agent: changed or unchanged". The same outline is "Formatting or non-agent content only" (still `block`: the bytes the runtime reads changed). No outline in the lock: "re-lock to record one". A definition that cannot be outlined now (not JSON, a repeated key): said so |
-| `peer` links | each `peers[url].links`: the peer's `links.json` at the same site base (the runtime fetches it for every peer network it loads and lays it over that network's links) | appeared (locked `absent`, now served), changed, or gone (404/410 now): `block`. Cannot be read (timeout, HTTP 5xx): `warn`. A lock written before 2026-11-17 has no `links` for the peer: `warn`, "re-lock to track it", never a silent pass |
+| `peer` links | each `peers[url].links`: the peer's `links.json` at the same site base (the runtime fetches it for every peer network it loads and lays it over that network's links) | appeared (locked `absent`, now served), changed, or gone (404/410 now): `block`; an appeared or changed one also says how many outbound hosts it names that the lock did not see for the peer (`counts.hostsAdded`; see "The old partner definition"). Cannot be read (timeout, HTTP 5xx): `warn`. A lock written before 2026-11-17 has no `links` for the peer: `warn`, "re-lock to track it", never a silent pass |
 | `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`, saying what the peer publishes about it (UAT-4): "a rotation statement from the locked key is published (not verified here)" or "a different key, with no rotation published" (its `plumbline-rotation.json` is read only then); with `watch --trust <file>` (opt-in: the watch never needs a trust store), a chain that verifies from a key that file holds for the peer's origin to the new kid reads "it rotated from the key the lock recorded, verified against your trust file". Each ends "A relock refuses it until a person decides: watch --relock --accept-signer <this peer>". Signed when locked and no signature now (its `plumbline.signature.json` answers 404 or 410): `block`, the same refusal (TOM-RC-1: a peer that says it has no signature is a signer change, not "unsigned"). Signed when locked and the signature cannot be read now (a fetch error, an HTTP 5xx, not JSON, no valid kid): `warn`, "its signer was not checked; a relock keeps the key the lock recorded". A peer a person accepted as no longer signing (the lock's `formerKid`) that is signed again: by the key it last had, `info`; by any other key, `block` with the same refusal. Unsigned when locked, signed now: `info`. A `kid` that is not exactly 16 lowercase hex characters is never recorded or quoted; it counts as a signature that cannot be read |
 | `peer` external | each `external[url]` (an A2A Agent Card, `src/watch/external.ts`), fetched and hashed again | changed in any byte: `block`, with "In outline: skills: N added, N removed, N changed" and whether it carries JWS signatures (counted, not verified). Unreachable or an HTTP error: `warn`. An `mcp-tools` entry: `warn`, not checked by this build |
 | `peer` pending | each `pendingPeers[url]`: a peer that could not be captured when the lock was written | `warn` on every watch, reachable or not, until `--relock` captures it. The checkout's watch asks it again and says why it is still pending today: "it answers now: review it, then run watch --relock to capture it", "it still cannot be read (<cause>)", or "it was not contacted now either: it is not an https address". A reader of a published lock (`watch --url`, the Desk) never contacts a pending peer; it applies the address rule only |
@@ -461,6 +461,37 @@ severity, and a peer whose outline is unchanged is still `block`.
 `plumbline diff <old> <new> [--json]` gives the same diff for two network files on your own disk, with the names and
 hosts shown (your files, your terminal; control and bidirectional-override characters are replaced by `?`). Exit 0 when
 the outlines are the same, 1 when they differ, 2 for a file that cannot be outlined.
+
+### The old partner definition: kept copies and `diff --peer`
+
+The lock keeps hashes only, so on its own it cannot say which agent was added or what a changed one now says. Since
+2026-11-18 (UAT-18) `init`, `watch --init` and every `--relock` also keep, beside the lock and outside it, a copy of
+what the new lock pins of each peer: its network definition and, when it publishes one, its `links.json`, each in
+`<root>/.plumbline/peers/<sha256>.json`, named by the SHA-256 of its exact bytes (the lock's own pin names its copy).
+A copy is written once and never over a file that is there, and none is removed (another lock in the folder may still
+name it). They print `kept    N copies of what the lock pins of its peers in .plumbline/peers/ (...)`, and `--json`
+carries `kept` (the refs written). Commit them with the lock (init's next steps say so); the Action's relock pull
+request commits them with the lock. They are the partners' own published files, nothing secret, but a host that serves
+the site root serves them too: leave `.plumbline/` out of the deploy if you prefer.
+
+`plumbline diff --root <site> --peer <peer address> [--allow-local] [--timeout <ms>] [--json]` then shows what changed
+by name: the kept copy of the pinned definition against the one the peer serves now (fetched through `safeFetch`, as
+the watch fetches it): agents added, removed and changed, each changed agent's fields before and after
+(`  instructions: "... 0.5% ..." -> "... 0.9% ..."`), outbound hosts added and removed, the front agent, and the
+peer's `links.json` against the kept copy of the locked one, with the outbound hosts it routes to that it did not. A
+copy that a checkout converted to CRLF is read back as the lock pinned it, and says so; an edited one is refused. Names
+and text appear only here, in your own terminal, with control and bidirectional-override characters replaced; the
+watch's findings and the drift issue stay in counts. The drift issue names this command for each peer whose definition
+or `links.json` changed. Exit 0 when the definition's bytes and the `links.json` are as pinned, 1 when something
+differs, 2 for a usage or I/O error: no usable lock, a peer the lock does not pin (or holds as pending), no kept copy (a
+lock written before copies were kept, or `.plumbline/peers/` not committed: re-lock after a review to keep one), or a
+peer that cannot be read now.
+
+A changed `links.json` is also counted at the watch: the finding adds "It names N outbound host(s) the lock did not see
+for this peer (in neither its locked definition nor its locked links.json)." and `counts.hostsAdded`. For a `links.json`
+that appeared, every host it names that the locked definition does not is new; for one that changed, the checkout's
+watch counts against the kept copy of the locked one, and a reader of a published site, which has no copy, says how
+many it adds is not told.
 
 ### Beyond this spec: an A2A Agent Card in the lock
 

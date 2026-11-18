@@ -15,7 +15,7 @@ import { hashBytes } from "../net/canonical.js";
 import { addressProblemOf, describeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
 import { locatePeerFile, type Fetcher } from "../net/locate.js";
 import { readSignatureKid, type LinksRead, type Observed, type PeerObservation, type PeerRotation, type SignatureRead } from "./decide.js";
-import { peerOutline } from "./outline.js";
+import { linksHostHashes, peerOutline } from "./outline.js";
 
 /** A sentence for the parentheses after "could not be fetched", naming why a fetch failed. */
 export type Describe = (error: unknown) => string;
@@ -62,7 +62,7 @@ export async function readPeerLinks(fetcher: Fetcher, base: string, options: Obs
   }
   if (response.status === 404 || response.status === 410) return { state: PEER_LINKS_ABSENT };
   if (!response.ok) return { problem: `answered HTTP ${response.status}` };
-  return { state: await hashBytes(response.bytes) };
+  return { state: await hashBytes(response.bytes), bytes: response.bytes, hosts: await linksHostHashes(response.bytes) };
 }
 
 /** A peer's signer kid at its site base, by the one rule init and every watch share (decide.ts readSignatureKid). */
@@ -151,5 +151,5 @@ export async function observePeer(url: string, fetcher: Fetcher, options: PeerOb
     options.lockedKid !== undefined && "kid" in signature && signature.kid !== options.lockedKid
       ? await readPeerRotation(fetcher, located.base, options.lockedKid, signature.kid, { ...options, ...(options.trust !== undefined ? { trust: options.trust } : {}) })
       : undefined;
-  return { definition: { ok: true, sha256, outline }, ...(links !== undefined ? { links } : {}), signature, ...(rotation !== undefined ? { rotation } : {}) };
+  return { definition: { ok: true, sha256, outline, bytes: response.bytes }, ...(links !== undefined ? { links } : {}), signature, ...(rotation !== undefined ? { rotation } : {}) };
 }

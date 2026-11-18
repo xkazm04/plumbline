@@ -82,7 +82,9 @@ what clean covers: the locked files, peers and runtime match the lock, and the s
 covers its files (the watch reports a signature that does not as `block`, so a merged unsigned relock never closes the
 issue as clean). Output
 `issue-action` says which it did: `create`, `edit`, `close` or `none`. Without `issues: true` the Action touches no
-issue, and you can keep your own with `findings` and `issue-body`.
+issue, and you can keep your own with `findings` and `issue-body`. For each peer whose definition or `links.json`
+changed, the issue names `diff --root <your site> --peer <address>`, which shows the change by name in your own terminal
+from the copy the lock kept beside it in `.plumbline/peers/` (UAT-18; `docs/gate-and-watch.md`).
 
 **Accepting drift in one review** (`relock-pr: true`, watch only). On `warn` or `block` findings the Action runs
 `watch --relock` on the branch `plumbline/relock` (made from the commit the job checked out) and keeps ONE pull request
@@ -90,7 +92,8 @@ from it, titled `Plumbline: accept the drift (relock)`. Its body lists what the 
 `changed`, as `--relock` prints them), what the relock does not accept or keeps as it was (a page that dropped a fact the
 network still states, a pin it could not re-read: those keep reporting after a merge, and are not listed as accepted),
 the signers it records for the first time (a peer first seen, a relisted one included, or one recorded unsigned before),
-and the findings it accepts. When a peer's recorded signer changed (another key, or no signature at all now: TOM-RC-1),
+and the findings it accepts. The branch commits the lock, the signature when there is one, and the copies the relock
+kept of what the new lock pins of each peer (`.plumbline/peers/`). When a peer's recorded signer changed (another key, or no signature at all now: TOM-RC-1),
 the relock refuses (UAT-4: CI never passes `--accept-signer`), so nothing is pushed and no pull request removes or
 replaces a recorded signer: an open pull request's body says the relock was refused, names each peer (the kid the lock
 recorded, and the kid it is signed by now with what it publishes about it, or that it publishes no signature) and gives

@@ -1,4 +1,6 @@
 // plumbline diff <old network file> <new network file> [--json]
+// plumbline diff --root <site> --peer <peer address> [--allow-local] [--timeout <ms>] [--json]: a peer against the kept
+// copy of what the lock pinned (UAT-18; diff-peer.ts).
 // The outline diff the watch counts for a changed peer (src/watch/outline.ts), for two network files on the caller's
 // own disk: here names and hosts may be shown, because these are the caller's files in the caller's terminal. Control
 // and bidirectional-override characters are replaced, so a name cannot rewrite the terminal or reorder the line.
@@ -10,8 +12,11 @@ import { readFile } from "node:fs/promises";
 import { diffNamedOutlines, describeOutlineDiff, namedOutline, outlineUnchanged, type NamedOutline } from "../watch/outline.js";
 import { CliError, UsageError, parseArgs } from "./args.js";
 import type { Out } from "./commands.js";
+import { diffPeer } from "./diff-peer.js";
 
-export const DIFF_USAGE = "usage: plumbline diff <old network file> <new network file> [--json]";
+export const DIFF_USAGE =
+  "usage: plumbline diff <old network file> <new network file> [--json]\n" +
+  "       plumbline diff --root <site> --peer <peer address> [--allow-local] [--timeout <ms>] [--json]";
 
 /** A name or host made safe for a terminal line: C0, C1, DEL and the bidi controls become `?`. */
 export function printable(text: string): string {
@@ -33,7 +38,12 @@ async function outlineOf(path: string, label: string): Promise<{ text: string; o
 }
 
 export async function diff(argv: string[], out: Out): Promise<number> {
-  const args = parseArgs(argv, [], [], { positionals: 2 });
+  const args = parseArgs(argv, ["root", "peer", "timeout"], ["allow-local"], { positionals: 2 });
+  // UAT-18: the second form compares the lock's kept copy of a peer with the peer now (diff-peer.ts)
+  if (args.values.has("peer")) return diffPeer(args, out);
+  if (args.values.has("root") || args.values.has("timeout") || args.flags.has("allow-local")) {
+    throw new UsageError("--root, --timeout and --allow-local go with --peer");
+  }
   const [oldPath, newPath] = args.positionals;
   if (oldPath === undefined || newPath === undefined) throw new UsageError("diff takes two network files: the old one, then the new one");
   const before = await outlineOf(oldPath, "old");
