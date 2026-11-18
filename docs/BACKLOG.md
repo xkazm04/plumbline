@@ -896,6 +896,32 @@ may run in parallel, because it adds no claim.
 - standard: `quality-gates/refusal-names-a-reachable-remedy`.
 - Size: M. May run in parallel with UAT-1 to UAT-16 (it adds no claim).
 - Must not break: guardrail 5 (one keyless command stays the first step).
+- State: fixed (commit 0d56e62), awaiting recertify. `plumbline --help`, `-h`, `help` and `help <command>` print on
+  stdout, exit 0, grouped Publisher (init, watch, diff, keygen, sign, rotate, revoke, dns, export-jws), Verifier
+  (trust, verify, adopt, watch --url), Operator (gate, scan, badge) and CI (init --workflow, the Action, gate --root,
+  --json), one line each on what it does and writes (`src/cli/help.ts`); `<command> --help` (or `-h`, anywhere in the
+  line) is that command's line, role, usage and exit codes, on all 15 commands; an unknown command points at `--help`.
+  The scan is a CLI command, `plumbline scan` (`src/cli/scan-command.ts`; `scripts/scan-ecosystem.mjs` is now a shim
+  over it and answers `--help` too). A clean watch says `watch: no drift (nothing at warn or block); N notes follow`
+  when only info lines follow. An http address without `--allow-local` gets "note: an http address is refused without
+  --allow-local; for a site on this machine (localhost, 127.0.0.1), run it again with --allow-local" on stderr from
+  `watch --url`, `gate`, `init --source` and `watch --source`, and the scan's refusal adds the flag (verify, trust and
+  adopt already named it). GitHub's rate-limit reset reads "until 2026-11-17 15:33:56 UTC", never an epoch. `init
+  --root` naming Plumbline's own Desk is refused before anything is written (PRI-L1-13's wrong-folder success). The
+  README's "Use it": install once (clone, `npm ci`, `npm link`, Node 22 or later), the one-URL gate as the quickest first
+  result, then one block per role (publisher, verifier, operator, the bad day, CI), each naming its folder; every printed
+  command is `plumbline ...`, which `npm link` puts on PATH, so init's next steps run as printed too. The watch template's
+  header and `action/README.md` name the PR loop's three settings (`relock-pr: true`; `contents`, `issues` and
+  `pull-requests: write`; "Allow GitHub Actions to create and approve pull requests") and that a job-token pull request
+  starts no checks. Tests: `src/test/cli-help.test.ts` (MC-3: every command in "Use it" runs as printed from its block's
+  folder against a loopback copy of the site the blocks build, placeholder addresses substituted with `--allow-local`),
+  and the updated `cli.test.ts` and `watch-runtime.test.ts`. Live: a fresh clone of 0d56e62, `npm ci` then `npm link`
+  (into a temp npm prefix), `plumbline --help` exit 0; then on meridian-trips with the linked command, from the repo root
+  and from another folder: init (exit 1: the http peer is pending, as before), watch, keygen, the key record copy, sign,
+  trust (exit 1, then `--yes` exit 0), verify `verified`, `watch --url`, adopt (`unverifiable`, no rotation), gate and
+  scan (`--adapters validator --allow-local`, so nothing went to Atlas), and the bad day (revoke, keygen, copy, sign,
+  dns; the next verify recorded the revocation), each exit as the README says. Ceiling: DEV-L1-07's settings are named
+  from GitHub's documentation, not exercised on a real repository; the npm package name stays the owner's (DC-5).
 
 ### UAT-29. An owner-facing first line, and a link that carries her address
 
