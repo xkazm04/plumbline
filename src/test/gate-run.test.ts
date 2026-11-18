@@ -53,7 +53,8 @@ test("gate: only the asked-for adapters run, and asking for none is not a pass",
   const s = scripted(allGood());
   const only = await runGate({ target: TARGET, adapters: ["atlas"] }, { fetch: s.fetch, now: () => NOW });
   assert.deepEqual(only.findings.map((f) => f.adapter), ["atlas"]);
-  assert.deepEqual(s.calls, [atlasUrl]);
+  // UAT-11: the target is read once first, so Atlas is sent only an address the gate itself reads; then Atlas
+  assert.deepEqual(s.calls, [TARGET, atlasUrl]);
   const none = await runGate({ target: TARGET, adapters: [] }, { fetch: s.fetch });
   assert.equal(none.state, "unavailable");
   assert.deepEqual(none.findings, []);
@@ -105,7 +106,9 @@ test("gate: end to end through the real safeFetch against a loopback test server
       { target: `${site.url}/`, adapters: ["validator", "atlas"], timeoutMs: 3000 },
       { atlasBase: site.url, fetchOptions: { allowLocal: true } },
     );
-    assert.deepEqual(report.findings.map((f) => [f.adapter, f.state]), [["validator", "pass"], ["atlas", "pass"]]);
+    // UAT-11: a loopback site is read with --allow-local, but its address is never sent to the public Atlas
+    assert.deepEqual(report.findings.map((f) => [f.adapter, f.state]), [["validator", "pass"], ["atlas", "unavailable"]]);
+    assert.match(report.findings[1]!.summary, /^Not sent to Agent Atlas, a public service: the address is not https\. Atlas has no verdict\.$/);
     // Without the test option the same gate reaches nothing.
     const refused = await runGate({ target: `${site.url}/`, adapters: ["validator", "atlas"], timeoutMs: 3000 }, { atlasBase: site.url });
     assert.equal(refused.state, "unavailable");
@@ -121,4 +124,49 @@ test("gate: a SafeFetchError from the fetcher is an adapter outcome, never a cra
   const report = await runGate({ target: TARGET }, { fetch: boom, now: () => NOW });
   assert.equal(report.state, "unavailable");
   assert.equal(report.findings.length, 3);
+});
+
+test("UAT-11 (PRI-L1-04): no address goes to Agent Atlas that the gate itself refused, and the finding says so", async () => {
+  const sentToAtlas: string[] = [];
+  // the real safeFetch with a scripted resolver (no DNS, no connection: every case below is refused before connecting);
+  // requests to the Atlas base are answered here and recorded, as the UAT stand-in does
+  const resolver = async (host: string) => {
+    if (host === "loop.example") return [{ address: "127.0.0.1", family: 4 }];
+    if (host === "inside.example") return [{ address: "10.1.2.3", family: 4 }];
+    throw new Error("ENOTFOUND");
+  };
+  const atlasBase = "https://agent-atlas-phi.vercel.app";
+  const fetch: Fetcher = async (url, options) => {
+    if (url.startsWith(`${atlasBase}/`)) {
+      sentToAtlas.push(url);
+      return response(url, { body: fixture("atlas-check-conformant.json") });
+    }
+    return (await import("../net/safe-fetch.js")).safeFetch(url, { ...options, resolver });
+  };
+  const cases: [string, boolean, RegExp][] = [
+    ["http://127.0.0.1:4400/", false, /the address is not https/],
+    ["http://127.0.0.1:4400/", true, /the address is not https/],
+    ["http://192.168.1.20/", false, /the address is not https/],
+    ["http://10.0.0.5/", true, /the address is not https/],
+    ["https://192.168.1.20/", false, /a private or loopback IP address/],
+    ["https://[::1]:4400/", false, /a private or loopback IP address/],
+    ["https://localhost:4400/", false, /names this machine \(localhost\)/],
+    ["https://loop.example/", false, /resolves to a private or loopback range/],
+    ["https://inside.example/shop/inside.network.json", false, /resolves to a private or loopback range/],
+    ["https://staging.tallowfinch.internal/", false, /the name did not resolve/],
+  ];
+  for (const [target, allowLocal, why] of cases) {
+    const report = await runGate({ target, adapters: ["validator", "atlas"], timeoutMs: 2000 }, { fetch, fetchOptions: allowLocal ? { allowLocal: true } : {} });
+    const atlas = report.findings.find((f) => f.adapter === "atlas");
+    assert.equal(atlas?.state, "unavailable", target);
+    assert.match(atlas?.summary ?? "", /^Not sent to Agent Atlas, a public service: /, target);
+    assert.match(atlas?.summary ?? "", why, target);
+  }
+  assert.deepEqual(sentToAtlas, [], "Atlas was sent none of them");
+
+  // an https address the gate reads is still sent, and only then
+  const s = scripted(allGood());
+  const ok = await runGate({ target: TARGET, adapters: ["atlas"] }, { fetch: s.fetch, now: () => NOW });
+  assert.equal(ok.findings[0]?.state, "pass");
+  assert.ok(s.calls.includes(atlasUrl));
 });

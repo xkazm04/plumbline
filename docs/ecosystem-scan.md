@@ -17,7 +17,8 @@ results that name other people's sites is the owner's decision, not the tool's.
 The report opens with these sentences, and the script prints them before it starts:
 
 - The gate sends each address to Agent Atlas' public check API (`https://agent-atlas-phi.vercel.app/api/check?url=<address>`).
-  That is the Atlas adapter's job (`docs/gate-and-watch.md`).
+  That is the Atlas adapter's job (`docs/gate-and-watch.md`). An address the gate itself refuses (not https, a private
+  or loopback address, a name that does not resolve) is not sent.
 - Agent Customs' published receipts, index and key are read; nothing is sent to it.
 - Each site is read through `safeFetch`: https only, every resolved address public, a capped body and an absolute
   timeout per request, at most 3 redirects. A lock's peer addresses and absolute grounding refs are held to the
@@ -26,6 +27,12 @@ The report opens with these sentences, and the script prints them before it star
   (`SITE_DEADLINE_MS`, 120 s). The derivation of each number is beside it in `src/scan/run.ts`. Every fetch for a site
   gets at most the time left before its deadline, and a fetch asked after it is refused as a timeout: the site's gate is
   then `unavailable` and its lock `unreadable`, never `pass` or clean.
+
+`--adapters validator,atlas,customs` (UAT-11) names the gate's checkers, all three by default. For a pre-launch or
+confidential list, `--adapters validator,customs` (or `validator`) sends no address to Agent Atlas: the report's first
+sentence then reads "Agent Atlas was not asked (--adapters left it out), so no address was sent to it." (and the Customs
+sentence "Agent Customs was not asked ..." when it is left out too), and `settings.adapters` records the list. An unknown
+checker is refused (exit 2) before anything is read.
 
 ## The list
 

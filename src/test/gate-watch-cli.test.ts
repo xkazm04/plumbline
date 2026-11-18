@@ -9,7 +9,7 @@ import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { GateReport } from "../core/types.js";
-import { ALLOW_LOCAL_WARNING, NOTHING_CHECKED, gateExitCode } from "../cli/gate-command.js";
+import { ALLOW_LOCAL_WARNING, ATLAS_DISCLOSURE, NOTHING_CHECKED, gateExitCode } from "../cli/gate-command.js";
 import { fixture, loopbackServer } from "./net-helpers.js";
 import { isIsoUtc } from "../core/verify.js";
 
@@ -84,9 +84,19 @@ test("gate against an unreachable host: every adapter unavailable, exit 1 under 
     assert.equal(parsed.findings.length, 3);
     assert.ok(parsed.findings.every((f) => f.state === "unavailable"));
     assert.ok(r.err.includes(NOTHING_CHECKED), r.err);
-    // proof the preload held: Atlas' public host was looked up and the lookup failed, so nothing left this machine
-    assert.match(parsed.findings.find((f) => f.adapter === "atlas")?.summary ?? "", /did not resolve/);
+    // UAT-11: a private address is never sent to the public Atlas, and the finding says so
+    assert.match(parsed.findings.find((f) => f.adapter === "atlas")?.summary ?? "", /^Not sent to Agent Atlas, a public service: the address is a private or loopback IP address\./);
+    // and the gate said, before any request, where the address would go
+    assert.ok(r.err.includes(`plumbline gate: ${ATLAS_DISCLOSURE}`), r.err);
   }
+  // with atlas left out, the address is sent nowhere and the disclosure is not printed
+  const noAtlas = await runAsync(tmp, "gate", "https://10.0.0.1/", "--adapters", "validator", "--timeout", "2000", "--json");
+  assert.ok(!noAtlas.err.includes("Agent Atlas"), noAtlas.err);
+});
+
+test("UAT-11: the gate's disclosure names Atlas' public check API before anything is sent", () => {
+  assert.match(ATLAS_DISCLOSURE, /^the target address is sent to Agent Atlas' public check API \(https:\/\/agent-atlas-phi\.vercel\.app\/api\/check\?url=<address>\), a third party, unless the gate refuses the address itself/);
+  assert.match(ATLAS_DISCLOSURE, /leave atlas out of --adapters to send it nowhere$/);
 });
 
 test("gate --allow-local: a loopback site is reachable only with the flag, which warns; private ranges stay refused", async () => {

@@ -57,19 +57,35 @@ export interface ScanReport {
   tool: { name: "plumbline"; version: string };
   /** What the scan sent where, in fixed sentences, before any result. */
   disclosure: string[];
-  settings: { siteDeadlineMs: number; delayMs: number };
+  /** `adapters`: the checkers asked, present when `--adapters` named them (absent: all three, the default). */
+  settings: { siteDeadlineMs: number; delayMs: number; adapters?: string[] };
   summary: ScanSummary;
   sites: SiteResult[];
 }
 
-/** The fixed sentences every report opens with: who was asked what. */
+const ATLAS_SENT =
+  "The gate sends each address to Agent Atlas' public check API (https://agent-atlas-phi.vercel.app/api/check?url=<address>); that is the adapter's job. An address the gate itself refuses (not https, a private or loopback address, a name that does not resolve) is not sent.";
+const ATLAS_LEFT_OUT = "Agent Atlas was not asked (--adapters left it out), so no address was sent to it.";
+const CUSTOMS_READ = "Agent Customs' published receipts, index and key are read (https://montbaga.github.io/agent-customs/); nothing is sent to it.";
+const CUSTOMS_LEFT_OUT = "Agent Customs was not asked (--adapters left it out), so its receipts were not read.";
+
+/** The fixed sentences every report opens with: who was asked what (all three checkers, the default). */
 export const DISCLOSURE = [
-  "The gate sends each address to Agent Atlas' public check API (https://agent-atlas-phi.vercel.app/api/check?url=<address>); that is the adapter's job.",
-  "Agent Customs' published receipts, index and key are read (https://montbaga.github.io/agent-customs/); nothing is sent to it.",
+  ATLAS_SENT,
+  CUSTOMS_READ,
   "Each site is read through safeFetch: https only, every resolved address public, a capped body and an absolute timeout per request, at most 3 redirects.",
   "Sites are scanned one at a time, with a fixed pause between them and one absolute deadline per site.",
   "A published signature is unverifiable here: this scan trusts no key. A site that publishes no signature is not signed, which is the publisher's choice, not a failure.",
 ] as const;
+
+/**
+ * The disclosure for the checkers a scan asks (UAT-11, `--adapters`): the default's sentences, with the Atlas and the
+ * Customs sentence each replaced by "was not asked" when the list leaves that checker out.
+ */
+export function disclosureFor(adapters: readonly string[] | undefined): string[] {
+  if (adapters === undefined) return [...DISCLOSURE];
+  return DISCLOSURE.map((line) => (line === ATLAS_SENT && !adapters.includes("atlas") ? ATLAS_LEFT_OUT : line === CUSTOMS_READ && !adapters.includes("customs") ? CUSTOMS_LEFT_OUT : line));
+}
 
 const zero = <K extends string>(keys: readonly K[]): Record<K, number> => Object.fromEntries(keys.map((k) => [k, 0])) as Record<K, number>;
 

@@ -5,12 +5,12 @@
 // Every fetch is safeFetch's (or a test's injected fetcher). The report's shape and the HTML are ./report.ts.
 
 import { KEY_FILE, SIGNATURE_FILE, KID_PATTERN } from "../core/types.js";
-import { runGate } from "../gate/index.js";
+import { runGate, type GateOptions } from "../gate/index.js";
 import type { Fetcher } from "../net/locate.js";
 import { DEFAULT_TIMEOUT_MS, SafeFetchError, safeFetch, type SafeFetchOptions } from "../net/safe-fetch.js";
 import { runWatchUrl } from "../watch/index.js";
 import { siteBase } from "../watch/published.js";
-import { DISCLOSURE, SCAN_SCHEMA, SCAN_VERSION, driftStateOf, summarise, type PublishedFile, type ScanReport, type SiteResult } from "./report.js";
+import { disclosureFor, SCAN_SCHEMA, SCAN_VERSION, driftStateOf, summarise, type PublishedFile, type ScanReport, type SiteResult } from "./report.js";
 
 /**
  * One absolute deadline per site, in milliseconds. Derivation: the gate's adapters run side by side, each with its own
@@ -97,6 +97,8 @@ export interface ScanDeps {
   sleep?: (ms: number) => Promise<void>;
   siteDeadlineMs?: number;
   delayMs?: number;
+  /** The gate's checkers (UAT-11, --adapters); absent, all three. A checker left out is never asked. */
+  adapters?: GateOptions["adapters"];
   /** Called after each site, for progress on stderr. */
   onSite?: (result: SiteResult, index: number, total: number) => void;
 }
@@ -110,7 +112,7 @@ export async function scanSite(address: string, deps: ScanDeps = {}): Promise<Si
   const extra = deps.fetchOptions ?? {};
   const fetch = deadlineFetcher((url, options) => base(url, { ...options, ...extra }), deadline, clock);
   const now = deps.now ?? (() => new Date());
-  const gate = await runGate({ target: address }, { fetch, now });
+  const gate = await runGate({ target: address, ...(deps.adapters !== undefined ? { adapters: deps.adapters } : {}) }, { fetch, now });
   const watch = await runWatchUrl({ url: address }, { fetch, now });
   const siteRoot = await siteBase(address, fetch);
   const signature = await publishedFile(fetch, `${siteRoot}${SIGNATURE_FILE}`);
@@ -147,8 +149,8 @@ export async function scanList(addresses: string[], version: string, deps: ScanD
     version: SCAN_VERSION,
     scannedAt,
     tool: { name: "plumbline", version },
-    disclosure: [...DISCLOSURE],
-    settings: { siteDeadlineMs: deps.siteDeadlineMs ?? SITE_DEADLINE_MS, delayMs },
+    disclosure: disclosureFor(deps.adapters),
+    settings: { siteDeadlineMs: deps.siteDeadlineMs ?? SITE_DEADLINE_MS, delayMs, ...(deps.adapters !== undefined ? { adapters: [...deps.adapters] } : {}) },
     summary: summarise(sites),
     sites,
   };

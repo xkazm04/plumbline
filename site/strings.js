@@ -57,6 +57,7 @@ export const STRINGS = {
   gate: {
     heading: "Check a site",
     lead: "Give a site address, a network address or the address of its agent-manifest.json. Three checkers answer independently.",
+    sentWhere: "What is sent where: the address you check is sent to Agent Atlas' public check API (agent-atlas-phi.vercel.app), a third party, unless it is not https, names this machine or is a private or loopback IP address. Agent Customs' published receipts are only read; the validator runs here, in your browser.",
     formHeading: "Site address",
     label: "The site, its network or its agent-manifest.json",
     placeholder: "https://example.com/",

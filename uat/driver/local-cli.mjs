@@ -18,7 +18,7 @@
 //
 //   node uat/driver/local-cli.mjs watch --root <dir> [--init] [--source <ref>]... [--external a2a-card=<url>]... [--timeout <ms>] [--json]
 //   node uat/driver/local-cli.mjs watch --root <dir> --relock [--source <ref>]... [--drop <ref>]... [--accept-signer <peer>]... [--accept <ref>]... [--external a2a-card=<url>]... [--trust <file>] [--json]
-//   node uat/driver/local-cli.mjs scan <address>... [--out <dir>] [--json] [--real-atlas]
+//   node uat/driver/local-cli.mjs scan <address>... [--out <dir>] [--adapters validator,atlas,customs] [--json] [--real-atlas]
 //
 // --external here also takes http://127.0.0.1 / http://localhost addresses (the product's parser refuses http); every
 // other value goes through the product's own parser. Exit codes are the CLI's: watch 0 clean / 1 findings or no usable
@@ -225,7 +225,7 @@ async function standInFetch({ realAtlas, realCustoms }) {
 async function scan(argv) {
   let args;
   try {
-    args = parse(argv, ["out"], ["json", "real-atlas", "real-customs"], []);
+    args = parse(argv, ["out", "adapters"], ["json", "real-atlas", "real-customs"], []);
   } catch (error) {
     return usage(error.message);
   }
@@ -239,6 +239,12 @@ async function scan(argv) {
       return usage(`not an address: ${a}`);
     }
     if (u.protocol !== "https:" && !isLoopbackHttp(a)) return usage(`scan takes https addresses, or http://127.0.0.1 / http://localhost ones: ${a}`);
+  }
+  // --adapters: the product scan's own option (UAT-11), passed through
+  let adapters;
+  if (args.values.has("adapters")) {
+    adapters = [...new Set(args.values.get("adapters").split(",").map((a) => a.trim()).filter(Boolean))];
+    if (adapters.length === 0 || !adapters.every((a) => ["validator", "atlas", "customs"].includes(a))) return usage("unknown adapter in --adapters (known: validator, atlas, customs)");
   }
   const run = await load("scan/run.js");
   const report = await load("scan/report.js");
@@ -258,10 +264,11 @@ async function scan(argv) {
       : "local-cli: AGENT CUSTOMS IS A STAND-IN for this run: its index and key are the recorded copies in src/test/fixtures/wp2/.\n",
   );
   process.stderr.write("local-cli: the product's own disclosure below describes the real scan, not this one.\n");
-  for (const line of report.DISCLOSURE) process.stderr.write(`  ${line}\n`);
+  for (const line of report.disclosureFor(adapters)) process.stderr.write(`  ${line}\n`);
   const result = await run.scanList(addresses, pkg.version, {
     fetch,
     fetchOptions: LOCAL,
+    ...(adapters !== undefined ? { adapters } : {}),
     onSite: (site, i, total) =>
       process.stderr.write(`[${i + 1}/${total}] gate ${site.gate.state}, drift ${site.drift}, signature ${site.signature.state}, ${site.elapsedMs} ms: ${site.address}\n`),
   });

@@ -8,6 +8,7 @@
 // signature was not checked.
 
 import { gateSentence, runGate, ALL_ADAPTERS, type GateOptions } from "../gate/index.js";
+import { ATLAS_BASE } from "../gate/context.js";
 import { safeFetch } from "../net/safe-fetch.js";
 import { siteBase } from "../watch/published.js";
 import { ArgsError, CliError, parseArgs } from "./args.js";
@@ -17,6 +18,10 @@ import type { GateReport, VerifyResult } from "../core/types.js";
 
 const USAGE =
   "usage: plumbline gate <target> [--adapters validator,atlas,customs] [--fail-on fail|unavailable] [--timeout <ms>] [--trust <plumbline.trust.json>] [--allow-local] [--json]\n";
+
+/** Said before any adapter runs whenever Atlas is asked (UAT-11): the one third party a gate sends the address to. */
+export const ATLAS_DISCLOSURE =
+  `the target address is sent to Agent Atlas' public check API (${ATLAS_BASE}/api/check?url=<address>), a third party, unless the gate refuses the address itself (not https, a private or loopback address, a name that does not resolve); leave atlas out of --adapters to send it nowhere`;
 
 /** The line a report with no signature verdict carries: the gate does not check signatures unless asked (PRI-L1-14). */
 export const SIGNATURE_NOT_CHECKED =
@@ -153,6 +158,8 @@ export async function runGateCommand(argv: string[]): Promise<number> {
   }
 
   if (allowLocal) process.stderr.write(`${ALLOW_LOCAL_WARNING}\n`);
+  // UAT-11 (PRI-L1-04, guardrail 7): what is sent where, said before it is sent; on stderr, so --json stays one document
+  if ((adapters ?? ALL_ADAPTERS).includes("atlas")) process.stderr.write(`plumbline gate: ${ATLAS_DISCLOSURE}\n`);
   const gated = await runGate(
     { target, ...(adapters ? { adapters } : {}), ...(timeoutMs !== undefined ? { timeoutMs } : {}) },
     allowLocal ? { fetchOptions: { allowLocal: true } } : {},

@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { LOCK_FILE, type DriftReport, type GateReport } from "../core/types.js";
 import { SafeFetchError } from "../net/fetch-types.js";
 import { BADGE_COLOURS, BADGE_GATES, BADGE_SIGNATURES, badgeColour, badgeSvg, type BadgeFacts } from "../scan/badge.js";
-import { DISCLOSURE, driftStateOf, escapeHtml, renderHtml, summarise, type ScanReport, type SiteResult } from "../scan/report.js";
+import { DISCLOSURE, disclosureFor, driftStateOf, escapeHtml, renderHtml, summarise, type ScanReport, type SiteResult } from "../scan/report.js";
 import { MAX_SITES, deadlineFetcher, parseList, scanList, scanSite } from "../scan/run.js";
 import { badgeFactsOf, badgeStateOf } from "../cli/badge-command.js";
 import { fixture, scripted } from "./net-helpers.js";
@@ -277,6 +277,31 @@ test("scanSite over a scripted site: the gate, the published lock's drift, the s
   assert.deepEqual(report.disclosure, [...DISCLOSURE]);
   assert.equal(report.summary.sites, 2);
   assert.equal(report.summary.signature.published, 2);
+  assert.equal(report.settings.adapters, undefined, "absent when --adapters was not given");
+
+  // UAT-11 (PRI-L1-04): --adapters leaves Atlas out: no address reaches it, and the disclosure says so
+  const quiet = scripted(routes);
+  const left = await scanList([SITE], "0.1.0", { fetch: quiet.fetch, now: () => NOW, adapters: ["validator", "customs"], sleep: async () => undefined });
+  assert.deepEqual(left.sites[0]?.gate.findings.map((f) => f.adapter), ["validator", "customs"]);
+  assert.ok(!quiet.calls.some((c) => c.startsWith("https://agent-atlas-phi.vercel.app/api/")), quiet.calls.join("\n"));
+  assert.deepEqual(left.settings.adapters, ["validator", "customs"]);
+  assert.equal(left.disclosure[0], "Agent Atlas was not asked (--adapters left it out), so no address was sent to it.");
+  assert.equal(left.disclosure[1], DISCLOSURE[1], "Customs, still asked, keeps its sentence");
+  assert.deepEqual(disclosureFor(["validator"]).slice(0, 2), [
+    "Agent Atlas was not asked (--adapters left it out), so no address was sent to it.",
+    "Agent Customs was not asked (--adapters left it out), so its receipts were not read.",
+  ]);
+  assert.deepEqual(disclosureFor(undefined), [...DISCLOSURE]);
+});
+
+test("UAT-11: the scan script takes --adapters and refuses an unknown checker before reading anything", () => {
+  const script = fileURLToPath(new URL("../../scripts/scan-ecosystem.mjs", import.meta.url));
+  const list = path.join(tmp, "list.txt");
+  writeFileSync(list, "https://site.example/\n");
+  const bad = spawnSync(process.execPath, [script, list, "--out", path.join(tmp, "out"), "--adapters", "validator,oracle"], { encoding: "utf8" });
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /unknown adapter in --adapters \(known: validator, atlas, customs\)/);
+  assert.match(bad.stderr, /usage: node scripts\/scan-ecosystem\.mjs <list file> --out <dir> \[--adapters validator,atlas,customs\]/);
 });
 
 test("scanSite: a site past its deadline is unavailable and not checked, never pass or clean", async () => {

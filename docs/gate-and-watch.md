@@ -85,6 +85,20 @@ failing `checks`. `conformant` and `conformant-with-warnings` are `pass` (the se
 at all (`files[0].status` is 0, which is Atlas' trouble, not a finding about the site). A transport error, a non-200, a body that
 is not JSON, an unrecognised shape, an unknown verdict, or a verdict that contradicts its own counts is `unavailable`.
 
+**What Atlas is sent (UAT-11).** Atlas is a public service, so it is sent only an https address the gate itself reads.
+Before asking it, the adapter reads the target the way the other adapters do (the shared, memoised manifest lookup; a
+target that names a `.network.json` directly is fetched once) and does **not** send the address when it is not https
+(with or without `--allow-local`), names this machine (`localhost`), is a private or loopback IP, or was refused by the
+gate's own fetch (a name that resolves to a private or loopback range, a name that does not resolve, not a URL). Then
+the finding is `unavailable`, "Not sent to Agent Atlas, a public service: <why>. Atlas has no verdict." A site that is
+merely down is still asked about: Atlas may reach what this machine cannot. Before any adapter runs, `plumbline gate`
+prints on stderr where the address goes: "plumbline gate: the target address is sent to Agent Atlas' public check API
+(https://agent-atlas-phi.vercel.app/api/check?url=<address>), a third party, unless the gate refuses the address itself
+(...); leave atlas out of --adapters to send it nowhere". `--adapters validator,customs` (and the scan's `--adapters`)
+sends it nowhere. The Desk's check view says the same under the address field, before the button; in a browser, which
+cannot resolve names, the Desk withholds the address from Atlas for http, `localhost` and private or loopback IP
+literals, not for a name that resolves to a private range.
+
 ### `customs`: Agent Customs receipts
 
 Agent Customs (https://montbaga.github.io/agent-customs) inspects in the visitor's browser and has **no HTTP check API**. It does

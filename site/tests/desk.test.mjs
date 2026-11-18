@@ -2676,3 +2676,20 @@ test("UAT-10 (PRI-L1-14): the Desk's gate result says the signature was not chec
   assert.ok(shown.includes(STRINGS.gate.signatureNote), shown);
   assert.match(STRINGS.gate.signatureNote, /signature was not checked here/);
 });
+
+test("UAT-11 (PRI-L2-1): the check view says what is sent where before the click, and a local address is not sent to Agent Atlas", async () => {
+  // the note sits in the check form, before the button (the page fills data-s from strings.js)
+  const html = await siteFile("index.html");
+  const at = html.indexOf("data-s=\"gate.sentWhere\"");
+  assert.ok(at > html.indexOf("id=\"gate-form\"") && at < html.indexOf("id=\"gate-run\""), "the sentence is in the form, before the button");
+  assert.match(STRINGS.gate.sentWhere, /sent to Agent Atlas' public check API \(agent-atlas-phi\.vercel\.app\), a third party/);
+  const atlasCalls = () => web.calls.filter((u) => u.startsWith(`${ATLAS}api/check`)).length;
+  const before = atlasCalls();
+  for (const target of ["http://127.0.0.1:4400/", "http://localhost:4400/", "https://192.168.1.20/"]) {
+    const report = await App.page.runGate({ target });
+    const atlas = report.findings.find((f) => f.adapter === "atlas");
+    assert.equal(atlas.state, "unavailable", target);
+    assert.match(atlas.summary, /^Not sent to Agent Atlas, a public service: /, target);
+  }
+  assert.equal(atlasCalls(), before, "Atlas was sent none of them");
+});

@@ -22,7 +22,9 @@ test("atlas: pass, from the RECORDED real /api/check response for a conformant s
   assert.equal(report.state, "pass");
   assert.match(finding.summary, /conformant/);
   assert.match(finding.summary, /score 100/);
-  assert.deepEqual(calls, [url(TARGET)], "one GET to /api/check with the target encoded");
+  // UAT-11: the target is read first (here its manifest answers 404, which is no refusal of the address), then one GET
+  assert.deepEqual(calls.filter((c) => c.startsWith(`${ATLAS}/api/`)), [url(TARGET)], "one GET to /api/check with the target encoded");
+  assert.equal(calls[calls.length - 1], url(TARGET), "Atlas is asked last, after the gate read the address itself");
 });
 
 test("atlas: fail, from the RECORDED real response for a site whose manifest has no such network", async () => {
