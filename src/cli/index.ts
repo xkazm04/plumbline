@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// plumbline init|watch|gate|badge|keygen|sign|verify|rotate|revoke|trust|adopt
+// plumbline init|watch|diff|gate|badge|keygen|sign|verify|rotate|revoke|trust|adopt
 // Exit 0 clean, 1 findings, 2 usage or I/O error. Signing commands in commands.ts; the verifier's trust-store commands
 // in trust-command.ts; gate and watch in their own command modules.
 
 import { CliError, UsageError } from "./args.js";
 import { BADGE_USAGE, badge } from "./badge-command.js";
+import { DIFF_USAGE, diff } from "./diff-command.js";
 import { USAGE, keygen, revoke, rotate, sign, verify, type Out } from "./commands.js";
 import { runGateCommand } from "./gate-command.js";
 import { runInitCommand } from "./init-command.js";
@@ -15,6 +16,7 @@ import { runWatchCommand } from "./watch-command.js";
 const HANDLERS: Record<string, (argv: string[], out: Out) => Promise<number>> = {
   init: (argv) => runInitCommand(argv),
   watch: (argv) => runWatchCommand(argv),
+  diff,
   gate: (argv) => runGateCommand(argv),
   badge,
   keygen,
@@ -44,7 +46,7 @@ async function main(argv: string[]): Promise<number> {
     // every failure is a usage or I/O problem for the caller: exit 2, never a crash code
     const message = error instanceof CliError ? error.message : `unexpected failure: ${(error as Error).message}`;
     // a usage error shows the command's own options, so the caller sees what it takes
-    const usage = error instanceof UsageError ? ({ ...USAGE, badge: BADGE_USAGE } as Record<string, string>)[command] : undefined;
+    const usage = error instanceof UsageError ? ({ ...USAGE, badge: BADGE_USAGE, diff: DIFF_USAGE } as Record<string, string>)[command] : undefined;
     if (rest.includes("--json")) process.stdout.write(JSON.stringify({ error: message, ...(usage ? { usage } : {}) }) + "\n");
     process.stderr.write(`plumbline ${command}: ${message}\n`);
     if (usage) process.stderr.write(`${usage}\n`);

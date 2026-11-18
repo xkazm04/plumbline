@@ -30,7 +30,8 @@ type ReadDrift = (target: string, fetcher: unknown, options?: object) => Promise
 /** The browser-safe modules beyond core that drift.js reaches: scripts/build-site.mjs must copy the same list. */
 const BROWSER_MODULES: Record<string, string[]> = {
   net: ["address.js", "canonical.js", "locate.js", "fetch-types.js"],
-  watch: ["decide.js", "observe.js", "published.js"],
+  watch: ["decide.js", "observe.js", "outline.js", "published.js"],
+  gate: ["validator.js"],
 };
 
 let loaded: Promise<ReadDrift> | undefined;
@@ -180,6 +181,24 @@ test("Desk drift and the CLI's watch agree: the same lock and the same bytes giv
   const key = (f: DriftFinding) => JSON.stringify([f.kind, f.severity, f.ref, f.expected, f.actual, f.summary]);
   assert.ok(cli.length >= 4, JSON.stringify(cli));
   assert.deepEqual(desk.findings.map(key).sort(), cli.map(key).sort());
+});
+
+test("D7 parity: a changed peer's outline counts are the same in the Desk and the CLI's watch", async () => {
+  const readDrift = await loadDrift();
+  const root = copySite();
+  const routes = baseRoutes();
+  routes["https://peer.example/partner.network.json"] = { body: { tools: [{ name: "a", instructions: "x", tools: ["https://h.example/x"] }] } };
+  await watch(root, routes, { init: true });
+  routes["https://peer.example/partner.network.json"] = { body: { tools: [{ name: "a", instructions: "y" }, { name: "b", tools: [] }] } };
+  const cli = (await watch(root, routes)).findings.filter((f) => f.ref === PEER);
+  const published: Record<string, Route> = {
+    [`${SITE}/agent-manifest.json`]: { body: readFileSync(join(root, "agent-manifest.json"), "utf8") },
+    [`${SITE}/${LOCK_FILE}`]: { body: readFileSync(join(root, LOCK_FILE), "utf8") },
+  };
+  const desk = (await readDrift(`${SITE}/`, scripted({ ...routes, ...published }).fetch)).findings.filter((f) => f.ref === PEER);
+  assert.equal(cli.length, 1);
+  assert.match(cli[0]!.summary, /In outline: agents: 1 added, 0 removed, 1 changed; outbound hosts: 0 added, 1 removed; front agent: unchanged\./);
+  assert.deepEqual(desk, cli);
 });
 
 test("D1 parity: the CLI's watch --url and the Desk's drift reader give the same findings for the same published lock", async () => {

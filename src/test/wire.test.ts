@@ -90,6 +90,17 @@ test("the lock's peer record: links is a sha256 or the literal string absent", (
   assert.equal(PEER_LINKS_ABSENT, "absent");
 });
 
+test("the lock's peer outline (since 2026-11-18): agents, hosts and front, every string a SHA-256, front only when there is one", async () => {
+  const { peerOutline, isPeerOutline } = await import("../watch/outline.js");
+  const withFront = await peerOutline('{ "tools": [{ "name": "a", "instructions": "x", "tools": ["https://h.example/p"] }] }');
+  assert.ok(withFront && isPeerOutline(withFront));
+  assert.deepEqual(Object.keys(withFront).sort(), ["agents", "front", "hosts"]);
+  const hex = /^[0-9a-f]{64}$/;
+  assert.ok([...Object.keys(withFront.agents), ...Object.values(withFront.agents), ...withFront.hosts, withFront.front ?? ""].every((h) => hex.test(h)));
+  const none = await peerOutline('{ "tools": [] }');
+  assert.deepEqual(none, { agents: {}, hosts: [] }, "no front agent: the member is omitted, never null");
+});
+
 test("enum strings are exact and three-state where the standard demands it", () => {
   assert.deepEqual([...VERDICTS], ["verified", "invalid", "unverifiable"]);
   assert.deepEqual([...INVALID_REASONS], ["bad-signature", "tampered", "expired", "kid-mismatch", "malformed", "revoked"]);

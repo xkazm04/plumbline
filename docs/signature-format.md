@@ -27,7 +27,10 @@ Treat it as provenance and integrity, never as endorsement.
 | `plumbline.trust.json` | the verifier's own machine | the verifier: `plumbline trust` (first contact), `plumbline adopt` (a rotation), `plumbline verify` (an accepted revocation), or by hand | who this verifier trusts, per origin |
 
 `plumbline.lock.json` (the watch's baseline, `docs/gate-and-watch.md`) is not a signature file, but when a site
-publishes one it is one of the signed files (below).
+publishes one it is one of the signed files (below). Its wire shape is `PlumblineLock` in `types.ts`; since 2026-11-18 a
+peer record may carry `outline` (`PeerOutline`: `agents`, `hosts`, `front`, every string a lowercase hex SHA-256, so no
+peer's names or hosts are written in clear), omitted when absent, never `null`. A reader older than this change ignores
+the member; a lock that carries a malformed one is `unusable`.
 
 ### `plumbline.signature.json`
 

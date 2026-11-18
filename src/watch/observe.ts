@@ -14,6 +14,7 @@ import { hashBytes } from "../net/canonical.js";
 import { describeFetchError, type SafeFetchOptions } from "../net/fetch-types.js";
 import { locatePeerFile, type Fetcher } from "../net/locate.js";
 import { readSignatureKid, type LinksRead, type Observed, type PeerObservation, type SignatureRead } from "./decide.js";
+import { peerOutline } from "./outline.js";
 
 /** A sentence for the parentheses after "could not be fetched", naming why a fetch failed. */
 export type Describe = (error: unknown) => string;
@@ -104,7 +105,9 @@ export async function observePeer(url: string, fetcher: Fetcher, options: PeerOb
   }
   if (!response.ok) return { definition: { ok: false, status: response.status }, signature: { none: true } };
   const sha256 = await hashBytes(response.bytes);
+  // the definition in outline (outline.ts), so a change can be said in counts; null when it cannot be outlined
+  const outline = await peerOutline(response.bytes);
   const links = options.links ? await readPeerLinks(fetcher, located.base, options) : undefined;
   const signature = await readPeerKid(fetcher, located.base, options);
-  return { definition: { ok: true, sha256 }, ...(links !== undefined ? { links } : {}), signature };
+  return { definition: { ok: true, sha256, outline }, ...(links !== undefined ? { links } : {}), signature };
 }

@@ -203,7 +203,26 @@ export interface PeerRecord {
   /** SHA-256 of the peer's links.json, or PEER_LINKS_ABSENT. */
   links?: string;
   kid?: string;
+  /**
+   * The definition in outline (since 2026-11-18), so a changed peer can be said in counts: agents added, removed and
+   * changed, outbound hosts added and removed, the front agent changed or not. Omitted when the definition could not be
+   * outlined (not JSON, a repeated key) and in every lock written before; a watch then says to re-lock to see what
+   * changed. Never a stranger's words: names and hosts are hashed.
+   */
+  outline?: PeerOutline;
   checkedAt: string;
+}
+
+/**
+ * `peers[url].outline`. Every string is a lowercase hex SHA-256: `agents` maps SHA-256 of an agent's name to SHA-256 of
+ * canonicalJson(that agent); `hosts` is the sorted set of SHA-256 of each outbound host (the host of every http(s)
+ * address in an agent's `tools`, and of every `link_labels` key, lowercased); `front` is SHA-256 of the front agent's
+ * name, omitted when the network has none.
+ */
+export interface PeerOutline {
+  agents: Record<string, string>;
+  hosts: string[];
+  front?: string;
 }
 
 /**

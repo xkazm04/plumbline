@@ -120,7 +120,13 @@ export async function captureLock(
     const seen = await observePeer(url, env.fetch, { fetchOptions: env.fetchOptions, links: true });
     const { definition: def, links, signature } = seen;
     if (def.ok && links !== undefined && "state" in links) {
-      peers[url] = { sha256: def.sha256, links: links.state, ...("kid" in signature ? { kid: signature.kid } : {}), checkedAt: options.now.toISOString() };
+      peers[url] = {
+        sha256: def.sha256,
+        links: links.state,
+        ...("kid" in signature ? { kid: signature.kid } : {}),
+        ...(def.outline ? { outline: def.outline } : {}),
+        checkedAt: options.now.toISOString(),
+      };
       continue;
     }
     const detail = !def.ok

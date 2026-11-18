@@ -63,6 +63,7 @@
       "file_paths": [
         "src/cli/args.ts",
         "src/cli/commands.ts",
+        "src/cli/diff-command.ts",
         "src/cli/files.ts",
         "src/cli/gate-command.ts",
         "src/cli/index.ts",
@@ -161,6 +162,7 @@
         "src/test/watch-helpers.ts",
         "src/test/watch-init.test.ts",
         "src/test/watch-lock.test.ts",
+        "src/test/watch-outline.test.ts",
         "src/test/watch-peer.test.ts",
         "src/test/watch-runtime.test.ts",
         "src/watch/capture.ts",
@@ -169,6 +171,7 @@
         "src/watch/discover.ts",
         "src/watch/index.ts",
         "src/watch/lock.ts",
+        "src/watch/outline.ts",
         "src/watch/published.ts"
       ],
       "entry_points": [

@@ -26,6 +26,7 @@ import {
   type LockState,
 } from "../core/types.js";
 import { isBlockedAddress, parseIPv4 } from "../net/address.js";
+import { describeOutlineDiff, diffOutlines, isPeerOutline, outlineUnchanged, type PeerOutline } from "./outline.js";
 
 // ---- the lock and report members (the wire contract now lives in core/types.ts; these names stay for callers) ----
 
@@ -73,7 +74,8 @@ export function lockProblem(value: unknown): string | null {
       !isHex(p.sha256) ||
       typeof p.checkedAt !== "string" ||
       (p.kid !== undefined && (typeof p.kid !== "string" || !KID_PATTERN.test(p.kid))) ||
-      (p.links !== undefined && !isHex(p.links) && p.links !== PEER_LINKS_ABSENT)
+      (p.links !== undefined && !isHex(p.links) && p.links !== PEER_LINKS_ABSENT) ||
+      (p.outline !== undefined && !isPeerOutline(p.outline))
     ) {
       return "the lock's peer entries are malformed";
     }
@@ -193,7 +195,7 @@ export interface PeerObservation {
    * when the network file the peer's manifest names is an address the driver will not contact (the Desk: a sentence
    * from destinationProblem, which never quotes it).
    */
-  definition: { ok: true; sha256: string } | { ok: false; status?: number; reason?: string; refused?: string };
+  definition: { ok: true; sha256: string; outline?: PeerOutline | null } | { ok: false; status?: number; reason?: string; refused?: string };
   /** Read only when the lock records `links`. */
   links?: LinksRead;
   signature: SignatureRead;
@@ -225,7 +227,7 @@ export function peerFindings(url: string, record: PeerRecord, seen: PeerObservat
       ref: url,
       expected: record.sha256,
       actual: def.sha256,
-      summary: "A peer's network definition changed since the lock was written; it runs in the visitor's browser, so a changed one is changed code.",
+      summary: `A peer's network definition changed since the lock was written; it runs in the visitor's browser, so a changed one is changed code. ${whatChanged(record.outline, def.outline)}`,
     });
   }
   // The peer's links.json: the runtime lays it over the peer network's links, so one that appears, changes or goes
@@ -275,6 +277,20 @@ export function peerFindings(url: string, record: PeerRecord, seen: PeerObservat
     });
   }
   return out;
+}
+
+/**
+ * What changed in a peer's definition, in counts and fixed words (outline.ts): never a name, an instruction or an
+ * address. The severity is the caller's and stays `block` whatever this says: changed bytes are changed code.
+ */
+export function whatChanged(locked: PeerOutline | undefined, now: PeerOutline | null | undefined): string {
+  if (locked === undefined) return "The lock holds no outline of this peer, so what changed is not told; after a review, re-lock to record one.";
+  if (now === undefined || now === null) {
+    return "Its definition now cannot be outlined (it is not JSON, or it repeats a key the runtime would merge), so what changed is not told.";
+  }
+  const diff = diffOutlines(locked, now);
+  if (outlineUnchanged(diff)) return "Formatting or non-agent content only: no agent, outbound host or front agent changed.";
+  return `In outline: ${describeOutlineDiff(diff)}.`;
 }
 
 /** A peer the lock holds as pending: it could not be captured, so it is not watched until a re-lock fills it in. */

@@ -105,6 +105,7 @@ a lock the browser was refused), so a drift count is a count of drift.
 | `runtime` added | the locked runtime folder (the deepest folder holding every `runtime.files` key, such as `runtime` or `site/runtime`), listed | a file in it the lock does not hold: `block`, with its hash as `actual`, "added to the vendored runtime folder after the lock was written". Remove it, or review it and `--relock`. CLI only: a browser cannot list a folder |
 | `runtime` (b) | the runtime's upstream, from the GitHub API, unauthenticated (see "Which upstream the runtime check asks") | upstream moved on: `info` "Upstream is ahead" with both short SHAs. Cannot ask (timeout, rate limit, HTTP error, odd answer): `info` "Could not check upstream". Never `block` |
 | `peer` | each `peers[url]`: the network definition, hashed again | changed in any byte: `block` (a peer's definition runs in the visitor's browser, so a changed one is changed code). Unreachable: `warn` |
+| `peer` outline | with a changed definition, its outline against the lock's (`src/watch/outline.ts`) | the same `block`; the summary adds what changed in counts: "In outline: agents: N added, N removed, N changed; outbound hosts: N added, N removed; front agent: changed or unchanged". The same outline is "Formatting or non-agent content only" (still `block`: the bytes the runtime reads changed). No outline in the lock: "re-lock to record one". A definition that cannot be outlined now (not JSON, a repeated key): said so |
 | `peer` links | each `peers[url].links`: the peer's `links.json` at the same site base (the runtime fetches it for every peer network it loads and lays it over that network's links) | appeared (locked `absent`, now served), changed, or gone (404/410 now): `block`. Cannot be read (timeout, HTTP 5xx): `warn`. A lock written before 2026-11-17 has no `links` for the peer: `warn`, "re-lock to track it", never a silent pass |
 | `peer` signer | the peer's `plumbline.signature.json`, if it has one | kid differs from the lock's: `block`. Signed when locked, no usable signature now: `warn`. Unsigned when locked, signed now: `info`. A `kid` that is not exactly 16 lowercase hex characters is never recorded or quoted; it counts as no usable signature |
 | `peer` pending | each `pendingPeers[url]`: a peer that could not be captured when the lock was written | `warn` on every watch, reachable or not, until `--relock` captures it |
@@ -199,6 +200,29 @@ watch reported it as info, and the copy was refreshed to `7ee54a3` on 2026-11-18
 `..` is refused: it would climb the API's path), `path` a safe relative path, `commit` 7 to 40 hex characters; anything
 else makes the lock `unusable`, and `--init` does not record such a `via` from a NOTICE.
 
+### What changed in a peer: the outline
+
+A peer's changed bytes are changed code, so the finding is `block` whatever changed. The outline says what changed
+without quoting the peer (`src/watch/outline.ts`, pure, run by the CLI's watch and capture and by the Desk through
+`observe.ts`, so both count the same):
+
+- **agents**: per agent, SHA-256 of `canonicalJson(the agent object)`, keyed by SHA-256 of the agent's name. A name is
+  a stranger's word, so it is hashed; equal hashes mean the same agent. An agent without a string name is keyed by its
+  position.
+- **hosts**: the host of every http(s) address in an agent's `tools` (remote agents and MCP endpoints alike) and of
+  every `link_labels` key, lowercased, each as SHA-256, sorted. A new outbound host is where a changed peer can now send
+  the visitor's words.
+- **front**: SHA-256 of the front agent's name by the reference's rule (the validator port's `findFrontAgent`).
+
+A file the outline cannot stand for has none: text that is not JSON, a value without a `tools` array, a value canonical
+JSON refuses, and a file that repeats a key inside one object (the runtime merges duplicates, so `JSON.parse`'s reading
+is not what runs; the validator port fails closed on the same files). The outline is a reading aid: it never lowers the
+severity, and a peer whose outline is unchanged is still `block`.
+
+`plumbline diff <old> <new> [--json]` gives the same diff for two network files on your own disk, with the names and
+hosts shown (your files, your terminal; control and bidirectional-override characters are replaced by `?`). Exit 0 when
+the outlines are the same, 1 when they differ, 2 for a file that cannot be outlined.
+
 ### Accepting drift: `--relock`
 
 `plumbline watch --root <dir> --relock [--drop <ref>]... [--json]`, after a person reviewed the drift and accepts it. It captures the
@@ -229,7 +253,11 @@ error. Only grounding refs are dropped; a peer leaves the lock when no network n
   },
   "grounding": { "sources": [{ "ref": "agent-manifest.json", "sha256": "<sha256>" }], "builtAt": "<ISO UTC>" },
   "peers": {
-    "https://peer.example/partner": { "sha256": "<sha256>", "links": "<sha256> or absent", "kid": "<kid>", "checkedAt": "<ISO UTC>" }
+    "https://peer.example/partner": {
+      "sha256": "<sha256>", "links": "<sha256> or absent", "kid": "<kid>",
+      "outline": { "agents": { "<sha256 of a name>": "<sha256 of the agent>" }, "hosts": ["<sha256 of a host>"], "front": "<sha256 of a name>" },
+      "checkedAt": "<ISO UTC>"
+    }
   },
   "pendingPeers": { "https://later.example/partner": { "since": "<ISO UTC>" } }
 }
@@ -237,7 +265,9 @@ error. Only grounding refs are dropped; a peer leaves the lock when no network n
 
 Every `<sha256>` is the lowercase hex SHA-256 of exact bytes. `peers[url].links` is the hash of the peer's `links.json`
 at its site base, or the literal string `absent` when the peer answered 404 or 410, so a `links.json` that appears later
-is drift. `kid` is present only when the peer published a signature. `runtime.via` is present only when the runtime
+is drift. `kid` is present only when the peer published a signature. `outline` (since 2026-11-18) is the peer's
+definition in outline, below; it is omitted when the definition could not be outlined, and every lock written before
+has none. `runtime.via` is present only when the runtime
 names the repository folder it was copied from, and `pendingPeers` only when a peer could not be captured. Absent
 optional fields are omitted, never `null`.
 
