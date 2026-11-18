@@ -983,6 +983,27 @@ No Character reached these; each cites the code review of 2026-11-18.
 | UAT-35 | Renewal decides on the English word "expire" in a summary | `action/report.mjs:239` | renewal reads a code or structured field (UAT-17), not prose | S | none |
 | UAT-36 | Duplicate skill ids in an Agent Card miscount | `src/watch/external.ts:59-60` (parts keyed by the id's hash; a repeated id overwrites) | a card with a repeated skill id is counted correctly or reported | S | none |
 
+- UAT-33 State: confirmed and fixed (commit 2b2cd83, pin 15a894f), awaiting recertify. `gh pr list --head` matches the
+  branch name alone (gh 2.102.0 has no `owner:branch` form), so a fork's `plumbline/relock` pull request was listed with
+  the Action's own and could be edited, described or closed. The Action now asks for `isCrossRepository` and `prPlan`
+  ignores a pull request whose head is in another repository. Reproduced with `uat/driver/gh-stub.mjs`, which now
+  reports the field as the real gh does; not exercised against real GitHub. Tests: "UAT-33: ..." in
+  `action/report.test.mjs`.
+- UAT-34 State: confirmed and fixed (commit 931d8c8, pin 15a894f), awaiting recertify. With `signing-key`, `relock-pr`
+  ran `watch --relock` and then `sign` in one step that also read the strangers' files, and pushed a publisher signature
+  over the unreviewed relock to the branch. Decided (signing on merge, the second option above): `signing-key` goes with
+  `renew` only and is refused with `relock-pr`; the relock step never holds the key; the relock pull request stays a
+  draft for a person to sign after review, as before for a keyless workflow; `renewNeeded` also answers true for
+  `signature-not-covering`, so a relock merged unsigned is signed by a renewal pull request over files already on the
+  default branch, whose body names the changed files and says that merging vouches for each. A workflow that passed
+  `signing-key` with `relock-pr` now fails its input check with the reason. Tests: "UAT-34: ..." and the updated input,
+  relock-body, UAT-12 and UAT-35 tests in `action/report.test.mjs`. Ceiling: a renewal for changed files signs whatever
+  is on the default branch, including a direct push nobody reviewed; the renewal pull request is then the review.
+- UAT-35 State: confirmed and fixed (commit d1e7198), awaiting recertify: `renewNeeded` reads the expiry codes; only a
+  report written before codes is read from its sentence.
+- UAT-36 State: confirmed and fixed (commit 7c5025a), awaiting recertify: a skill id an Agent Card repeats is counted,
+  never overwritten.
+
 ## Build items: recertify findings (2026-11-18)
 
 Opened by the recertification of J1 and J5 (`uat/runs/2026-11-18-first-five/recertify-j1.md`, `recertify-j5.md`, the
