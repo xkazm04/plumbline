@@ -106,7 +106,7 @@ test("gate --allow-local: a loopback site is reachable only with the flag, which
     const text = await runAsync(tmp, "gate", target, "--adapters", "validator", "--allow-local");
     assert.equal(text.code, 0, text.out + text.err);
     const lines = text.out.trimEnd().split("\n");
-    assert.equal(lines[0], `gate pass: ${target}`);
+    assert.equal(lines[0], `gate pass: ${target} - checked by 1 of 1 (validator pass)`);
     assert.equal(lines.length, 2, text.out);
     assert.match(lines[1] ?? "", /^ {2}pass {8}validator: Plumbline's port of the reference validation rules \(not the reference code\) found no problem/);
 

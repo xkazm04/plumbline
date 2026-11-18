@@ -3,7 +3,7 @@
 // 1: the gate failed by --fail-on, or NOTHING was checked (every adapter `unavailable`, whatever --fail-on says).
 // 2: usage error, including a target that is not an http(s) URL (refused before any adapter runs).
 
-import { runGate, ALL_ADAPTERS, type GateOptions } from "../gate/index.js";
+import { gateSentence, runGate, ALL_ADAPTERS, type GateOptions } from "../gate/index.js";
 import { ArgsError, parseArgs } from "./args.js";
 import type { GateReport } from "../core/types.js";
 
@@ -110,7 +110,8 @@ export async function runGateCommand(argv: string[]): Promise<number> {
   );
   if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   else {
-    process.stdout.write(`gate ${report.state}: ${report.target}\n`);
+    // UAT-9: the headline says what was checked, so partly checked never reads as nothing checked
+    process.stdout.write(`gate ${report.state}: ${report.target} - ${gateSentence(report)}\n`);
     for (const f of report.findings) process.stdout.write(`  ${f.state.padEnd(11)} ${f.adapter}: ${f.summary}\n`);
   }
   // On stderr, so --json output stays one JSON document.

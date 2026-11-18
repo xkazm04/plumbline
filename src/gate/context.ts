@@ -43,6 +43,44 @@ export function worst(states: GateState[]): GateState {
   return out;
 }
 
+// ---- what a gate report says in words: "partly checked" is not "not checked" (UAT-9) ----
+
+/** The checkers' names in a sentence. */
+const CHECKER_NAMES: Record<string, string> = { validator: "validator", atlas: "Atlas", customs: "Customs" };
+const nameOf = (adapter: string): string => CHECKER_NAMES[adapter] ?? adapter;
+const andList = (names: string[]): string => (names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
+
+/**
+ * The site itself could not be reached, by the adapters' own sentences ("the target could not be reached (<why>)":
+ * Plumbline's words, never the site's): the cause, or null. Derived from the findings; nothing new on the wire.
+ */
+export function siteUnreachable(report: { findings: readonly GateFinding[] }): string | null {
+  for (const f of report.findings) {
+    if (f.state !== "unavailable") continue;
+    const m = /the target could not be reached \(([^)]{1,120})\)/.exec(f.summary);
+    if (m?.[1] !== undefined) return m[1];
+  }
+  return null;
+}
+
+/**
+ * One sentence for what a gate report checked, the same on every surface (the CLI headline, the Action summary, the
+ * scan, the Desk): "checked by 1 of 3 (validator pass); Atlas and Customs had no verdict" when some checker answered;
+ * "the site could not be reached (<why>); nothing was checked, so this is not a pass" when the site itself did not
+ * answer; "nothing was checked: every checker was unavailable, so this is not a pass" when no checker answered. The
+ * state and the exit codes are the report's, unchanged (guardrail 6); this only words them.
+ */
+export function gateSentence(report: { findings: readonly GateFinding[] }): string {
+  const checked = report.findings.filter((f) => f.state !== "unavailable");
+  const missing = report.findings.filter((f) => f.state === "unavailable");
+  const down = siteUnreachable(report);
+  const total = report.findings.length;
+  const by = checked.length > 0 ? `checked by ${checked.length} of ${total} (${checked.map((f) => `${nameOf(f.adapter)} ${f.state}`).join(", ")})` : "";
+  if (down !== null) return checked.length > 0 ? `the site could not be reached (${down}); ${by}` : `the site could not be reached (${down}); nothing was checked, so this is not a pass`;
+  if (checked.length === 0) return "nothing was checked: every checker was unavailable, so this is not a pass";
+  return missing.length === 0 ? by : `${by}; ${andList(missing.map((f) => nameOf(f.adapter)))} had no verdict`;
+}
+
 export function makeContext(args: {
   target: string;
   fetch: Fetcher;

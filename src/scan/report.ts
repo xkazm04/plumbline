@@ -7,6 +7,7 @@
 // publishes no signature is "not signed", never a failure.
 
 import { GATE_STATES, LOCK_STATES, type DriftReport, type GateReport, type GateState, type LockState } from "../core/types.js";
+import { gateSentence, siteUnreachable } from "../gate/context.js";
 
 export const SCAN_SCHEMA = "plumbline-ecosystem-scan" as const;
 export const SCAN_VERSION = 1 as const;
@@ -109,7 +110,7 @@ export function escapeHtml(text: string): string {
 const WORDS: Record<string, string> = {
   pass: "pass",
   fail: "fail",
-  unavailable: "unavailable (not checked)",
+  unavailable: "unavailable (no verdict from some or all checkers)",
   clean: "clean",
   info: "clean (info only)",
   warn: "warn",
@@ -119,6 +120,17 @@ const WORDS: Record<string, string> = {
   absent: "not published",
   unknown: "could not be read",
 };
+
+/**
+ * The gate cell (UAT-9): its state with the one sentence every surface uses (gate/context.ts gateSentence), so a site
+ * the validator passed reads "checked by 1 of 3 (validator pass); ..." and a site that did not answer reads "the site
+ * could not be reached (...)" in the alarm colour, never the grey of "a third party had no verdict".
+ */
+function gateCell(gate: GateReport): string {
+  const down = siteUnreachable(gate) !== null;
+  const word = gate.state === "unavailable" ? `unavailable: ${gateSentence(gate)}` : gate.state;
+  return `<td class="s-${down ? "unreachable" : escapeHtml(gate.state)}">${escapeHtml(word)}</td>`;
+}
 
 function cell(state: string, extra = ""): string {
   const word = WORDS[state] ?? state;
@@ -141,7 +153,7 @@ export function renderHtml(report: ScanReport): string {
       const lock = site.watch.lockState ?? "found";
       const kid = site.signature.kid !== undefined ? ` <code>${e(site.signature.kid)}</code>` : "";
       const verdict = site.verdict !== undefined ? ` (${e(site.verdict)} here)` : "";
-      return `<tr><th scope="row"><a href="#site-${i}">${e(site.address)}</a></th>${cell(site.gate.state)}<td>${e(lock)}</td>${cell(site.drift)}${cell(site.signature.state, kid + verdict)}</tr>`;
+      return `<tr><th scope="row"><a href="#site-${i}">${e(site.address)}</a></th>${gateCell(site.gate)}<td>${e(lock)}</td>${cell(site.drift)}${cell(site.signature.state, kid + verdict)}</tr>`;
     })
     .join("\n");
   const details = report.sites
@@ -150,7 +162,7 @@ export function renderHtml(report: ScanReport): string {
       const lockLine = site.watch.lockSummary !== undefined ? `<p>Lock: ${e(site.watch.lockState ?? "")}. ${e(site.watch.lockSummary)}</p>` : "";
       const drift = site.watch.findings.map((f) => `<li><strong>${e(f.severity)}</strong> ${e(f.kind)} <code>${e(f.ref)}</code>: ${e(f.summary)}</li>`).join("");
       const deadline = site.deadlinePassed ? "<p>The site's deadline passed; what was not read by then is unavailable or could not be read.</p>" : "";
-      return `<section id="site-${i}"><h3>${e(site.address)}</h3>${deadline}<h4>Gate: ${e(site.gate.state)}</h4><ul>${gate}</ul><h4>Drift: ${e(WORDS[site.drift] ?? site.drift)}</h4>${lockLine}<ul>${drift}</ul></section>`;
+      return `<section id="site-${i}"><h3>${e(site.address)}</h3>${deadline}<h4>Gate: ${e(site.gate.state)}: ${e(gateSentence(site.gate))}</h4><ul>${gate}</ul><h4>Drift: ${e(WORDS[site.drift] ?? site.drift)}</h4>${lockLine}<ul>${drift}</ul></section>`;
     })
     .join("\n");
   return `<!doctype html>
@@ -164,6 +176,7 @@ export function renderHtml(report: ScanReport): string {
 body { font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 70rem; padding: 1rem; color: #1b1b1b; background: #fff; }
 table { border-collapse: collapse; width: 100%; } th, td { border-bottom: 1px solid #ccc; padding: .3rem .5rem; text-align: left; vertical-align: top; }
 td.s-pass, td.s-clean, td.s-info { color: #1b5e20; } td.s-fail, td.s-block { color: #b71c1c; } td.s-warn { color: #8a4b00; }
+td.s-unreachable { color: #b71c1c; font-weight: bold; }
 td.s-unavailable, td.s-not-checked, td.s-unknown, td.s-absent, td.s-published { color: #424242; }
 code { overflow-wrap: anywhere; } th[scope=row] { overflow-wrap: anywhere; font-weight: normal; }
 </style>
@@ -175,7 +188,7 @@ code { overflow-wrap: anywhere; } th[scope=row] { overflow-wrap: anywhere; font-
 <ul>${report.disclosure.map((d) => `<li>${e(d)}</li>`).join("")}</ul>
 <h2>Summary</h2>
 <ul>${counts("Gate", s.gate)}${counts("Lock", s.lock)}${counts("Drift", s.drift)}${counts("Signature", s.signature)}</ul>
-<p>A gate that is unavailable was not checked; it is never a pass. A lock that was not found means no drift was checked. A clean watch means the locked things match the lock; a gate pass is not a security review.</p>
+<p>A gate that is unavailable is never a pass: some or all of its checkers had no verdict, and its cell says which ("checked by 1 of 3 ...", or "nothing was checked"); a site that could not be reached is marked in red. A lock that was not found means no drift was checked. A clean watch means the locked things match the lock; a gate pass is not a security review.</p>
 <h2>Sites</h2>
 <table>
 <thead><tr><th scope="col">Address</th><th scope="col">Gate</th><th scope="col">Lock</th><th scope="col">Drift</th><th scope="col">Signature</th></tr></thead>

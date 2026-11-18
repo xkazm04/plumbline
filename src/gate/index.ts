@@ -12,6 +12,7 @@ import type { PinnedCustomsKey } from "./context.js";
 import { runGateWith, type GateOptions } from "./run.js";
 
 export { ALL_ADAPTERS, type GateOptions } from "./run.js";
+export { gateSentence, siteUnreachable } from "./context.js";
 
 /** Injection points for tests and for pointing the gate at a different Atlas or Customs host. Production passes none. */
 export interface GateDeps {

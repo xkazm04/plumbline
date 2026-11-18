@@ -23,6 +23,22 @@ stays one JSON document). Otherwise `--fail-on fail` fails only on a `fail`, so 
 for an all-unavailable run under `--fail-on fail`; bp's adoption review recorded that as a deviation from "unavailable is
 never pass", and this rule closes it.
 
+**`--fail-on unavailable` fails almost every site today.** Agent Customs has published receipts for few sites (its
+`receipts/index.json` listed a handful on 2026-11-18), so its adapter is `unavailable` ("no receipt for this target")
+for nearly every site, and with `--fail-on unavailable` a site the validator and Agent Atlas passed fails the build on
+Customs alone. To fail on a partly checked site without that, leave Customs out (`--adapters validator,atlas`) and use
+`--fail-on unavailable`; or keep the default `--fail-on fail`, which fails on a real defect and on a run that checked
+nothing.
+
+**What was checked, in words (UAT-9).** The headline says it beside the state, in one sentence every surface uses (the
+CLI, the Action's job summary, the scan, the Desk; `src/gate/context.ts` `gateSentence`, derived from the findings, no
+new field): `gate unavailable: <target> - checked by 1 of 3 (validator pass); Atlas and Customs had no verdict` when some
+checker answered; `- the site could not be reached (<why>); nothing was checked, so this is not a pass` when the site
+itself did not answer (an adapter's own "the target could not be reached" sentence); `- nothing was checked: every
+checker was unavailable, so this is not a pass` when no checker answered. The state and the exit codes are unchanged.
+The Action's summary puts the last two in its heading; the scan's gate cell carries the sentence and draws a site that
+could not be reached in red; the Desk's result and verdict card do the same.
+
 `--allow-local` lets the gate check a site on this machine: it allows `http` and loopback addresses (`127/8`, `::1`) for
 this run, and prints a one-line warning to stderr. It still refuses every private range (`10/8`, `172.16/12`,
 `192.168/16`, `169.254/16`, `fc00::/7` and the rest of rule 2 below) and `http` to a public address. The Action never
@@ -465,7 +481,7 @@ Failures carry their own code, and one table words them for the gate, the watch 
 ## What a clean report does NOT mean
 
 - **A gate `pass` is not a security review.** The validator port checks structure, not what the instructions say. Atlas checks public files against a spec profile ("not that a site's agents are safe to trust"). A Customs receipt is a stamp on one inspection on one date; the live network was not rechecked.
-- **`unavailable` is not `pass`.** A gate where every adapter was `unavailable` exits 1 under either `--fail-on`. Fail the build on any `unavailable` (`--fail-on unavailable`) if a partly checked site must not ship.
+- **`unavailable` is not `pass`.** A gate where every adapter was `unavailable` exits 1 under either `--fail-on`. Fail the build on any `unavailable` (`--fail-on unavailable`) if a partly checked site must not ship; Agent Customs has receipts for few sites, so pair it with `--adapters validator,atlas` (above).
 - **A clean watch means the locked things match the lock, and the site names nothing the lock misses.** The coverage check sees a new root agent file, a new manifest-named network and a new peer. The CLI's watch also sees a file added to the locked runtime folder (the Desk does not: a browser cannot list a folder). It does not see a new file of the kind only `--source` locks; the added refs `--relock` lists show those.
 - **It does not verify signatures.** The peer check compares signer kids; the signature itself is verified by the verifier in `src/core` against a trust store.
 - **It sees only public files and only what the fetch could reach.** A peer that serves different bytes to different visitors, or only to browsers, is not seen. A peer on a private address is never contacted.

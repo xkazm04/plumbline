@@ -208,3 +208,43 @@ test("scanSite: a site past its deadline is unavailable and not checked, never p
   assert.equal(result.signature.state, "unknown");
   assert.equal(result.deadlinePassed, true);
 });
+
+test("UAT-9: partly checked is not not checked: the gate cell, the CLI's sentence and the site that could not be reached", async () => {
+  const { gateSentence, siteUnreachable } = await import("../gate/context.js");
+  const healthy: GateReport = {
+    target: "https://healthy.example/",
+    state: "unavailable",
+    findings: [
+      { adapter: "validator", state: "pass", summary: "The validator port found no problem: 1 network definition checked." },
+      { adapter: "atlas", state: "unavailable", summary: "Agent Atlas could not connect to the target, so it has no verdict about the site." },
+      { adapter: "customs", state: "unavailable", summary: "Unavailable: no receipt for this target in Agent Customs' published receipts." },
+    ],
+  };
+  const down: GateReport = {
+    target: "https://down.example/",
+    state: "unavailable",
+    findings: [
+      { adapter: "validator", state: "unavailable", summary: "The validator port could not run: the target could not be reached (the request timed out)." },
+      { adapter: "atlas", state: "unavailable", summary: "Agent Atlas answered HTTP 503, so there is no verdict." },
+    ],
+  };
+  assert.equal(gateSentence(healthy), "checked by 1 of 3 (validator pass); Atlas and Customs had no verdict");
+  assert.equal(siteUnreachable(healthy), null);
+  assert.equal(gateSentence(down), "the site could not be reached (the request timed out); nothing was checked, so this is not a pass");
+  assert.equal(gateSentence({ findings: [{ adapter: "atlas", state: "unavailable", summary: "x" }] }), "nothing was checked: every checker was unavailable, so this is not a pass");
+  assert.equal(gateSentence({ findings: [{ adapter: "validator", state: "pass", summary: "ok" }, { adapter: "atlas", state: "fail", summary: "no" }] }), "checked by 2 of 2 (validator pass, Atlas fail)");
+  const report: ScanReport = {
+    schema: "plumbline-ecosystem-scan",
+    version: 1,
+    scannedAt: NOW.toISOString(),
+    tool: { name: "plumbline", version: "0.1.0" },
+    disclosure: [...DISCLOSURE],
+    settings: { siteDeadlineMs: 120000, delayMs: 2000 },
+    summary: summarise([]),
+    sites: [site(healthy.target, healthy, { lockState: "found", findings: [] }), site(down.target, down, { lockState: "unreadable", lockSummary: "x", findings: [] })],
+  };
+  const html = renderHtml(report);
+  assert.match(html, /<td class="s-unavailable">unavailable: checked by 1 of 3 \(validator pass\); Atlas and Customs had no verdict<\/td>/);
+  assert.match(html, /<td class="s-unreachable">unavailable: the site could not be reached \(the request timed out\); nothing was checked, so this is not a pass<\/td>/);
+  assert.match(html, /td\.s-unreachable \{ color: #b71c1c; font-weight: bold; \}/);
+});
