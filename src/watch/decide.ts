@@ -730,7 +730,8 @@ export interface LockChanges {
 
 /**
  * The refs that differ between the lock a person reviewed and the one `--relock` writes, each labelled with its part
- * (`grounding <ref>`, `runtime <file>`, `peer <url>`, `pending <url>`, `runtime commit`, `runtime via`). Sorted.
+ * (`grounding <ref>`, `runtime <file>`, `peer <url>`, `external <url>`, `pending <url>`, `runtime commit`, `runtime via`).
+ * Sorted.
  */
 export function lockChanges(before: Lock | undefined, after: Lock): LockChanges {
   const added: string[] = [];

@@ -124,8 +124,13 @@ networks Customs lists get receipts (its `tools/receipt-sites.json`), so most ta
 ## The watch
 
 `plumbline watch [--root <dir>] [--init | --relock [--drop <ref>]...] [--source <ref>]... [--external a2a-card=<url>]... [--timeout <ms>] [--json]`. It is a dry run: it
-reports, and with `--init` and no lock yet it writes `plumbline.lock.json`. With a lock present, `--init` does not
-overwrite it; `--relock` does (below). Opening, editing and closing the drift issue is the Action's job (`issues: true`,
+reports, and with `--init` and no lock yet it writes `plumbline.lock.json` and says so (`watch: wrote plumbline.lock.json (N
+grounding sources, N runtime files, N peers, N pending)`; `--json`: `{ lock: "written", lockState: "found", findings, facts,
+firstSigners? }`). With a lock present, `--init` does not overwrite it; `--relock` does (below). It says `watch: kept the
+plumbline.lock.json that is there (...)`, adds an `info` finding for each `--source` and `--external` it could not add,
+naming the relock that does ("Not added: a lock was already there, and --init never rewrites one; add it with watch
+--relock --external a2a-card=<url> after a review.", UAT-14), and then watches that lock as usual (`--json`: `{ lock:
+"kept", lockState, findings }`). Opening, editing and closing the drift issue is the Action's job (`issues: true`,
 `action/action.yml`), never the library's. Exit 0 when no finding is `warn` or `block` (`info` alone is clean), 1 otherwise, 2 for a usage or
 I/O error: a usage error prints its reason and the usage line on stderr and nothing on stdout; an I/O error (a lock that
 cannot be written, a `--root` that is a file under `--relock`) prints `watch failed: <reason>`, which the Action reads as
@@ -367,8 +372,9 @@ the outlines are the same, 1 when they differ, 2 for a file that cannot be outli
 
 ### Beyond this spec: an A2A Agent Card in the lock
 
-A site whose assistant also depends on an A2A agent can lock that agent's card: `plumbline watch --init` (or `--relock`)
-`--external a2a-card=<https url>` (repeatable). The card is fetched through
+A site whose assistant also depends on an A2A agent can lock that agent's card: `plumbline watch --init` (a first lock)
+or `--relock` (an existing one) with `--external a2a-card=<https url>` (repeatable); on an existing lock `--init` adds
+nothing and says so, naming `--relock --external`. The card is fetched through
 `safeFetch` and recorded in the lock's `external` member (since 2026-11-18): its exact-byte SHA-256 and, per skill,
 SHA-256 of `canonicalJson(skill)` keyed by SHA-256 of the skill's `id` (by position when it has none), so a change is
 counted without quoting the card. A new card that cannot be fetched is left out of the lock and is a `warn` at capture
@@ -399,7 +405,7 @@ reason, and a lock that holds an `mcp-tools` entry gets a `warn` saying it was n
 current state exactly as `--init` does, plus every grounding ref the previous lock held (so a `--source` given at init is
 kept; one that is gone now is a finding and leaves the lock), writes the lock in place (beside it, then renamed over it,
 so a failed write leaves the old one), and prints what changed: `added`, `removed` and `changed` refs, each labelled
-`grounding`, `runtime`, `peer`, `pending`, `runtime commit` or `runtime via`. When the site publishes a
+`grounding`, `runtime`, `peer`, `external`, `pending`, `runtime commit` or `runtime via`. When the site publishes a
 `plumbline.signature.json`, it ends with the reminder that the lock is a signed file; a site with none is not told to
 sign (UAT-12). With `--json` it prints `{ relocked, previous, changes: { added, removed, changed }, findings, signers?,
 firstSigners?, facts, reminder? }` (`reminder` only for a signed site). Exit 0 when it wrote the lock. `--init` and `--relock` together are a usage error.

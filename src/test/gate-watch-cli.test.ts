@@ -323,3 +323,31 @@ test("watch --json with no lock reports lockState absent and no findings, and st
   assert.deepEqual([parsed.lockState, parsed.findings], ["absent", []]);
   assert.match(parsed.lockSummary, /^no lock: /);
 });
+
+test("UAT-14 (TOM-L1-05, TOM-L1-14): watch --init says wrote or kept, carries lockState, and a flag it cannot act on names the relock", () => {
+  const root = mkdtempSync(path.join(tmp, "watch-init-says-"));
+  writeFileSync(path.join(root, "agent-manifest.json"), '{ "networks": [] }\n');
+  const wrote = runSync(root, "watch", "--root", root, "--init", "--json", "--timeout", "2000");
+  assert.equal(wrote.code, 0, wrote.out + wrote.err);
+  const first = JSON.parse(wrote.out) as { lock: string; lockState: string };
+  assert.deepEqual([first.lock, first.lockState], ["written", "found"]);
+  const lockFile = path.join(root, "plumbline.lock.json");
+  const before = readFileSync(lockFile, "utf8");
+
+  const card = "https://cards.example/.well-known/agent-card.json";
+  const text = runSync(root, "watch", "--root", root, "--init", "--external", `a2a-card=${card}`, "--source", "rooms.html", "--timeout", "2000");
+  assert.equal(text.code, 0, text.out + text.err);
+  assert.match(text.out, /^watch: kept the plumbline\.lock\.json that is there \(--init never rewrites a lock; accept changes with watch --relock after a review\)$/m);
+  assert.ok(text.out.includes(`info  peer ${card}: Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --external a2a-card=${card} after a review.`), text.out);
+  assert.ok(text.out.includes("info  grounding rooms.html: Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --source rooms.html after a review."), text.out);
+  assert.equal(readFileSync(lockFile, "utf8"), before, "the lock is not touched");
+
+  const json = JSON.parse(runSync(root, "watch", "--root", root, "--init", "--external", `a2a-card=${card}`, "--json", "--timeout", "2000").out) as { lock: string; lockState: string; findings: { ref: string; severity: string }[] };
+  assert.deepEqual([json.lock, json.lockState], ["kept", "found"]);
+  assert.ok(json.findings.some((f) => f.ref === card && f.severity === "info"));
+
+  // a fresh folder's text output says it wrote the lock
+  const fresh = mkdtempSync(path.join(tmp, "watch-init-wrote-"));
+  writeFileSync(path.join(fresh, "agent-manifest.json"), '{ "networks": [] }\n');
+  assert.match(runSync(fresh, "watch", "--root", fresh, "--init", "--timeout", "2000").out, /^watch: wrote plumbline\.lock\.json \(\d+ grounding sources, \d+ runtime files, 0 peers, 0 pending\)$/m);
+});

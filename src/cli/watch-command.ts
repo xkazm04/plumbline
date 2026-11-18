@@ -16,7 +16,8 @@ import { RESIGN_REMINDER, type WatchReport } from "../watch/decide.js";
 import { factCoverageCounts, factCoverageLines } from "../watch/anchors.js";
 import { firstSignerWords, RelockRefused, runInit, runRelock, runWatch, runWatchUrl, type RelockRefusal, type RelockReport, type SignerChange } from "../watch/index.js";
 import { readTrustFile } from "./files.js";
-import { SIGNATURE_FILE, type TrustEntry } from "../core/types.js";
+import { LOCK_FILE, SIGNATURE_FILE, type TrustEntry } from "../core/types.js";
+import { readLock } from "../watch/lock.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
 import { parseExternalArg } from "../watch/external.js";
 import type { ExternalKind } from "../core/types.js";
@@ -148,14 +149,17 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
       return 2;
     }
     if (written !== null) {
+      // UAT-14 (TOM-L1-14): --init says it wrote the lock, and its JSON carries lockState like every other report
       if (json) {
         const first = written.firstSigners !== undefined ? { firstSigners: written.firstSigners } : {};
-        process.stdout.write(`${JSON.stringify({ findings: written.findings, facts: factCoverageCounts(written.coverage), ...first }, null, 2)}\n`);
+        process.stdout.write(`${JSON.stringify({ lock: "written", lockState: "found", findings: written.findings, facts: factCoverageCounts(written.coverage), ...first }, null, 2)}\n`);
       } else {
+        process.stdout.write(`watch: wrote ${LOCK_FILE} (${await lockCounts(root)})\n`);
         for (const line of factCoverageLines(written.coverage)) process.stdout.write(`${line}\n`);
         for (const f of written.firstSigners ?? []) process.stdout.write(`signer  peer ${f.peer}: ${firstSignerWords(f)}\n`);
+        for (const f of written.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
       }
-      return json ? exitOf({ findings: written.findings }) : printReport({ findings: written.findings }, false);
+      return exitOf({ findings: written.findings });
     }
   }
 
@@ -165,6 +169,21 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
   } catch (error) {
     process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
     return 2;
+  }
+  if (init) {
+    // UAT-14 (TOM-L1-05): a lock is already there, and --init never rewrites one. Each --source and --external it
+    // could not add is said, naming the relock that does; then this is the ordinary watch of that lock.
+    const notAdded: WatchReport["findings"] = [
+      ...extraSources.map((ref) => ({ kind: "grounding" as const, severity: "info" as const, ref, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --source ${ref} after a review.` })),
+      ...externals.map((e) => ({ kind: "peer" as const, severity: "info" as const, ref: e.url, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --external ${e.kind}=${e.url} after a review.` })),
+    ];
+    const kept = { ...report, findings: [...notAdded, ...report.findings] };
+    if (json) {
+      process.stdout.write(`${JSON.stringify({ lock: "kept", ...kept }, null, 2)}\n`);
+      return exitOf(kept);
+    }
+    process.stdout.write(`watch: kept the ${LOCK_FILE} that is there (--init never rewrites a lock; accept changes with watch --relock after a review)\n`);
+    return printReport(kept, false);
   }
   return printReport(report, json);
 }
@@ -261,6 +280,14 @@ function printReport(report: WatchReport, json: boolean): 0 | 1 {
     for (const f of report.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
   }
   return exitOf(report);
+}
+
+/** What a lock just written holds, in the words init uses: "N grounding sources, N runtime files, N peers, N pending". */
+async function lockCounts(root: string): Promise<string> {
+  const read = await readLock(root);
+  const lock = read.kind === "ok" ? read.lock : undefined;
+  const n = (o: object | undefined) => Object.keys(o ?? {}).length;
+  return `${lock?.grounding.sources.length ?? 0} grounding sources, ${n(lock?.runtime.files)} runtime files, ${n(lock?.peers)} peers, ${n(lock?.pendingPeers)} pending${lock?.external !== undefined ? `, ${n(lock.external)} external` : ""}`;
 }
 
 function exitOf(report: WatchReport): 0 | 1 {

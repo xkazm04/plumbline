@@ -170,6 +170,7 @@ async function watch(argv) {
     process.stdout.write(relockOutput(result, json, existsSync(path.join(root, "plumbline.signature.json"))));
     return 0;
   }
+  const hadLock = existsSync(path.join(root, "plumbline.lock.json"));
   let report;
   try {
     report = await runWatch(options, deps);
@@ -178,13 +179,28 @@ async function watch(argv) {
     return 2;
   }
   if (init && report.lockState === undefined) {
-    // runWatch with init and no lock wrote one and returned the capture's findings (as `watch --init` prints them)
-    if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    // runWatch with init and no lock wrote one and returned the capture's findings, said as `watch --init` says them
+    // (src/cli/watch-command.ts: "wrote", and lock and lockState in --json, UAT-14)
+    if (json) process.stdout.write(`${JSON.stringify({ lock: "written", lockState: "found", ...report }, null, 2)}\n`);
     else {
-      if (report.findings.length === 0) process.stdout.write("watch: no drift\n");
+      process.stdout.write("watch: wrote plumbline.lock.json\n");
       for (const f of report.findings) process.stdout.write(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}\n`);
     }
     return report.findings.some((f) => f.severity === "warn" || f.severity === "block") ? 1 : 0;
+  }
+  if (init && hadLock) {
+    // UAT-14: --init never rewrites a lock; each --source and --external it could not add is said, naming the relock
+    const notAdded = [
+      ...sources.map((ref) => ({ kind: "grounding", severity: "info", ref, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --source ${ref} after a review.` })),
+      ...externals.map((e) => ({ kind: "peer", severity: "info", ref: e.url, summary: `Not added: a lock was already there, and --init never rewrites one; add it with watch --relock --external ${e.kind}=${e.url} after a review.` })),
+    ];
+    const kept = { ...report, findings: [...notAdded, ...report.findings] };
+    if (json) {
+      process.stdout.write(`${JSON.stringify({ lock: "kept", ...kept }, null, 2)}\n`);
+      return kept.lockState !== "found" || kept.findings.some((f) => f.severity === "warn" || f.severity === "block") ? 1 : 0;
+    }
+    process.stdout.write("watch: kept the plumbline.lock.json that is there (--init never rewrites a lock; accept changes with watch --relock after a review)\n");
+    return printReport(kept, false);
   }
   return printReport(report, json);
 }
