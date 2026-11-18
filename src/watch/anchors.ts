@@ -390,7 +390,11 @@ export async function anchorsOf(literals: string[], page: Uint8Array): Promise<{
   return { anchors: [...new Set(await Promise.all(facts.watched.map((l) => sha256Hex(l))))].sort() };
 }
 
-/** The hashes of the literals a changed page states now, in the current and the earlier normalisation. */
+/** The hashes of the literals a page states now, in the current and the earlier normalisation. */
+export async function pageLiteralHashes(page: Uint8Array): Promise<Set<string> | { problem: string }> {
+  return pageHashes(page);
+}
+
 async function pageHashes(page: Uint8Array): Promise<Set<string> | { problem: string }> {
   const reduced = pageText(page);
   if ("problem" in reduced) return reduced;

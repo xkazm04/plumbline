@@ -18,7 +18,7 @@
 import { join } from "node:path";
 import { FORMAT_VERSION, LINKS_FILE, MANIFEST_FILE, type DriftFinding, type GroundingSource } from "../core/types.js";
 import { sha256Hex } from "../core/canonical.js";
-import { describeKinds, networkLiterals, pageFacts, type FactCoverage } from "./anchors.js";
+import { describeKinds, networkLiterals, pageFacts, pageLiteralHashes, type FactCoverage } from "./anchors.js";
 import type { Lock, PendingPeer, RuntimeVia } from "./decide.js";
 import { hashLocal, readRef, type DetectorEnv } from "./detectors.js";
 import { discover } from "./discover.js";
@@ -119,9 +119,13 @@ export async function captureLock(
   const refs = [...new Set([...found.refs, ...(options.extraSources ?? [])])].filter((r) => !drop.has(r));
   // the facts the networks' instructions state (anchors.ts), to anchor on every page that states them too
   const literals = new Set<string>();
+  // what the networks state, in both normalisations, hashed (for the stale-fact check of a relock, below)
+  const statedNow = new Map<string, string>();
   for (const ref of found.networks) {
     try {
-      for (const l of networkLiterals(new TextDecoder("utf-8").decode(await readUnderRoot(root, ref)))) literals.add(l);
+      const text = new TextDecoder("utf-8").decode(await readUnderRoot(root, ref));
+      for (const l of networkLiterals(text)) literals.add(l);
+      for (const l of networkLiterals(text, { legacy: true })) statedNow.set(await sha256Hex(l), l);
     } catch {
       // a network that cannot be read is the grounding check's finding; it states nothing to anchor
     }
@@ -130,6 +134,7 @@ export async function captureLock(
   const sources: GroundingSource[] = [];
   const network = [...literals].sort();
   const coverage: FactCoverage = { network, pages: [] };
+  const pagesNow = new Map<string, Set<string>>();
   for (const ref of refs) {
     let read;
     try {
@@ -150,6 +155,8 @@ export async function captureLock(
       continue;
     }
     coverage.pages.push({ ref, ...facts });
+    const now = await pageLiteralHashes(read.bytes);
+    if (!("problem" in now)) pagesNow.set(ref, now);
     // a page that states none of the facts the network states is locked by its bytes only: say so at capture (UAT-1:
     // "warn at zero"). A network that states no fact the watch reads has nothing to anchor; the coverage lines say so.
     if (facts.watched.length === 0 && network.length > 0) {
@@ -163,6 +170,27 @@ export async function captureLock(
     const anchors = [...new Set(await Promise.all(facts.watched.map((l) => sha256Hex(l))))].sort();
     sources.push({ ref, sha256: read.sha256, ...(anchors.length > 0 ? { anchors } : {}) });
   }
+  // A relock never silences a stale fact (UAT-2): a page that no longer states a fact the lock watched on it, while the
+  // network still states that fact and no page in the new lock states it, keeps its earlier record, so every watch
+  // still reports it ("the network still states it ..."), and the relock says so. Correcting the network (or the page),
+  // or --drop, is how it leaves.
+  const statedOnSomePage = new Set([...pagesNow.values()].flatMap((set) => [...set]));
+  for (const [i, source] of sources.entries()) {
+    const before = options.previous?.grounding.sources.find((p) => p.ref === source.ref);
+    const now = pagesNow.get(source.ref);
+    if (before === undefined || now === undefined || before.sha256 === source.sha256 || (before.anchors ?? []).length === 0) continue;
+    const stale = (before.anchors ?? []).filter((h) => !now.has(h) && statedNow.has(h) && !statedOnSomePage.has(h));
+    if (stale.length === 0) continue;
+    sources[i] = before;
+    const kinds = describeKinds(stale.map((h) => statedNow.get(h) ?? "money:"));
+    findings.push({
+      kind: "grounding",
+      severity: "warn",
+      ref: source.ref,
+      summary: `Not accepted: the network still states ${stale.length} fact${stale.length === 1 ? "" : "s"} this page no longer states (${kinds}), and no other locked page states ${stale.length === 1 ? "it" : "them"}, so the agent may answer with an old fact. The lock keeps its earlier record of this page, so every watch still reports it: correct the network (or the page), then re-lock, or take the page out with --drop.`,
+    });
+  }
+
   if (refs.length === 0) {
     findings.push({ kind: "grounding", severity: "info", ref: ".", summary: "No grounding sources were found at the root; pass --source to lock some." });
   }

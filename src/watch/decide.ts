@@ -17,6 +17,7 @@ import {
   LOCK_FILE,
   PEER_LINKS_ABSENT,
   SIGNATURE_FILE,
+  SUBJECT_PATH_PATTERN,
   type DriftFinding,
   type DriftReport,
   type PeerRecord,
@@ -462,6 +463,32 @@ export function signatureExpiryFinding(text: string | undefined, now: Date): Dri
     ref: SIGNATURE_FILE,
     actual: when.slice(0, 10),
     summary: `The site's signature expires on ${when.slice(0, 10)}, in ${days} day${days === 1 ? "" : "s"}; sign the site again before then.`,
+  };
+}
+
+/**
+ * Whether the site's own plumbline.signature.json still covers its files: each subject's SHA-256 against the hash of
+ * the file at that path now (exact bytes, as `sign` hashed them). No trust store is needed: the signature's own subject
+ * list is compared with the files, not verified (that is `verify`). A file that differs or is gone means every verifier
+ * answers invalid (tampered): `block`, as an expired signature is (UAT-2, MAR-L2-03). Null when every subject matches,
+ * or when there is no signature file or no subject list to compare (the expiry check reports an unreadable file).
+ *
+ * :param subjects: the signature's `subjects` as parsed (anything; only well-formed entries are compared).
+ * :param read: the hash of the file at a subject path now, or null when it is missing or cannot be read.
+ */
+export async function signatureCoverageFinding(subjects: unknown, read: (path: string) => Promise<string | null>): Promise<DriftFinding | null> {
+  if (!Array.isArray(subjects)) return null;
+  const entries = subjects.filter((s): s is { path: string; sha256: string } => isObject(s) && typeof s.path === "string" && SUBJECT_PATH_PATTERN.test(s.path) && isSafePath(s.path) && isHex(s.sha256));
+  if (entries.length === 0) return null;
+  const differ: string[] = [];
+  for (const s of entries) if ((await read(s.path)) !== s.sha256) differ.push(s.path);
+  if (differ.length === 0) return null;
+  const named = differ.length <= 3 ? differ.join(", ") : `${differ.slice(0, 3).join(", ")} and ${differ.length - 3} more`;
+  return {
+    kind: "grounding",
+    severity: "block",
+    ref: SIGNATURE_FILE,
+    summary: `The site's signature no longer covers its files: ${differ.length} of ${entries.length} signed file${entries.length === 1 ? "" : "s"} ${differ.length === 1 ? "differs" : "differ"} from the signed version or ${differ.length === 1 ? "is" : "are"} missing (${named}), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign).`,
   };
 }
 

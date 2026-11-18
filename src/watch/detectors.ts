@@ -19,6 +19,7 @@ import {
   type PendingObservation,
   runtimeFinding,
   runtimeFolder,
+  signatureCoverageFinding,
   signatureExpiryFinding,
   type Lock,
   type Observed,
@@ -214,6 +215,24 @@ export async function detectSignature(env: DetectorEnv): Promise<DriftFinding[]>
     if (error instanceof ReadProblem && error.missing) return [];
     return [{ kind: "grounding", severity: "warn", ref: SIGNATURE_FILE, summary: `The site's signature file could not be read to check its expiry: it ${error instanceof ReadProblem ? error.message : "could not be read"}.` }];
   }
-  const finding = signatureExpiryFinding(text, env.now);
-  return finding ? [finding] : [];
+  const out: DriftFinding[] = [];
+  const expiry = signatureExpiryFinding(text, env.now);
+  if (expiry) out.push(expiry);
+  // and whether it still covers the files it lists (UAT-2): its subject hashes against the files now, no trust needed
+  let subjects: unknown;
+  try {
+    const parsed: unknown = JSON.parse(text.replace(/^﻿/, ""));
+    subjects = typeof parsed === "object" && parsed !== null ? (parsed as { subjects?: unknown }).subjects : undefined;
+  } catch {
+    subjects = undefined;
+  }
+  const coverage = await signatureCoverageFinding(subjects, async (path) => {
+    try {
+      return await hashBytes(await readUnderRoot(env.root, path));
+    } catch {
+      return null;
+    }
+  });
+  if (coverage) out.push(coverage);
+  return out;
 }

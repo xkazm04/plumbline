@@ -289,3 +289,64 @@ test("UAT-1: init and --relock print, per --source page, the kinds of fact watch
   const relock = run("watch", "--root", root, "--relock");
   assert.match(relock.out, /^facts rooms\.html: watches 4 /m);
 });
+
+// ---- UAT-2: an accept never silences a stale fact; a merge never closes clean over a broken signature ----
+
+test("UAT-2: a relock does not accept a page that dropped a fact the network still states; it keeps the earlier record and says so", async () => {
+  const { runRelock } = await import("../watch/index.js");
+  const root = larchSite();
+  await watch(root, baseRoutes(), { init: true, extraSources: ["rooms.html"] });
+  const before = readFileSync(join(root, LOCK_FILE), "utf8");
+  const pageBefore = (JSON.parse(before) as PlumblineLock).grounding.sources.find((s) => s.ref === "rooms.html");
+  writeFileSync(join(root, "rooms.html"), ROOMS("€95"));
+  const relocked = await runRelock({ root }, { fetch: scripted(baseRoutes()).fetch, now: () => NOW });
+  assert.deepEqual(relocked.changes.changed, [], "rooms.html is not accepted");
+  const kept = relocked.findings.find((f) => f.ref === "rooms.html");
+  assert.equal(kept?.severity, "warn");
+  assert.match(kept?.summary ?? "", /^Not accepted: the network still states 1 fact this page no longer states \(1 price\), and no other locked page states it/);
+  assert.ok(!(kept?.summary ?? "").includes("89") && !(kept?.summary ?? "").includes("€"));
+  const lock = JSON.parse(readFileSync(join(root, LOCK_FILE), "utf8")) as PlumblineLock;
+  assert.deepEqual(lock.grounding.sources.find((s) => s.ref === "rooms.html"), pageBefore);
+  // so the next watch still reports the stale fact
+  const next = (await watch(root, baseRoutes())).findings.find((f) => f.ref === "rooms.html");
+  assert.match(next?.summary ?? "", /the network still states it \(1 price\), so the agent may now answer with an old fact/);
+
+  // once the network is corrected, the relock accepts the page
+  writeFileSync(join(root, "fixture_guesthouse.network.json"), JSON.stringify(LARCH("€95")));
+  const fixed = await runRelock({ root }, { fetch: scripted(baseRoutes()).fetch, now: () => NOW });
+  assert.ok(fixed.changes.changed.includes("grounding rooms.html"), JSON.stringify(fixed.changes));
+  assert.ok(!fixed.findings.some((f) => f.ref === "rooms.html"));
+});
+
+test("UAT-2: a fact moved to another locked page is not stale: the relock accepts the change", async () => {
+  const { runRelock } = await import("../watch/index.js");
+  const root = larchSite();
+  writeFileSync(join(root, "prices.html"), "<p>Breakfast from 7:00.</p>\n");
+  await watch(root, baseRoutes(), { init: true, extraSources: ["rooms.html", "prices.html"] });
+  writeFileSync(join(root, "rooms.html"), ROOMS("€95"));
+  writeFileSync(join(root, "prices.html"), "<p>Breakfast from 7:00. The double room is €89.</p>\n");
+  const relocked = await runRelock({ root }, { fetch: scripted(baseRoutes()).fetch, now: () => NOW });
+  assert.ok(relocked.changes.changed.includes("grounding rooms.html"), JSON.stringify(relocked.changes));
+  assert.ok(!relocked.findings.some((f) => /Not accepted/.test(f.summary)));
+});
+
+test("UAT-2: the watch reports a site signature that no longer covers its files (no trust store), as a block", async () => {
+  const { signatureCoverageFinding } = await import("../watch/decide.js");
+  const root = larchSite();
+  await watch(root, baseRoutes(), { init: true, extraSources: ["rooms.html"] });
+  const hash = async (rel: string) => sha256Hex(readFileSync(join(root, rel)));
+  const subjects = [{ path: "agent-manifest.json", sha256: await hash("agent-manifest.json") }, { path: LOCK_FILE, sha256: await hash(LOCK_FILE) }];
+  writeFileSync(join(root, "plumbline.signature.json"), JSON.stringify({ type: "plumbline-signature", version: 1, kid: "a".repeat(16), expiresAt: "2027-06-01T00:00:00.000Z", subjects }));
+  const clean = await watch(root, baseRoutes());
+  assert.ok(!clean.findings.some((f) => f.ref === "plumbline.signature.json"), JSON.stringify(clean.findings));
+  // an unsigned relock: the lock changes, the signature does not
+  writeFileSync(join(root, LOCK_FILE), readFileSync(join(root, LOCK_FILE), "utf8").replace(/"builtAt": "[^"]+"/, '"builtAt": "2026-11-19T00:00:00.000Z"'));
+  const broken = (await watch(root, baseRoutes())).findings.find((f) => f.ref === "plumbline.signature.json");
+  assert.equal(broken?.severity, "block");
+  assert.equal(
+    broken?.summary,
+    "The site's signature no longer covers its files: 1 of 2 signed files differs from the signed version or is missing (plumbline.lock.json), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign).",
+  );
+  // malformed subjects are not compared; a path outside the pattern is never read
+  assert.equal(await signatureCoverageFinding([{ path: "../x", sha256: "a".repeat(64) }, { path: "a b", sha256: "b".repeat(64) }], async () => null), null);
+});

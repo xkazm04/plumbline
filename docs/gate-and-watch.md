@@ -112,6 +112,7 @@ a lock the browser was refused), so a drift count is a count of drift.
 | `peer` pending | each `pendingPeers[url]`: a peer that could not be captured when the lock was written | `warn` on every watch, reachable or not, until `--relock` captures it. The checkout's watch asks it again and says why it is still pending today: "it answers now: review it, then run watch --relock to capture it", "it still cannot be read (<cause>)", or "it was not contacted now either: it is not an https address". A reader of a published lock (`watch --url`, the Desk) never contacts a pending peer; it applies the address rule only |
 | coverage | what the site names now (the discovery `--init` uses, below) against what the lock holds | a root agent file or a manifest-named network file not in `grounding.sources`: `warn` (grounding). A peer a network or `links.json` names that is neither in `peers` nor pending: `warn` (peer). A network file that is not JSON, so its peers cannot be read: `warn` (peer). An unsafe `hocon`: `warn`, as at init |
 | signature expiry | the site's own `plumbline.signature.json` at the root, its `expiresAt` | expired: `block` (verifiers answer `invalid expired`). Expiring within 14 days: `warn`, with the date and the days left. No signature file: no finding (signing is the publisher's choice). A file with no readable `expiresAt`: `warn`. Kind `grounding`, ref `plumbline.signature.json` (the wire has three drift kinds; the signed files are the grounding). Checked whatever the lock's state |
+| signature coverage | the same file's `subjects`: each path's SHA-256 against the exact bytes of the file at that path now (no trust store: the subject list is compared, not verified) | a signed file that differs or is gone: `block`, "The site's signature no longer covers its files: K of N signed files differ from the signed version or are missing (<paths>), so verifiers now answer invalid (tampered) until the site is signed again (plumbline sign)." This is how an unsigned relock that was merged shows up: the lock is a signed file. Checkout only (`watch --url` and the Desk check the signature with `verify`) |
 
 **Reading under the root.** Every local file the watch reads (lock references, the lock itself, the manifest, network
 files, the signature) must stay under the root twice: lexically, and, after every symlink and junction is resolved
@@ -341,6 +342,14 @@ no valid kid) keeps the kid the lock recorded (a `warn`: "A peer's signature cou
 `init`, with no kid to keep, the lock records none and says so). A peer that was signed and publishes no signature now
 (404) is recorded unsigned, with a `warn` saying so. So a relock with nothing reachable changes no peer or card ref. A
 peer leaves the lock only when no network names it any more.
+
+**A relock never silences a stale fact** (UAT-2). A page given with `--source` that no longer states a fact the lock
+watched on it, while the network still states that fact and no page in the new lock states it, is not accepted: the
+relock keeps the lock's earlier record of that page (its hash and anchors) with a `warn` ("Not accepted: the network
+still states 1 fact this page no longer states (1 price), and no other locked page states it, ..."), so every later
+watch still reports the stale fact, and the change list does not show the page as changed. It leaves when the network
+(or the page) is corrected and relocked, or when the page is taken out with `--drop`. A fact moved to another locked
+page is not stale.
 
 `--drop <ref>` (repeatable, with `--relock` only) takes a grounding source the publisher no longer wants watched out of
 the lock: it is not captured again, and `removed grounding <ref>` lists it. A later `--relock` does not bring it back. A
