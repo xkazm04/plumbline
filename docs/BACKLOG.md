@@ -146,6 +146,24 @@ may run in parallel, because it adds no claim.
 - standard: `quality-gates/unmeasurable-criteria`.
 - Size: M.
 - Must not break: guardrails 1 and 10; MC-5 runs before release.
+- State: fixed (commits 010120a; harness mirror 81d8ebe), awaiting recertify. Causes confirmed as written. Live on
+  kiln-row (harness relock pinning the four sellers and the card first): `seller-offline`, harness relock: "no ref
+  changed" and "A peer could not be re-read (the connection failed), so the lock keeps its earlier pin (recorded
+  2026-11-18) ..."; `seller-back-changed`, harness watch: `block ... In outline: agents: 1 added, 0 removed, 1
+  changed` (exit 1). `card-offline`, harness relock: the card kept ("could not be re-read ... keeps its earlier
+  record"), next watch still warns. Real-CLI `--relock` on a copy of the pinned lock (it reaches no seller and not
+  the card): "no ref changed", five "keeps its earlier pin/record" warns, lock still 4 peers, 0 pending, 1 card. A
+  500 on ashgrove's signature during a relock (built `runRelock` with a fetch wrapper, since `serve.mjs` has no 500):
+  "A peer's signature could not be read at capture (its signature request answered HTTP 500), so the lock keeps the
+  key it recorded before", kid unchanged. meridian-trips `partner-down` with `relock-pr` (run-action --harness): the
+  issue opens, the PR plan is `none`, no PR, no `plumbline/relock` branch. MC-5 done (the two relocks above).
+  Deviation: "the pending line keeps its reason" is met by asking the pending peer again at each checkout watch ("it
+  answers now: review it, then run watch --relock" / "it still cannot be read (...)" / "it was not contacted now
+  either: it is not an https address"), not by storing the capture-time reason (that would be a wire change); the
+  published reader (watch --url, the Desk) still never contacts a pending peer, so there the line keeps "run watch
+  --relock once it answers" unless the address rule refuses it. Ceiling: a pin kept through an outage is only as
+  fresh as its date; a peer the site stops naming still leaves the lock (by design); the 5xx arm is constructed, not
+  served by the world.
 
 ### UAT-4. Accept is per ref and knows signers
 
