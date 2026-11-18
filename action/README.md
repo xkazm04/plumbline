@@ -100,7 +100,9 @@ with the same commands. The watch keeps reporting such a peer as `block`, so the
 decides. The findings' summaries carry the counts (what changed in a
 peer, how many facts a page no longer states, how many skills a card added). With `signing-key` (a secret holding the
 JSON of `plumbline.private.json`) and `origin`, it also signs, and the body names the kid; without a key, the body says
-to sign locally and the pull request stays a draft. A person merges; the run accepts nothing. A relock that changes no
+to sign locally and the pull request stays a draft. A site that publishes no `plumbline.signature.json` has nothing to
+sign: its pull request is not a draft and its body and issue say nothing about signing (UAT-12), so a scheduled run with
+the pull request open, marked ready and unchanged does nothing. A person merges; the run accepts nothing. A relock that changes no
 ref opens nothing; a body that has not changed pushes nothing; the next run with nothing to accept closes the pull
 request with a comment. Output `pr-action`: `create`, `edit`, `describe`, `close` or `none`. The job needs `contents: write` and
 `pull-requests: write`, and the branch is the Action's own: it is replaced on each push, with a lease that names what
@@ -160,7 +162,8 @@ written (the lock is a signed file) and commit both. It runs daily and on demand
 the Action keeps the drift issue as above. `info` findings
 (upstream runtime is ahead, upstream could not be asked) stay in the job log. When you have reviewed a drift and accept
 it, run `node dist/cli/index.js watch --root <your site> --relock` in that clone: it rewrites the lock from the current
-state and prints what changed. Sign the site again (the lock is a signed file) and commit both. The next run that
+state and prints what changed. If the site is signed, sign it again (the lock is a signed file) and commit both; if not,
+commit the lock. The next run that
 finds nothing to report closes the issue with a comment linking that run; a clean run with no open issue does nothing.
 
 This repository runs the same template on its own Desk (`.github/workflows/watch-desk.yml`), with `uses: ./action` in

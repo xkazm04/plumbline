@@ -103,7 +103,8 @@ function run(args, files) {
     for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
     const out = join(dir, "github-output");
     const summary = join(dir, "step-summary");
-    const env = { ...process.env, GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: summary };
+    // the run's folder is its workspace and site root: the site is signed when `files` holds a plumbline.signature.json
+    const env = { ...process.env, GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: summary, GITHUB_WORKSPACE: dir, PLUMBLINE_ROOT: "." };
     const result = spawnSync(process.execPath, [script, ...args.map((a) => (a.startsWith("@") ? join(dir, a.slice(1)) : a))], {
       env,
       encoding: "utf8",
@@ -123,10 +124,14 @@ function run(args, files) {
 }
 
 test("watch, as the Action runs it: one read, the count and the body path in GITHUB_OUTPUT", () => {
-  const r = run(["watch", "@report.json", "@body.md"], { "report.json": JSON.stringify(drift) });
+  const r = run(["watch", "@report.json", "@body.md"], { "report.json": JSON.stringify(drift), "plumbline.signature.json": "{}" });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.output, `findings=2\nissue-body=${join(r.dir, "body.md")}\n`);
   assert.equal(r.body, issueBody(drift));
+  // UAT-12 (DEV-L1-04): a site that publishes no signature is not told to sign
+  const keyless = run(["watch", "@report.json", "@body.md"], { "report.json": JSON.stringify(drift) });
+  assert.equal(keyless.body, issueBody(drift, { siteSigned: false }));
+  assert.doesNotMatch(keyless.body, /sign/i);
 });
 
 test("watch with a broken report exits 2 and writes no outputs and no body", () => {
@@ -549,10 +554,15 @@ test("the pull request decision: create (a draft when unsigned), none for the sa
 });
 
 test("pr, as the Action runs it: wanted only for open drift whose relock changed a ref; outputs in GITHUB_OUTPUT; a broken report exits 2", () => {
-  const files = { "report.json": JSON.stringify({ lockState: "found", findings: [peerChange] }), "relock.json": JSON.stringify(relockOut), "open.json": "[]" };
+  const files = { "report.json": JSON.stringify({ lockState: "found", findings: [peerChange] }), "relock.json": JSON.stringify(relockOut), "open.json": "[]", "plumbline.signature.json": "{}" };
   const r = run(["pr", "relock", "@report.json", "@relock.json", "-", "@open.json", "@body.md", "@comment.md"], files);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.output, /^action=create\nnumber=\ndraft=true\ntitle=Plumbline: accept the drift \(relock\)\nbranch=plumbline\/relock\nbody=.*body\.md\ncomment=\n$/);
+  // UAT-12: the same run on a site that publishes no signature opens a pull request that is not a draft
+  const { "plumbline.signature.json": _signature, ...keylessFiles } = files;
+  const keyless = run(["pr", "relock", "@report.json", "@relock.json", "-", "@open.json", "@body.md", "@comment.md"], keylessFiles);
+  assert.match(keyless.output, /^action=create\nnumber=\ndraft=false\n/);
+  assert.doesNotMatch(keyless.body ?? "", /sign/i);
   const nothing = run(["pr", "relock", "@report.json", "@relock.json", "-", "@open.json", "@body.md", "@comment.md"], {
     ...files,
     "relock.json": JSON.stringify({ changes: { added: [], removed: [], changed: [] } }),
@@ -832,4 +842,28 @@ test("MAR-RC-3: a page edited again while its stale-fact sentence is unchanged i
   assert.equal(plan.action, "edit");
   assert.doesNotMatch(plan.comment, /New:|no longer on it/);
   assert.match(plan.comment, /Changed again, and what the finding says is unchanged \(its sentence is in the table\):\n\n- \*\*warn\*\* grounding `rooms\.html`\n/);
+});
+
+test("UAT-12 (DEV-L1-04): a keyless site's issue and pull request say nothing about signing, and the pull request is not a draft", () => {
+  for (const report of [drift, { lockState: "absent", findings: [{ kind: "grounding", severity: "block", ref: "plumbline.lock.json", summary: "no lock" }] }]) {
+    const keyless = issueBody(report, { siteSigned: false });
+    assert.doesNotMatch(keyless, /sign/i, keyless);
+    assert.match(keyless, /commit (the lock|it)\./);
+    assert.match(issueBody(report), /sign the site/, "a signed site keeps its reminder, word for word");
+  }
+  const relocked = { mode: "relock", report: { lockState: "found", findings: [peerChange] }, relock: relockOut, kid: null, runUrl: "https://run" };
+  const keyless = prBody({ ...relocked, siteSigned: false });
+  assert.doesNotMatch(keyless, /sign/i, keyless);
+  assert.equal(prBody(relocked), prBody({ ...relocked, siteSigned: true }), "a signed site's body is unchanged");
+  assert.match(prBody(relocked), /\*\*Not signed\.\*\*.*It stays a draft until then\./);
+  // the draft rule: only a signed site that this run did not sign waits as a draft
+  const plan = (siteSigned, open) => prPlan({ mode: "relock", wanted: true, body: keyless, signed: false, open, runUrl: "https://run", siteSigned });
+  assert.deepEqual(plan(false, []), { action: "create", draft: false, title: PR_TITLES.relock, branch: PR_BRANCHES.relock });
+  assert.equal(plan(true, []).draft, true);
+  // a scheduled run with the pull request open, marked ready and unchanged does nothing (no re-draft, no push)
+  assert.deepEqual(plan(false, [{ number: 7, body: keyless, isDraft: false }]), { action: "none", number: 7, draft: false });
+  // a refused relock on a keyless site: one command per peer, then commit the lock; nothing about signing
+  const refused = prBody({ mode: "relock", report: { lockState: "found", findings: [] }, relock: { refused: "signer", peers: [{ peer: "https://p.example/n", from: "0123456789abcdef", to: "fedcba9876543210", how: "a different key" }] }, kid: null, runUrl: "https://run", siteSigned: false });
+  assert.match(refused, /run one command per peer, and commit the lock:/);
+  assert.doesNotMatch(refused.replace(/signer|signed by|no signature/gi, ""), /\bsign\b/i);
 });

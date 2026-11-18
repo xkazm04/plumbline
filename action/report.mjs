@@ -20,7 +20,7 @@
 // report that cannot be read, or has no findings list, is exit 2: the CLI said it wrote one, so that is a real error,
 // and reading it as clean would close an open drift issue.
 
-import { appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -226,9 +226,10 @@ export function signerChangeFindings(findings) {
 /**
  * The drift issue's body, built from warn and block findings only, ending with the hidden digest marker. The commands it
  * gives run in a clone of Plumbline, not in the site's repository, so the site is named as a placeholder: the workflow
- * cannot know where that clone is.
+ * cannot know where that clone is. UAT-12 (DEV-L1-04): `siteSigned` is whether the site publishes
+ * plumbline.signature.json; a site with none is not told to sign (its lock is not a signed file there).
  */
-export function issueBody(report) {
+export function issueBody(report, { siteSigned = true } = {}) {
   const findings = openFindings(report);
   const rows = findings.map((f) => `| ${cell(f.severity)} | ${cell(f.kind)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
   const noLock = findings.some((f) => f.summary === "no lock");
@@ -246,12 +247,13 @@ export function issueBody(report) {
       "",
       noLock
         ? "There is no lock yet. In a clone of xkazm04/plumbline at the commit this workflow pins, run " +
-          `\`npm ci && ${cli} watch --root ${site} --init\`, review the lock, sign the site (the lock is a signed file) ` +
-          "and commit both."
+          `\`npm ci && ${cli} watch --root ${site} --init\`, review the lock` +
+          (siteSigned ? ", sign the site (the lock is a signed file) and commit both." : " and commit it.")
         : "`block` means a vendored runtime file, a peer's definition or a peer's links.json changed: look before the next release. " +
           "After reviewing a change you accept, in a clone of xkazm04/plumbline at the commit this workflow pins, run " +
           `\`${cli} watch --root ${site} --relock\`, ` +
-          "sign the site again (the lock is a signed file) and commit both. The next clean run closes this issue.",
+          (siteSigned ? "sign the site again (the lock is a signed file) and commit both." : "and commit the lock.") +
+          " The next clean run closes this issue.",
       "",
       ...(signerChanged.length > 0
         ? [
@@ -273,9 +275,9 @@ export function issueBody(report) {
  * The watch's outputs: how many findings are warn or block, and the issue body. A report without a findings list throws:
  * read as "no findings" it would close an open drift issue on a run that checked nothing.
  */
-export function watchOutputs(report) {
+export function watchOutputs(report, { siteSigned = true } = {}) {
   if (!Array.isArray(report?.findings)) throw new Error("the watch report has no findings list");
-  return { findings: openFindings(report).length, body: issueBody(report) };
+  return { findings: openFindings(report).length, body: issueBody(report, { siteSigned }) };
 }
 
 const bullet = ([severity, kind, ref], summary) =>
@@ -388,8 +390,9 @@ export function signedKid(sign) {
  * it (their summaries carry the counts: what changed in a peer, how many facts a page no longer states). For a renewal:
  * the expiry finding. Then the signing state: signed in this run with the key in the secret (its kid), or a sentence
  * saying to sign locally, in which case the pull request is a draft. A person merges; nothing is accepted by this run.
+ * UAT-12 (DEV-L1-04): for a site that publishes no signature (`siteSigned` false) the body says nothing about signing.
  */
-export function prBody({ mode, report, relock, kid, runUrl }) {
+export function prBody({ mode, report, relock, kid, runUrl, siteSigned = true }) {
   const lines = [];
   if (mode === "relock" && relock?.refused === "signer") {
     // UAT-4: one proposal for all changes, so nothing is relocked while a signer change waits for a person
@@ -404,7 +407,7 @@ export function prBody({ mode, report, relock, kid, runUrl }) {
     const commands = acceptCommands(peers.map((p) => ({ peer: p.peer, newKey: typeof p.to === "string" })), "node dist/cli/index.js", "<path to your site>");
     lines.push(
       "",
-      `Decide each peer on its own (\`plumbline verify --url\`; \`plumbline adopt\` for a published rotation; for a different key with no rotation, or no signature, ask its publisher out of band). Then, in a clone of xkazm04/plumbline at the commit this workflow pins, run one command per peer, sign the site again and commit both:`,
+      `Decide each peer on its own (\`plumbline verify --url\`; \`plumbline adopt\` for a published rotation; for a different key with no rotation, or no signature, ask its publisher out of band). Then, in a clone of xkazm04/plumbline at the commit this workflow pins, run one command per peer, ${siteSigned ? "sign the site again and commit both" : "and commit the lock"}:`,
       "",
       ...commands.map((c) => `- \`${c}\``),
       "",
@@ -464,13 +467,14 @@ export function prBody({ mode, report, relock, kid, runUrl }) {
     for (const f of openFindings(report).filter((x) => x.ref === SIGNATURE_REF)) lines.push(`- **${cell(f.severity)}** ${cell(f.summary)}`);
     lines.push("");
   }
-  lines.push(
-    kid !== null
-      ? `Signed in this run with the key in the workflow's secret (kid \`${kid}\`). Check the kid is yours before merging.`
-      : "**Not signed.** The lock is a signed file, so the site's signature reads invalid (tampered) until it is signed again. Check out this branch, run `plumbline sign` with your key, push, and mark this pull request ready. It stays a draft until then.",
-    "",
-    "Nothing is accepted until a person merges this. A clean watch closes it.",
-  );
+  if (kid !== null) lines.push(`Signed in this run with the key in the workflow's secret (kid \`${kid}\`). Check the kid is yours before merging.`, "");
+  else if (siteSigned) {
+    lines.push(
+      "**Not signed.** The lock is a signed file, so the site's signature reads invalid (tampered) until it is signed again. Check out this branch, run `plumbline sign` with your key, push, and mark this pull request ready. It stays a draft until then.",
+      "",
+    );
+  }
+  lines.push("Nothing is accepted until a person merges this. A clean watch closes it.");
   // the findings' evidence (UAT-6): a peer that changed again keeps every sentence and count but not its hash, so the
   // body differs, the plan edits, and the branch's lock is pushed again with the new hash
   if (mode === "relock") lines.push("", digestMarker(digestOf(report)));
@@ -485,10 +489,11 @@ export function prBody({ mode, report, relock, kid, runUrl }) {
  * - `none` when the open one's body is this run's (nothing is pushed: the capture times alone are no news);
  * - `close`, with a comment, when none is wanted (a clean run, nothing to accept or renew) and one is open.
  */
-export function prPlan({ mode, wanted, body, signed, open, runUrl, refused = false }) {
+export function prPlan({ mode, wanted, body, signed, open, runUrl, refused = false, siteSigned = true }) {
   if (mode !== "relock" && mode !== "renew") throw new Error("the mode is relock or renew");
   const pr = (Array.isArray(open) ? open : []).find((p) => p && Number.isInteger(p.number));
-  const draft = !signed;
+  // a draft waits for a signature; a site that publishes none has nothing to wait for (UAT-12, DEV-L1-04)
+  const draft = siteSigned && !signed;
   // UAT-4: the relock was refused (a peer's signer changed; CI never accepts one). Nothing is pushed: an open pull
   // request is described (its body says so, a comment notifies), and with none open the issue says it.
   if (refused) {
@@ -515,6 +520,14 @@ function output(name, value) {
   const file = process.env.GITHUB_OUTPUT;
   if (file) appendFileSync(file, `${name}=${value}\n`);
   else process.stdout.write(`${name}=${value}\n`);
+}
+
+/**
+ * Whether the watched site publishes plumbline.signature.json (UAT-12): the file at the workspace's site root, where
+ * the Action's steps run. The pull request step reads it after this run's `sign`, so a site signed in this run counts.
+ */
+export function siteIsSigned(env) {
+  return existsSync(join(env.GITHUB_WORKSPACE ?? process.cwd(), env.PLUMBLINE_ROOT ?? ".", "plumbline.signature.json"));
 }
 
 function main(argv) {
@@ -559,7 +572,7 @@ function main(argv) {
     let findings;
     let body;
     try {
-      ({ findings, body } = watchOutputs(readReport(reportFile)));
+      ({ findings, body } = watchOutputs(readReport(reportFile), { siteSigned: siteIsSigned(env) }));
     } catch (error) {
       process.stderr.write(`::error::cannot read the watch report ${reportFile}: ${error.message}\n`);
       return 2;
@@ -617,9 +630,10 @@ function main(argv) {
       const changes = relock?.changes ?? {};
       const changed = ["added", "removed", "changed"].some((k) => Array.isArray(changes[k]) && changes[k].length > 0);
       const wanted = mode === "relock" ? relock !== null && openFindings(report).length > 0 && changed : renewNeeded(report) && kid !== null;
-      const body = prBody({ mode, report, relock, kid, runUrl });
+      const siteSigned = siteIsSigned(env);
+      const body = prBody({ mode, report, relock, kid, runUrl, siteSigned });
       const refused = mode === "relock" && relock?.refused === "signer";
-      plan = prPlan({ mode, wanted, body, signed: kid !== null, open: JSON.parse(readFileSync(openFile, "utf8")), runUrl, refused });
+      plan = prPlan({ mode, wanted, body, signed: kid !== null, open: JSON.parse(readFileSync(openFile, "utf8")), runUrl, refused, siteSigned });
       writeFileSync(bodyFile, body);
     } catch (error) {
       process.stderr.write(`::error::cannot decide on the pull request: ${error.message}\n`);

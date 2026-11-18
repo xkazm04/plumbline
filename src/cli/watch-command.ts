@@ -10,12 +10,13 @@
 // or block, or no lock could be used (absent, unreadable or unusable: nothing was checked, which is never clean).
 // 2: usage or I/O error.
 
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { RESIGN_REMINDER, type WatchReport } from "../watch/decide.js";
 import { factCoverageCounts, factCoverageLines } from "../watch/anchors.js";
 import { firstSignerWords, RelockRefused, runInit, runRelock, runWatch, runWatchUrl, type RelockRefusal, type RelockReport, type SignerChange } from "../watch/index.js";
 import { readTrustFile } from "./files.js";
-import type { TrustEntry } from "../core/types.js";
+import { SIGNATURE_FILE, type TrustEntry } from "../core/types.js";
 import { ArgsError, parseArgs, repeated } from "./args.js";
 import { parseExternalArg } from "../watch/external.js";
 import type { ExternalKind } from "../core/types.js";
@@ -133,7 +134,8 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
       process.stderr.write(`watch failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
       return 2;
     }
-    process.stdout.write(relockOutput(result, json));
+    // UAT-12 (DEV-L1-04): the reminder to sign again only where there is a signature to keep
+    process.stdout.write(relockOutput(result, json, existsSync(join(root, SIGNATURE_FILE))));
     return 0;
   }
 
@@ -170,12 +172,14 @@ export async function runWatchCommand(argv: string[]): Promise<number> {
 /**
  * What a relock that wrote the lock prints (exported so the UAT harness prints the same): the change list, each signer
  * change a person accepted (UAT-4, TOM-RC-1) and each first signer recorded (TOM-RC-4), the facts the lock watches, the
- * findings and the reminder to sign again; with --json the same in one object, the facts as counts only.
+ * findings and the reminder to sign again; with --json the same in one object, the facts as counts only. UAT-12
+ * (DEV-L1-04): `siteSigned` is whether the site publishes plumbline.signature.json; a site with none is not told to sign
+ * again (its lock is not a signed file there), and its --json has no `reminder`.
  */
-export function relockOutput(result: RelockReport, json: boolean): string {
+export function relockOutput(result: RelockReport, json: boolean, siteSigned = true): string {
   const { coverage, ...rest } = result;
   // --json carries what the lock watches in counts by kind; the literals are for the publisher's terminal only
-  if (json) return `${JSON.stringify({ relocked: true, ...rest, facts: factCoverageCounts(coverage), reminder: RESIGN_REMINDER }, null, 2)}\n`;
+  if (json) return `${JSON.stringify({ relocked: true, ...rest, facts: factCoverageCounts(coverage), ...(siteSigned ? { reminder: RESIGN_REMINDER } : {}) }, null, 2)}\n`;
   const lines = [`relock: wrote plumbline.lock.json (the previous lock was ${result.previous})`];
   const { added, removed, changed } = result.changes;
   for (const ref of added) lines.push(`added   ${ref}`);
@@ -194,7 +198,7 @@ export function relockOutput(result: RelockReport, json: boolean): string {
   if (added.length + removed.length + changed.length === 0) lines.push("no ref changed");
   lines.push(...factCoverageLines(coverage));
   for (const f of result.findings) lines.push(`${f.severity.padEnd(5)} ${f.kind} ${f.ref}: ${f.summary}`);
-  lines.push(RESIGN_REMINDER);
+  if (siteSigned) lines.push(RESIGN_REMINDER);
   return `${lines.join("\n")}\n`;
 }
 

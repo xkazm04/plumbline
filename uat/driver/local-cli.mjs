@@ -37,6 +37,7 @@
 // reads the real ones. Learned from shots/priya/arms/scan-arm.mjs (run 2026-11-18-first-five), whose walker found the
 // harness had no stand-in.
 
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -166,7 +167,7 @@ async function watch(argv) {
       return 2;
     }
     // printed by the CLI's own function (src/cli/watch-command.ts relockOutput): change list, signer lines, facts
-    process.stdout.write(relockOutput(result, json));
+    process.stdout.write(relockOutput(result, json, existsSync(path.join(root, "plumbline.signature.json"))));
     return 0;
   }
   let report;

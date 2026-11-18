@@ -389,9 +389,10 @@ reason, and a lock that holds an `mcp-tools` entry gets a `warn` saying it was n
 current state exactly as `--init` does, plus every grounding ref the previous lock held (so a `--source` given at init is
 kept; one that is gone now is a finding and leaves the lock), writes the lock in place (beside it, then renamed over it,
 so a failed write leaves the old one), and prints what changed: `added`, `removed` and `changed` refs, each labelled
-`grounding`, `runtime`, `peer`, `pending`, `runtime commit` or `runtime via`. It ends with the reminder that the lock is a
-signed file. With `--json` it prints `{ relocked, previous, changes: { added, removed, changed }, findings, signers?,
-firstSigners?, facts, reminder }`. Exit 0 when it wrote the lock. `--init` and `--relock` together are a usage error.
+`grounding`, `runtime`, `peer`, `pending`, `runtime commit` or `runtime via`. When the site publishes a
+`plumbline.signature.json`, it ends with the reminder that the lock is a signed file; a site with none is not told to
+sign (UAT-12). With `--json` it prints `{ relocked, previous, changes: { added, removed, changed }, findings, signers?,
+firstSigners?, facts, reminder? }` (`reminder` only for a signed site). Exit 0 when it wrote the lock. `--init` and `--relock` together are a usage error.
 
 **A relock never forgets what it could not re-read** (UAT-3). What the previous lock held and cannot be read now is
 kept, with a `warn` that says so, never replaced by `pending` or dropped because something is down today: a pinned

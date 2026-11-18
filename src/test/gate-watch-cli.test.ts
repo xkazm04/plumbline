@@ -212,9 +212,17 @@ test("watch --relock rewrites the lock, prints what changed and the re-sign remi
   assert.equal(text.code, 0, text.out + text.err);
   assert.match(text.out, /^relock: wrote plumbline\.lock\.json \(the previous lock was found\)$/m);
   assert.match(text.out, /^changed grounding links\.json$/m);
-  assert.match(text.out, /plumbline\.lock\.json is a signed file: sign the site again/);
+  // UAT-12 (DEV-L1-04): this site publishes no signature, so it is not told to sign again
+  assert.doesNotMatch(text.out, /sign/i, text.out);
   assert.equal(runSync(root, "watch", "--root", root, "--timeout", "2000").code, 0, "clean after the re-lock");
+  const keyless = JSON.parse(runSync(root, "watch", "--root", root, "--relock", "--json", "--timeout", "2000").out) as { reminder?: string };
+  assert.equal(keyless.reminder, undefined, "no reminder member, never null");
 
+  // a site that publishes a signature keeps the reminder, word for word
+  writeFileSync(path.join(root, "plumbline.signature.json"), "{}");
+  const signedText = runSync(root, "watch", "--root", root, "--relock", "--timeout", "2000");
+  assert.equal(signedText.code, 0, signedText.out + signedText.err);
+  assert.match(signedText.out, /^plumbline\.lock\.json is a signed file: sign the site again \(plumbline sign\) and commit both, or its signature reads invalid \(tampered\)\.$/m);
   const json = runSync(root, "watch", "--root", root, "--relock", "--json", "--timeout", "2000");
   assert.equal(json.code, 0);
   const parsed = JSON.parse(json.out) as { relocked: boolean; previous: string; changes: { added: string[]; removed: string[]; changed: string[] }; reminder: string };
