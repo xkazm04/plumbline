@@ -10,5 +10,5 @@ export { verifySignature, invalid, isKid, isPublicKey, isIsoUtc, signerChangeDet
 export { rotateKey, verifyRotation, adoptRotation, walkRotationChain, statementsOf, type RotateOptions, type RotationHop, type RotationWalk } from "./rotate.js";
 export { revokeKey, applyRevocation, applyRevocationText, spreadRevocations, type RevokeOptions, type RevocationOutcome } from "./revoke.js";
 export { signedPathsOf, networkPathOf, codePathOf, isSafeSubjectPath, parseManifest, type SitePresence } from "./signed-paths.js";
-export { countDuplicateKeys } from "./json-keys.js";
+export { countDuplicateKeys, duplicateKeys } from "./json-keys.js";
 export { JWS_ALG, jwsSigningInput, parseDetachedJws, signDetachedJws, verifyDetachedJws, type PlumblineJwsHeader } from "./jws.js";

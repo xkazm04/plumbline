@@ -91,3 +91,29 @@ test("UAT-22: the folder fetcher reads only under the folder; a manifest that na
   assert.equal(report.target, "dist");
   assert.notEqual(report.state, "pass", JSON.stringify(report));
 });
+
+test("UAT-24 (PRI-L1-12): the validator names the network file and the repeated spec key beside the rule, and never quotes another key", async () => {
+  const dir = mkdtempSync(path.join(tmp, "two-"));
+  writeFileSync(
+    path.join(dir, "agent-manifest.json"),
+    JSON.stringify({ brand: "Dunmore Books", networks: [{ name: "dunmore_books", front_man: "books_front", hocon: "./dunmore_books.network.json" }, { name: "gifts", front_man: "books_front", hocon: "./gifts.network.json" }] }),
+  );
+  writeFileSync(path.join(dir, "dunmore_books.network.json"), FIXED);
+  writeFileSync(path.join(dir, "gifts.network.json"), LAUNCH);
+  const report = await gateFolder(dir, "dist");
+  const summary = report.findings[0]?.summary ?? "";
+  assert.equal(report.state, "fail");
+  assert.match(summary, /1 x duplicate keys: the reference runtime merges them, so the file means something different from what a JSON reader sees; gifts\.network\.json repeats "commondefs" \(2 network definitions checked\)\.$/);
+  assert.ok(!summary.includes("dunmore_books.network.json"), "the clean file is not named");
+
+  // a repeated key that is not a spec key is counted, never quoted
+  writeFileSync(path.join(dir, "gifts.network.json"), '{ "tools": [{ "name": "books_front", "instructions": "x", "tools": [], "<b>evil</b>": 1, "<b>evil</b>": 2 }] }');
+  const other = (await gateFolder(dir, "dist")).findings[0]?.summary ?? "";
+  assert.match(other, /gifts\.network\.json repeats 1 other key \(not named: not a key of the spec\)/);
+  assert.ok(!other.includes("evil"), other);
+
+  const { fileLabel } = await import("../gate/adapter-validator.js");
+  assert.equal(fileLabel("https://s.example/nets/a.network.json", "https://s.example/"), "nets/a.network.json");
+  assert.equal(fileLabel("https://other.example/x/b.network.json", "https://s.example/"), "b.network.json");
+  assert.equal(fileLabel("https://s.example/%3Cb%3E.json", "https://s.example/"), "a network definition");
+});

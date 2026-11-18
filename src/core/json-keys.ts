@@ -19,8 +19,18 @@ type Expect = "value" | "value-or-close" | "key" | "key-or-close" | "after";
  * stack.
  */
 export function countDuplicateKeys(text: string): number {
+  return duplicateKeys(text).length;
+}
+
+/**
+ * The duplicate keys of a JSON text, one entry per duplicate member (a key repeated twice in one object is listed once,
+ * three times twice), in text order, unescaped. The caller decides what of them may be shown: a key is the file's own
+ * word (UAT-24: the gate names only keys of the agentic-web spec). Throws on text that is not JSON, as
+ * countDuplicateKeys does.
+ */
+export function duplicateKeys(text: string): string[] {
   let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
-  let duplicates = 0;
+  const duplicates: string[] = [];
   const stack: Frame[] = [];
   let expect: Expect = "value";
 
@@ -101,7 +111,7 @@ export function countDuplicateKeys(text: string): number {
       if (frame?.kind !== "object") fail();
       const key = readString();
       const keys = (frame as { keys: Set<string> }).keys;
-      if (keys.has(key)) duplicates++;
+      if (keys.has(key)) duplicates.push(key);
       else keys.add(key);
       ws();
       if (text[i] !== ":") fail();
