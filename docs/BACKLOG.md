@@ -555,6 +555,15 @@ may run in parallel, because it adds no claim.
 - standard: none.
 - Size: S.
 - Must not break: guardrail 2.
+- State: fixed (commit 8c48cba, pin b106f53), awaiting recertify. Cause confirmed: `printReport` in
+  `src/cli/watch-command.ts` wrote `f.ref` as the lock held it. Every text report of the watch (`--url`, the checkout,
+  the `--init` "kept" report) now replaces C0, C1, DEL and the bidi controls with `?` in refs, summaries and the lock
+  summary, through `plumbline diff`'s own `printable`; `--json` keeps the strings, which JSON escapes. The UAT harness's
+  mirror does the same. Test: "UAT-16 ..." in `src/test/cli-init-watch-url.test.ts` (a loopback site publishing a lock
+  whose grounding ref carries ESC sequences and whose peer address carries a right-to-left override and a BEL: the text
+  output holds none of them, "rooms?[2J?[31m.html" and "p?evil?" instead). Not walked on a world: every world lock is
+  the product's own (as the item says). Ceiling: `init` and `--relock` print the publisher's own refs through their own
+  lines, unchanged here.
 
 ## Build items: completeness
 
