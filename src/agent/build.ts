@@ -30,7 +30,7 @@ import type { McpListResult, McpToolLister } from "../net/mcp-http.js";
 import { observeExternal, type ExternalObservation } from "../watch/external.js";
 import { matchFiles } from "./discover.js";
 import { byPath } from "./glob.js";
-import { parsePending } from "./pending.js";
+import { parsePending, pendingFileName } from "./pending.js";
 
 /** What every agent command is given, so tests inject the network and the clock. */
 export interface AgentDeps {
@@ -44,7 +44,7 @@ export interface AgentDeps {
 export const repoPath = (root: string, rel: string): string => path.join(root, ...rel.split("/"));
 
 /** The guard's pending file for a server (repository-relative). */
-export const pendingPathOf = (server: string): string => `${AGENT_PENDING_DIR}/${server}.json`;
+export const pendingPathOf = (server: string): string => `${AGENT_PENDING_DIR}/${pendingFileName(server)}`;
 
 /** The guard's pending document for a server, when there is one that reads as one. */
 export async function readPending(root: string, server: string): Promise<AgentPending | undefined> {
