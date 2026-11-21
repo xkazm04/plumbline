@@ -20,6 +20,15 @@ const DEFINITION_KEYS = new Set<string>(MCP_TOOL_DEFINITION_KEYS);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
+ * The pending file's name for a server, `<encoded>.json` in the pending folder: the server name with every `:` replaced
+ * by `__`, since a lock may name a server `<host>:<name>` and `:` cannot be in a Windows file name. The document's
+ * `server` member keeps the real name.
+ */
+export function pendingFileName(server: string): string {
+  return `${server.replaceAll(":", "__")}.json`;
+}
+
+/**
  * The pending document for what a server advertised; tools are restricted to MCP_TOOL_DEFINITION_KEYS, in the order
  * received. The caller passes only entries that are tools (an object with a string `name`: the ones toolsParts keeps),
  * so the document it writes is one parsePending reads back.

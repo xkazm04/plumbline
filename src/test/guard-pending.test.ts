@@ -2,7 +2,7 @@
 // not exactly one.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parsePending, pendingFor } from "../agent/pending.js";
+import { parsePending, pendingFileName, pendingFor } from "../agent/pending.js";
 
 const TARGET = "a".repeat(64);
 const NOW = new Date("2026-11-21T10:00:00.000Z");
@@ -26,6 +26,11 @@ test("pendingFor restricts each tool to the defining keys, in order, and parsePe
   });
   assert.deepEqual(parsePending(JSON.stringify(doc, null, 2)), doc);
   assert.deepEqual(parsePending("﻿" + JSON.stringify(doc)), doc);
+});
+
+test("pendingFileName: a host-prefixed name has its colon encoded as two underscores", () => {
+  assert.equal(pendingFileName("docs"), "docs.json");
+  assert.equal(pendingFileName("claude:docs"), "claude__docs.json");
 });
 
 test("parsePending refuses what is not a pending document", () => {
