@@ -399,8 +399,8 @@ test("safePost caps the body (declared, streamed, and the MCP ceiling a caller c
     assert.equal(await codeOf(safePost(`${server.url}/declared`, body, { allowLocal: true, maxBytes: 100 })), "body-too-large");
     assert.equal(await codeOf(safePost(`${server.url}/streamed`, body, { allowLocal: true, maxBytes: 100 })), "body-too-large");
     assert.equal(await codeOf(safePost(`${server.url}/huge`, body, { allowLocal: true, maxBytes: MAX_MCP_BODY_BYTES * 10 })), "body-too-large");
-    assert.equal(MAX_MCP_BODY_BYTES, 65_536);
-    assert.ok(MAX_MCP_BODY_BYTES >= 4_950 * 10, "the ceiling is the larger recorded tools/list body (4,950 bytes) times ten, or more");
+    assert.equal(MAX_MCP_BODY_BYTES, 524_288);
+    assert.ok(MAX_MCP_BODY_BYTES >= 1_650 * 100 * 3, "the ceiling holds a 100-tool page at the measured 1,650 bytes per tool, three times over");
     const started = Date.now();
     assert.equal(await codeOf(safePost(`${server.url}/silent`, body, { allowLocal: true, timeoutMs: 200 })), "timeout");
     assert.equal(await codeOf(safePost(`${server.url}/drip`, body, { allowLocal: true, timeoutMs: 200 })), "timeout");

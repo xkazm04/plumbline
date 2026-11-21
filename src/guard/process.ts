@@ -18,12 +18,14 @@ import type { GuardAction, GuardFilter } from "./filter.js";
 import { resolveCommand } from "./spawn.js";
 
 /**
- * The largest single JSON-RPC message (one line) the guard relays, in bytes. Provisional: the existing ceiling's
- * derivation (MAX_BODY_BYTES in src/net/fetch-types.ts: the largest network definition measured, 41,156 bytes, x10,
- * rounded up to 512 KiB) until WP1's recorded tools/list fixtures exist; the Director re-derives it from the larger
- * recorded tools/list body x10 and writes that derivation here.
+ * The largest single JSON-RPC message (one line) the guard relays, in bytes: 16 MiB. Derivation (Director, 2026-11-21):
+ * the guard relays every message, not only tool lists, and the largest a server legitimately sends is a tool result
+ * carrying an image. An image a model host accepts is at most 5 MB (the Claude API's per-image limit); base64 makes it
+ * 6.67 MB; twice that for a result holding text beside it, 13.3 MB, rounded up to a power of two: 16 MiB. A tools/list
+ * answer is far under it (1,650 bytes per tool measured on the recorded servers, src/test/fixtures/mcp/). Over it, both
+ * sides are closed with a stderr line rather than part of a message relayed.
  */
-export const GUARD_MAX_MESSAGE_BYTES = 524_288;
+export const GUARD_MAX_MESSAGE_BYTES = 16_777_216;
 
 /** How long a server may run after its stdin closed before SIGTERM, and again before SIGKILL. */
 export const GUARD_SHUTDOWN_GRACE_MS = 2_000;

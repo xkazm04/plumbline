@@ -93,11 +93,13 @@ for (const host of HOSTS) {
   });
 }
 
-test("recorded bodies are within the MCP body ceiling, which is the larger tools/list body times ten rounded up to a power-of-two KiB", () => {
+test("recorded bodies are within the MCP body ceiling, derived per tool: a 100-tool page at the larger recording's bytes per tool, times three, rounded up to a power-of-two KiB", () => {
   const listBytes = HOSTS.map((h) => recorded(h).answers.find((a) => a.method === "tools/list")!.bytes);
   const largest = Math.max(...listBytes);
   assert.equal(largest, 4_950);
-  assert.equal(MAX_MCP_BODY_BYTES, 2 ** Math.ceil(Math.log2(Math.ceil((largest * 10) / 1024))) * 1024);
+  const perTool = Math.max(...HOSTS.map((h) => recorded(h).answers.find((a) => a.method === "tools/list")!.bytes / 3));
+  assert.equal(perTool, 1_650);
+  assert.equal(MAX_MCP_BODY_BYTES, 2 ** Math.ceil(Math.log2(Math.ceil((perTool * 100 * 3) / 1024))) * 1024);
   for (const h of HOSTS) for (const a of recorded(h).answers) assert.equal(bodyOf(h, a.file).length, a.bytes, `${h} ${a.file}`);
 });
 

@@ -149,16 +149,18 @@ export const MCP_PROTOCOL_VERSION = "2025-06-18";
 export const MCP_CLIENT_VERSION = "0.1.0";
 
 /**
- * The ceiling of one MCP answer (initialize, or one tools/list page), in bytes: 64 KiB.
+ * The ceiling of one MCP answer (initialize, or one tools/list page), in bytes: 512 KiB.
  *
- * Derivation. The two recorded servers (src/test/fixtures/mcp/, 2026-11-21, scripts/record-mcp-fixture.mjs) answered
- * tools/list with 4,950 bytes (learn.microsoft.com, 3 tools) and 1,779 bytes (mcp.deepwiki.com, 3 tools), each in one
- * page. The ceiling is the larger times ten, 49,500, rounded up to a power-of-two KiB: 64 KiB = 65,536 bytes. The
- * larger recorded initialize answer (4,258 bytes, mcp.deepwiki.com) is under it by the same order. A server whose one
- * page is larger (a server with a hundred tools in one page) is refused with the ceiling's sentence, not read in part;
- * re-derive from a recording of such a server if one is to be watched.
+ * Derivation (re-derived by the Director at merge, 2026-11-21). The two recorded servers (src/test/fixtures/mcp/,
+ * scripts/record-mcp-fixture.mjs) answered tools/list with 4,950 bytes for 3 tools (learn.microsoft.com) and 1,779
+ * bytes for 3 tools (mcp.deepwiki.com), one page each: the larger is 1,650 bytes per tool. Ten times the larger
+ * recording (64 KiB) holds about 40 tools, which would refuse ordinary servers that list every tool in one page, so the
+ * ceiling is derived per tool instead: a large single-page catalogue of 100 tools at the measured 1,650 bytes each is
+ * 165,000 bytes; three times that for longer descriptions and schemas is 495,000, rounded up to a power-of-two KiB:
+ * 512 KiB = 524,288 bytes, the same as MAX_BODY_BYTES. The larger recorded initialize answer (4,258 bytes) is far under
+ * it. A larger page is refused with the ceiling's sentence, never read in part.
  */
-export const MAX_MCP_BODY_BYTES = 65_536;
+export const MAX_MCP_BODY_BYTES = 524_288;
 
 /**
  * The longest `Mcp-Session-Id` Plumbline stores and sends back: 2,048 characters. Derivation: the one recorded server
@@ -176,12 +178,12 @@ export const MAX_MCP_SESSION_ID_LENGTH = 2_048;
 export const MAX_MCP_CURSOR_LENGTH = MAX_MCP_SESSION_ID_LENGTH;
 
 /**
- * The most tools/list pages one listing reads: 8. Derivation: neither recorded server paginated, so the page count
- * is derived from the byte ceilings instead. A whole tool list is held to the ceiling of one network definition
- * (MAX_BODY_BYTES, 512 KiB, derived above from the largest real network): 524,288 / MAX_MCP_BODY_BYTES (65,536) = 8
- * pages, so a listing never reads more than a network definition could weigh.
+ * The most tools/list pages one listing reads: 8. Derivation: neither recorded server paginated. A server that pages
+ * does so to keep pages small; 8 full pages at MAX_MCP_BODY_BYTES is 4 MiB, the same order as the largest file the
+ * guarded fetch reads at all (MAX_RUNTIME_FILE_BYTES, 4 MiB, derived from a measured runtime bundle), so one listing
+ * never asks for more than the fetch's largest derived read. A list running past it is refused, never read in part.
  */
-export const MAX_MCP_PAGES = MAX_BODY_BYTES / MAX_MCP_BODY_BYTES;
+export const MAX_MCP_PAGES = 8;
 
 /**
  * The only bodies the guarded POST sends: a closed set, serialised inside safePost. No member carries text a caller
