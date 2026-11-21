@@ -43,7 +43,7 @@ function sections(help: string): Map<string, string[]> {
   const out = new Map<string, string[]>();
   let current: string[] | undefined;
   for (const line of help.split("\n")) {
-    const heading = /^(Publisher|Verifier|Operator|CI):/.exec(line);
+    const heading = /^(Agent owner|Publisher|Verifier|Operator|CI):/.exec(line);
     if (heading) out.set(heading[1] as string, (current = []));
     else if (line.startsWith("  ") && current) current.push(line.trim().split(/\s{2,}/)[0] as string);
     else if (line.trim() === "") current = undefined;
@@ -57,7 +57,9 @@ test("UAT-28: --help, -h, help and help <command> answer on stdout with exit 0, 
     assert.equal(r.code, 0, form.join(" "));
     assert.match(r.out, /Needs Node 22 or later/);
     const roles = sections(r.out);
-    assert.deepEqual([...roles.keys()], ["Publisher", "Verifier", "Operator", "CI"]);
+    // since 2026-11-21 (agent change control leads): the agent owner's commands come first
+    assert.deepEqual([...roles.keys()], ["Agent owner", "Publisher", "Verifier", "Operator", "CI"]);
+    for (const c of ["agent", "approve", "audit", "approver", "guard"]) assert.ok(roles.get("Agent owner")?.includes(c), c);
     // the bad-day commands are the publisher's; trust, verify and adopt the verifier's (INE-L1-06)
     for (const c of ["init", "watch", "sign", "rotate", "revoke", "keygen", "dns"]) assert.ok(roles.get("Publisher")?.includes(c), c);
     for (const c of ["trust", "verify", "adopt", "watch --url"]) assert.ok(roles.get("Verifier")?.includes(c), c);
@@ -81,7 +83,7 @@ test("UAT-28: <command> --help (and -h) is that command's help on every command,
       assert.equal(r.code, 0, `${command} ${flag}: ${r.err}`);
       assert.match(r.out, new RegExp(`^plumbline ${command}: `), command);
       assert.match(r.out, new RegExp(`usage: plumbline ${command}`), command);
-      assert.match(r.out, /^Role: (Publisher|Verifier|Operator)/m, command);
+      assert.match(r.out, /^Role: (Agent owner|Publisher|Verifier|Operator)/m, command);
       assert.equal(r.err, "", command);
     }
   }

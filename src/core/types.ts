@@ -555,3 +555,197 @@ export interface DriftReport {
    */
   records?: WatchedRecord[];
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Agent change control (since 2026-11-21, docs/agent-lock.md). A repository declares what its agent is made of
+// (`plumbline.agent.json`), a lock pins every component by hash (`plumbline.agent.lock.json`), a named approver signs
+// each lock (`plumbline.agent.approval.json`) and each lock names the one it replaces, so the chain shows who approved
+// every change. `plumbline guard` enforces the approved lock between an agent host and a stdio MCP server. The site
+// lock above (plumbline.lock.json) is a different document and is unchanged. Absent optional fields are OMITTED.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const AGENT_FORMAT_VERSION = 1 as const;
+export const AGENT_TYPE = "plumbline-agent" as const;
+export const AGENT_LOCK_TYPE = "plumbline-agent-lock" as const;
+export const AGENT_APPROVAL_TYPE = "plumbline-agent-approval" as const;
+export const APPROVERS_TYPE = "plumbline-approvers" as const;
+export const AGENT_PENDING_TYPE = "plumbline-agent-pending" as const;
+
+/** Repository-relative file names. The approvers file is user-level (outside the repository). */
+export const AGENT_FILE = "plumbline.agent.json" as const;
+export const AGENT_LOCK_FILE = "plumbline.agent.lock.json" as const;
+export const AGENT_APPROVAL_FILE = "plumbline.agent.approval.json" as const;
+/** Where the guard writes what a server's tools/list returned (local, git-ignored, never signed). */
+export const AGENT_PENDING_DIR = ".plumbline/pending" as const;
+/** The approvers file name under $PLUMBLINE_HOME (default: the user's config folder, plumbline). */
+export const APPROVERS_FILE = "approvers.json" as const;
+
+export const MCP_TRANSPORTS = ["stdio", "http"] as const;
+export type McpTransport = (typeof MCP_TRANSPORTS)[number];
+
+/** A stdio server: the command the host runs. The guard wraps it; Plumbline never starts one just to capture it. */
+export interface McpStdioServer {
+  transport: "stdio";
+  command: string;
+  args?: string[];
+}
+/** A Streamable HTTP server: read with initialize and tools/list through the guarded POST (src/net/mcp-http.ts). */
+export interface McpHttpServer {
+  transport: "http";
+  url: string;
+}
+export type McpServerDecl = McpStdioServer | McpHttpServer;
+
+/** `plumbline.agent.json`: the repository's declaration of what its agent is made of. The source of truth. */
+export interface AgentDeclaration {
+  type: typeof AGENT_TYPE;
+  version: typeof AGENT_FORMAT_VERSION;
+  /** Repository-relative globs (`*`, `**`) of the files the agent reads or is configured by: prompts, settings, hooks. */
+  files: string[];
+  /** A label of the declarer's choosing (an agent's name) to a model id, e.g. { "default": "claude-opus-5-5" }. */
+  models?: Record<string, string>;
+  /** Server name, as the host's config names it, to how it is reached. */
+  mcp?: Record<string, McpServerDecl>;
+  /** A2A agent card addresses the agent calls. */
+  peers?: string[];
+}
+
+/**
+ * The keys of an MCP tool object that make up its definition hash; a key the server did not send is left out. `_meta`
+ * and every other key are excluded (volatile, or not what the model reads).
+ */
+export const MCP_TOOL_DEFINITION_KEYS = ["name", "title", "description", "inputSchema", "outputSchema", "annotations"] as const;
+
+/** `lock.mcp[server]`: one MCP server as approved. */
+export interface AgentMcpRecord {
+  transport: McpTransport;
+  /** SHA-256 of canonicalJson({command, args}) for stdio (args omitted when absent), of canonicalJson({url}) for http. */
+  target: string;
+  /**
+   * Per tool, SHA-256 of canonicalJson(the tool restricted to MCP_TOOL_DEFINITION_KEYS), keyed by SHA-256 of its name;
+   * a repeated name's later occurrences are keyed by SHA-256 of `name\0<n>` (n = 2, 3, ...). Omitted while the
+   * server's tools were never observed (a stdio server before the guard has seen it).
+   */
+  tools?: Record<string, string>;
+  /** When `tools` was observed, UTC ISO. Omitted with `tools`. */
+  observedAt?: string;
+}
+
+/** `plumbline.agent.lock.json`. */
+export interface AgentLock {
+  type: typeof AGENT_LOCK_TYPE;
+  version: typeof AGENT_FORMAT_VERSION;
+  /** SHA-256 of the exact bytes of the lock this one replaces. Omitted on the first lock of a chain. */
+  previous?: string;
+  /** SHA-256 of the exact bytes of plumbline.agent.json when locked. */
+  declaration: string;
+  /** Every file the declaration's globs matched, repository-relative with `/`, to SHA-256 of its exact bytes. */
+  files: Record<string, string>;
+  models?: Record<string, string>;
+  mcp?: Record<string, AgentMcpRecord>;
+  /** A2A peers, recorded as the site lock records an external card (kind `a2a-card`). */
+  peers?: Record<string, ExternalRecord>;
+  lockedAt: string;
+}
+
+/** `plumbline.agent.approval.json`: an approver's signature over one lock's exact bytes. */
+export interface AgentApproval {
+  type: typeof AGENT_APPROVAL_TYPE;
+  version: typeof AGENT_FORMAT_VERSION;
+  alg: typeof ALG;
+  /** The approver's key id (KID_PATTERN): a person, not a site. */
+  kid: string;
+  /** SHA-256 of the approved lock's exact bytes. */
+  lock: string;
+  /** The approved lock's `previous`, repeated so the chain can be followed from approvals alone. Omitted with it. */
+  previous?: string;
+  approvedAt: string;
+  /** Ed25519 over unsignedBytesOf(this statement), base64url. */
+  sig: string;
+}
+
+/** One person allowed to approve. Held outside the repository (guard-input-custody): a pull request cannot add one. */
+export interface ApproverEntry {
+  kid: string;
+  publicKey: string;
+  /** A label the trust store's owner chose (a name or a role); never read from the repository. */
+  label: string;
+  addedAt: string;
+}
+
+export interface ApproversFile {
+  type: typeof APPROVERS_TYPE;
+  version: typeof AGENT_FORMAT_VERSION;
+  approvers: ApproverEntry[];
+}
+
+/** `.plumbline/pending/<server>.json`: what the guard saw a server advertise. Local only; `agent relock` reads it. */
+export interface AgentPending {
+  type: typeof AGENT_PENDING_TYPE;
+  version: typeof AGENT_FORMAT_VERSION;
+  server: string;
+  /** The AgentMcpRecord.target of the command the guard ran, so a pending file for another command is not taken. */
+  target: string;
+  observedAt: string;
+  /** The tool objects as received (every page), each restricted to MCP_TOOL_DEFINITION_KEYS. */
+  tools: Record<string, unknown>[];
+}
+
+/** The closed list of agent finding codes (`agent check`, `agent relock`, `guard`, `audit`). */
+export const AGENT_CODES = [
+  "declaration-changed",
+  "file-changed",
+  "file-added",
+  "file-removed",
+  "model-changed",
+  "server-added",
+  "server-removed",
+  "server-target-changed",
+  "server-not-observed",
+  "server-unreachable",
+  "server-refused",
+  "tool-changed",
+  "tool-added",
+  "tool-removed",
+  "peer-changed",
+  "peer-unreachable",
+  "lock-absent",
+  "lock-unusable",
+  "lock-unapproved",
+  "approval-invalid",
+  "approval-unverifiable",
+  "chain-broken",
+] as const;
+export type AgentCode = (typeof AGENT_CODES)[number];
+
+/** Counts for a server whose tools differ from the lock. Never a tool's name (a server's own words). */
+export interface AgentCounts {
+  toolsAdded?: number;
+  toolsRemoved?: number;
+  toolsChanged?: number;
+}
+
+/** One agent finding. `ref` is a repository path, a model label, a server name or a peer address; never a tool name. */
+export interface AgentFinding {
+  severity: Severity;
+  code: AgentCode;
+  ref: string;
+  summary: string;
+  counts?: AgentCounts;
+}
+
+/** Where a lock's approval stands: the three verdicts, plus `absent` (no approval file). Never folded together. */
+export const APPROVAL_STATES = ["verified", "invalid", "unverifiable", "absent"] as const;
+export type ApprovalState = (typeof APPROVAL_STATES)[number];
+
+export interface AgentReport {
+  findings: AgentFinding[];
+  approval: ApprovalState;
+  /** The approver's kid and the trust store's label for it, when `approval` is `verified`. */
+  approvedBy?: { kid: string; label: string };
+  checkedAt: string;
+}
+
+/** The guard's two modes. `locked`: hash match only (the lock is editable by anything that writes the repository). */
+export const GUARD_REQUIRE = ["locked", "approved"] as const;
+export type GuardRequire = (typeof GUARD_REQUIRE)[number];

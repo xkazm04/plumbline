@@ -220,7 +220,7 @@ test("rotate writes plumbline-rotation.json that a verifier holding the old key 
   assert.equal(same.code, 2);
 });
 
-test("gate without a target is a usage error; any unknown command is a usage error (exit 2) and the usage line leads with the watch", () => {
+test("gate without a target is a usage error; any unknown command is a usage error (exit 2) and the usage line leads with agent change control, then the watch", () => {
   const gate = run("gate");
   assert.equal(gate.code, 2);
   assert.match(gate.err, /usage: plumbline gate/);
@@ -228,7 +228,7 @@ test("gate without a target is a usage error; any unknown command is a usage err
   const unknown = run("nonsense");
   assert.equal(unknown.code, 2);
   assert.match(unknown.err, /unknown command: nonsense/);
-  assert.match(unknown.err, /^usage: plumbline <init\|watch\|diff\|keygen\|sign\|rotate\|revoke\|dns\|export-jws\|trust\|verify\|adopt\|gate\|scan\|badge>/m);
+  assert.match(unknown.err, /^usage: plumbline <agent\|approve\|audit\|approver\|guard\|init\|watch\|diff\|keygen\|sign\|rotate\|revoke\|dns\|export-jws\|trust\|verify\|adopt\|gate\|scan\|badge>/m);
   assert.equal(run("init", "--verbose").code, 2, "init refuses an unknown option");
   assert.equal(run("toString").code, 2, "only own command names dispatch");
   assert.equal(run().code, 2);

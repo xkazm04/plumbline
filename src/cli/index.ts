@@ -1,9 +1,14 @@
 #!/usr/bin/env node
-// plumbline init|watch|diff|gate|scan|badge|keygen|sign|verify|rotate|revoke|trust|adopt|dns|export-jws
+// plumbline agent|approve|audit|approver|guard|init|watch|diff|gate|scan|badge|keygen|sign|verify|rotate|revoke|trust|adopt|dns|export-jws
 // Exit 0 clean, 1 findings, 2 usage or I/O error. Signing commands in commands.ts; the verifier's trust-store commands
 // in trust-command.ts; gate, watch and scan in their own command modules; the help, grouped by role, in help.ts.
 
+import { runAgentCommand } from "./agent-command.js";
+import { approve } from "./approve-command.js";
+import { approver } from "./approver-command.js";
 import { CliError, UsageError } from "./args.js";
+import { audit } from "./audit-command.js";
+import { runGuardCommand } from "./guard-command.js";
 import { badge } from "./badge-command.js";
 import { diff } from "./diff-command.js";
 import { exportJws, keygen, revoke, rotate, sign, verify, type Out } from "./commands.js";
@@ -17,6 +22,11 @@ import { runWatchCommand } from "./watch-command.js";
 // The watch comes first: a publisher gets value with no key (init, watch); signing is the upgrade. help.ts lists the
 // same commands, in the same order, under their roles.
 const HANDLERS: Record<string, (argv: string[], out: Out) => Promise<number>> = {
+  agent: runAgentCommand,
+  approve,
+  audit,
+  approver,
+  guard: runGuardCommand,
   init: (argv) => runInitCommand(argv),
   watch: (argv) => runWatchCommand(argv),
   diff,

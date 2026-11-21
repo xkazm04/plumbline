@@ -607,3 +607,10 @@ trust entry). Each file's `content` is its exact text; a subject digest is SHA-2
 plain JSON, generated from a fixed seed (regenerated on 2026-11-17 with the same seed, when subjects became exact
 bytes), and any implementation, including a browser, can run it. The key in it is a **published test key**: never add
 its `kid` to a real trust store.
+
+## Agent change control
+
+Since 2026-11-21 the same keys and canonical bytes also sign agent locks: `plumbline.agent.json`,
+`plumbline.agent.lock.json`, `plumbline.agent.approval.json`, the user-level approvers file and the guard's pending
+files. They are separate documents from the site's signature and lock above, and nothing here changes. Every file,
+field and code is in `docs/agent-lock.md`; the strings are pinned by `src/test/wire-agent.test.ts` (`npm run check:wire`).

@@ -20,3 +20,6 @@ site/lib/
 
 # the ecosystem scan writes here; publishing results about named sites is the owner's decision
 ecosystem/out/
+
+# what the agent guard observed (plumbline guard); local, never committed
+.plumbline/

@@ -26,7 +26,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "test": "tsc && node --test \"dist/test/*.test.js\"",
-    "check:wire": "tsc && node --test dist/test/wire.test.js",
+    "check:wire": "tsc && node --test dist/test/wire.test.js dist/test/wire-agent.test.js",
     "check": "npm run typecheck && npm test",
     "build:site": "node scripts/build-site.mjs",
     "test:site": "node scripts/build-site.mjs && node --test \"site/tests/*.test.mjs\"",

@@ -4,7 +4,12 @@
 // can tell which side a command belongs to without the format document. A command's help is that line, its role, its
 // usage (the same string a usage error prints) and the exit codes.
 
+import { AGENT_USAGE } from "./agent-command.js";
+import { APPROVE_USAGE } from "./approve-command.js";
+import { APPROVER_USAGE } from "./approver-command.js";
+import { AUDIT_USAGE } from "./audit-command.js";
 import { BADGE_USAGE } from "./badge-command.js";
+import { GUARD_USAGE } from "./guard-command.js";
 import { DIFF_USAGE } from "./diff-command.js";
 import { USAGE as SIGNING_USAGE } from "./commands.js";
 import { USAGE as GATE_USAGE } from "./gate-command.js";
@@ -13,7 +18,7 @@ import { USAGE as SCAN_USAGE } from "./scan-command.js";
 import { DNS_USAGE } from "./trust-command.js";
 import { USAGE as WATCH_USAGE } from "./watch-command.js";
 
-export type Role = "publisher" | "verifier" | "operator" | "ci";
+export type Role = "agent" | "publisher" | "verifier" | "operator" | "ci";
 
 interface CommandHelp {
   role: Role;
@@ -25,6 +30,7 @@ interface CommandHelp {
 }
 
 const ROLE_TITLES: Record<Role, string> = {
+  agent: "Agent owner: lock, approve and guard what your agent is made of",
   publisher: "Publisher: your own site (the watch needs no key; signing is the upgrade)",
   verifier: "Verifier: a partner's or a stranger's site (nothing is trusted until you say --yes)",
   operator: "Operator: many sites, or one site before launch",
@@ -33,6 +39,31 @@ const ROLE_TITLES: Record<Role, string> = {
 
 /** Every command, in the order the help lists them. The watch comes first: a publisher gets value with no key. */
 export const COMMAND_HELP: Record<string, CommandHelp> = {
+  agent: {
+    role: "agent",
+    line: "init declares and locks your agent (MCP servers, prompt and settings files, model ids, peers); check fails an unapproved change; relock accepts one",
+    usage: AGENT_USAGE,
+  },
+  approve: {
+    role: "agent",
+    line: "sign the current agent lock with your own key: writes plumbline.agent.approval.json",
+    usage: APPROVE_USAGE,
+  },
+  audit: {
+    role: "agent",
+    line: "walk the agent lock's history: who approved each change, and where the chain breaks",
+    usage: AUDIT_USAGE,
+  },
+  approver: {
+    role: "agent",
+    line: "add a person's key to your approvers file (kept outside the repository)",
+    usage: APPROVER_USAGE,
+  },
+  guard: {
+    role: "agent",
+    line: "run an MCP server behind the approved lock: tools whose definition changed are hidden and refused",
+    usage: GUARD_USAGE,
+  },
   init: {
     role: "publisher",
     line: "write plumbline.lock.json for your site (and, with --workflow, the daily CI workflow); no key, no trust decision",
@@ -133,7 +164,7 @@ const EXIT_CODES = "Exit codes: 0 clean, 1 findings (for trust without --yes: no
 export function topHelp(): string {
   const width = Math.max("watch --url".length, ...COMMANDS.map((c) => c.length)) + 2;
   const lines = ["plumbline: keep an agentic website true after it ships. Needs Node 22 or later.", "", "usage: plumbline <command> [options]", ""];
-  for (const role of ["publisher", "verifier", "operator"] as const) {
+  for (const role of ["agent", "publisher", "verifier", "operator"] as const) {
     lines.push(`${ROLE_TITLES[role]}:`);
     for (const [name, help] of Object.entries(COMMAND_HELP)) if (help.role === role) lines.push(`  ${name.padEnd(width)}${help.line}`);
     if (role === "verifier") lines.push(`  ${"watch --url".padEnd(width)}re-check the lock a site publishes, from its address, as the Desk does`);
