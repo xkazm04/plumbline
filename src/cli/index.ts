@@ -71,8 +71,12 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
   const rest = argv.slice(1);
+  // Only the options before `--` are Plumbline's: after it come another program's arguments (`plumbline guard ... --
+  // <server> -h` runs the server with -h). A --help or --json there is never read here.
+  const end = rest.indexOf("--");
+  const own = end === -1 ? rest : rest.slice(0, end);
   // `plumbline <command> --help` (or -h) is that command's help, never an unknown option
-  if (rest.some((a) => HELP_FLAGS.has(a))) {
+  if (own.some((a) => HELP_FLAGS.has(a))) {
     process.stdout.write(commandHelp(command) ?? topHelp());
     return 0;
   }
@@ -83,7 +87,8 @@ async function main(argv: string[]): Promise<number> {
     const message = error instanceof CliError ? error.message : `unexpected failure: ${(error as Error).message}`;
     // a usage error shows the command's own options, so the caller sees what it takes
     const usage = error instanceof UsageError && Object.hasOwn(COMMAND_HELP, command) ? COMMAND_HELP[command]?.usage.replace(/\n+$/, "") : undefined;
-    if (rest.includes("--json")) process.stdout.write(JSON.stringify({ error: message, ...(usage ? { usage } : {}) }) + "\n");
+    // the guard's stdout is the MCP channel to the host: it never carries anything but relayed protocol messages
+    if (own.includes("--json") && command !== "guard") process.stdout.write(JSON.stringify({ error: message, ...(usage ? { usage } : {}) }) + "\n");
     process.stderr.write(`plumbline ${command}: ${message}\n`);
     if (usage) process.stderr.write(`${usage}\n`);
     return 2;
