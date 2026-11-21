@@ -1,5 +1,5 @@
 name: Plumbline
-description: Gate an agentic website (validator port, Agent Atlas, Agent Customs; unreachable is `unavailable`, never `pass`) or watch a site for drift against its plumbline.lock.json and keep its drift issue. Runs the code of the commit you pin.
+description: Check an agent against its approved lock (plumbline.agent.lock.json; an unapproved change fails), gate an agentic website (validator port, Agent Atlas, Agent Customs; unreachable is `unavailable`, never `pass`) or watch a site for drift against its plumbline.lock.json and keep its drift issue. Runs the code of the commit you pin.
 author: Plumbline
 
 inputs:
@@ -16,7 +16,7 @@ inputs:
     required: false
     default: fail
   command:
-    description: "`gate` checks `target` with the three adapters; `watch` reports drift of the site at `root` against its plumbline.lock.json."
+    description: "`agent` runs `plumbline agent check` in the repository folder at `root` (the agent against its approved lock; an unapproved change fails); `gate` checks `target` with the three adapters; `watch` reports drift of the site at `root` against its plumbline.lock.json."
     required: false
     default: gate
   root:
@@ -59,10 +59,18 @@ inputs:
     description: "For `watch`: the Desk the issue links to (an https address). Default the public Plumbline Desk."
     required: false
     default: "https://plumbline.xkazm04.workers.dev/"
+  offline:
+    description: "For `agent`: `true` checks the repository's files and the approval only (`agent check --offline`): no remote MCP server or peer is asked, which suits a pull request. `false` (the default) checks those too."
+    required: false
+    default: "false"
+  approvers:
+    description: "For `agent`: the JSON text of the approvers file (the people whose keys may approve the agent lock), from a repository variable a pull request cannot edit: `${{ vars.PLUMBLINE_APPROVERS }}`. It reaches the CLI as PLUMBLINE_APPROVERS. Empty, every approval is unverifiable and the check fails."
+    required: false
+    default: ""
 
 outputs:
   state:
-    description: For `gate`, the gate state, pass, fail or unavailable.
+    description: For `gate`, the gate state, pass, fail or unavailable. For `agent`, pass (clean and approved), fail (findings) or unknown (the report could not be read).
     value: ${{ steps.run.outputs.state }}
   report:
     description: Path to the JSON report plumbline wrote.
@@ -89,6 +97,7 @@ runs:
     - name: Check the inputs
       shell: bash
       env:
+        PLUMBLINE_OFFLINE: ${{ inputs.offline }}
         PLUMBLINE_COMMAND: ${{ inputs.command }}
         PLUMBLINE_TARGET: ${{ inputs.target }}
         PLUMBLINE_FAIL_ON: ${{ inputs.fail-on }}
@@ -124,6 +133,10 @@ runs:
         PLUMBLINE_ROOT: ${{ inputs.root }}
         PLUMBLINE_SITE_ADDRESS: ${{ inputs.site-address }}
         PLUMBLINE_DESK: ${{ inputs.desk }}
+        PLUMBLINE_ISSUES: ${{ inputs.issues }}
+        PLUMBLINE_OFFLINE: ${{ inputs.offline }}
+        # for `agent`: the trust store, from a repository variable (the CLI reads it; it is public keys, not a secret)
+        PLUMBLINE_APPROVERS: ${{ inputs.approvers }}
       run: |
         cli="$GITHUB_ACTION_PATH/../dist/cli/index.js"
         report="$RUNNER_TEMP/plumbline-$PLUMBLINE_COMMAND.json"
@@ -158,10 +171,27 @@ runs:
             # fails the step (exit 2), so a broken run is never taken for a clean one.
             node "$GITHUB_ACTION_PATH/report.mjs" watch "$report" "$RUNNER_TEMP/plumbline-issue.md"
             ;;
-          *) echo "::error::command must be gate or watch"; exit 2 ;;
+          agent)
+            # Exit 0 clean and approved, 1 findings (an unapproved change among them), 2 usage or I/O. The check runs in
+            # the repository folder; --offline asks no remote server or peer.
+            offline=""
+            if [ "$PLUMBLINE_OFFLINE" = "true" ]; then offline="--offline"; fi
+            set +e
+            (cd "$GITHUB_WORKSPACE/$PLUMBLINE_ROOT" && node "$cli" agent check $offline --json) > "$report"
+            code=$?
+            set -e
+            cat "$report"
+            # One read of the report: the state, the job summary (findings by code and ref), the count and the issue body.
+            node "$GITHUB_ACTION_PATH/report.mjs" agent "$report" "$code" "$RUNNER_TEMP/plumbline-issue.md"
+            if [ "$code" -gt 1 ]; then echo "::error::plumbline agent check failed with exit code $code"; exit "$code"; fi
+            # With issues: true (the scheduled run) findings keep the issue and the step stays green, as watch does; as a
+            # pull request's required check (issues: false) findings fail the step, so an unapproved change cannot merge.
+            if [ "$PLUMBLINE_ISSUES" != "true" ]; then exit "$code"; fi
+            ;;
+          *) echo "::error::command must be gate, watch or agent"; exit 2 ;;
         esac
 
-    # The drift issue, with `issues: true` (the input check allows that with watch only). report.mjs's issuePlan decides
+    # The drift issue, with `issues: true` (the input check allows that with watch and agent). report.mjs's issuePlan decides
     # from the count, this run's body (which carries the findings' digest) and the open issues; the next step only
     # carries the decision out.
     - name: Decide on the drift issue
@@ -171,6 +201,8 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token }}
         GH_REPO: ${{ github.repository }}
+        # `agent` keeps its own issue (title "Plumbline agent drift"), apart from a site's
+        PLUMBLINE_COMMAND: ${{ inputs.command }}
         FINDINGS: ${{ steps.run.outputs.findings }}
         BODY: ${{ steps.run.outputs.issue-body }}
         REPORT: ${{ steps.run.outputs.report }}
@@ -192,6 +224,7 @@ runs:
         COMMENT: ${{ steps.issue-plan.outputs.comment }}
         BODY: ${{ steps.run.outputs.issue-body }}
         ASSIGNEE: ${{ inputs.assignee }}
+        PLUMBLINE_COMMAND: ${{ inputs.command }}
       run: |
         # UAT-30: the issue reaches a named person. An assignment GitHub refuses (no access, a typo) only warns: the
         # issue and its comments are never lost to it. The login was checked against its pattern before the build.

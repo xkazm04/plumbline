@@ -204,8 +204,8 @@ test("refusals: a bad command, a gate without target, a bad fail-on, a bad issue
   const ok = { command: "gate", target: "https://example.com/", failOn: "fail", issues: "false", rootIsFolder: false };
   assert.equal(inputProblem(ok), null);
   assert.equal(inputProblem({ ...ok, failOn: "unavailable" }), null);
-  assert.match(inputProblem({ ...ok, command: "nope" }), /command must be gate or watch/);
-  assert.match(inputProblem({ ...ok, command: undefined }), /command must be gate or watch/);
+  assert.match(inputProblem({ ...ok, command: "nope" }), /command must be gate, watch or agent/);
+  assert.match(inputProblem({ ...ok, command: undefined }), /command must be gate, watch or agent/);
   assert.match(inputProblem({ ...ok, target: "" }), /needs a target/);
   // UAT-22: no target and a root folder: the gate checks the files there
   assert.equal(inputProblem({ ...ok, target: "", rootIsFolder: true }), null);
