@@ -25,7 +25,8 @@ test("the Action builds plumbline from its own checkout and runs the built CLI",
 });
 
 test("nothing installs plumbline from a registry or by name: no npx, no plumbline@", () => {
-  for (const text of [code(action), ...TEMPLATES.map((t) => code(read(t)))]) {
+  // the agent template (two jobs, two uses of the Action) has its pin checked in action/agent.test.mjs
+  for (const text of [code(action), ...[...TEMPLATES, "action/templates/plumbline-agent.yml"].map((t) => code(read(t)))]) {
     assert.doesNotMatch(text, /\bnpx\b/);
     assert.doesNotMatch(text, /plumbline@/);
   }
