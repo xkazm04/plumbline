@@ -93,13 +93,19 @@ may run in parallel, because it adds no claim.
   `evidence/marta/anchor-probe.mjs` anchors the forms MAR-L2-02 lists as missed, or init names them as unwatched.
 - Root cause: **verified**. `src/watch/anchors.ts:90` (a number cell before the currency symbol is read as the amount
   and consumes the symbol: "Sleeps 2 | €89" reads EUR 2); `src/cli/init-command.ts:168-176` (counts sources, not facts);
-  `src/watch/decide.ts:125-127` (the unit "facts the network states" counts anchored facts). The fix design is a
-  hypothesis.
+  `src/watch/decide.ts:125-127` (the unit "facts the network states" counts anchored facts). These lines are as of
+  a2d1e1c's parent; the code now lives at `src/watch/anchors.ts:152-171` (the money passes) and `:113-128` (the phone
+  cue), `src/cli/init-command.ts:209,228` (fact coverage) and `src/watch/decide.ts:231-243` (the sentences). The fix
+  design is a hypothesis.
 - standard: `quality-gates/vacuous-by-evaluation`.
 - Size: L.
 - Must not break: guardrail 2 (the fact's kind may be named; the literal is a concept question, see the onboarding
   concept document); the severity stays `warn` (roadmap rule; DC-1).
-- State: fixed (commit a2d1e1c), awaiting recertify. Cause confirmed as written (`anchors.ts:90` read "2 €" as EUR 2).
+- State: fixed (commits a2d1e1c and e65fe48), recertified 2026-11-21 by the named tests in
+  `src/test/watch-anchors.test.ts`: "UAT-1: a number cell before a price is never the amount ...", and the four
+  "UAT-1 residual (O-1): ..." tests (a symbol or code between two numbers binds to the following one; a currency word
+  with its cents is one amount, a word between two bare numbers anchors nothing; EUR89 anchors; a run of years or a
+  bare reference is not a phone number). Cause confirmed as written (`anchors.ts:90` read "2 €" as EUR 2).
   Live on the unchanged larch-house: `init` (the world's `setup`) now prints "facts rooms.html: watches 7 (3 prices, 2
   times, 1 phone number, 1 e-mail address); not on it: 2 (2 times: 07:00, 22:00)" (the house rules' quiet hours, now
   counted because replacement strings are filled in), and so does `--relock`. After `raise-price` the real CLI, the
