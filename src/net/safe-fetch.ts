@@ -16,6 +16,9 @@
 //   6. One absolute timeout covers DNS, connect, redirects and body together; it trips with its own error. A redirect's
 //      body is never read: its connection is closed as soon as the Location is known, so nothing outlives the call.
 // No cookies, no credentials, no `accept-encoding` (so no decompression bomb): the cap counts the bytes on the wire.
+//
+// safePost (below) is the one POST, for reading an MCP server's tool list: rules 1, 2, 3, 5 and 6 through the same
+// code (`guarded` and `hop`), a closed set of bodies serialised here, and no redirect followed at all.
 
 import dns from "node:dns";
 import http from "node:http";
@@ -23,10 +26,29 @@ import https from "node:https";
 import net from "node:net";
 
 import { isBlockedAddress } from "./address.js";
-import { MAX_BODY_BYTES, MAX_RUNTIME_FILE_BYTES, MAX_REDIRECTS, DEFAULT_TIMEOUT_MS, SafeFetchError, type SafeFetchErrorCode, type ResolvedAddress, type SafeFetchOptions, type SafeFetchResponse } from "./fetch-types.js";
+import {
+  MAX_BODY_BYTES,
+  MAX_RUNTIME_FILE_BYTES,
+  MAX_REDIRECTS,
+  DEFAULT_TIMEOUT_MS,
+  MAX_MCP_BODY_BYTES,
+  MAX_MCP_CURSOR_LENGTH,
+  MAX_MCP_SESSION_ID_LENGTH,
+  MCP_CLIENT_VERSION,
+  MCP_PROTOCOL_VERSION,
+  SafeFetchError,
+  isValidMcpProtocolVersion,
+  isValidMcpSessionId,
+  type SafeFetchErrorCode,
+  type ResolvedAddress,
+  type SafeFetchOptions,
+  type SafeFetchResponse,
+  type McpRequestBody,
+  type SafePostOptions,
+} from "./fetch-types.js";
 
-export { MAX_BODY_BYTES, MAX_REDIRECTS, DEFAULT_TIMEOUT_MS, SafeFetchError };
-export type { SafeFetchErrorCode, ResolvedAddress, SafeFetchOptions, SafeFetchResponse };
+export { MAX_BODY_BYTES, MAX_REDIRECTS, DEFAULT_TIMEOUT_MS, MAX_MCP_BODY_BYTES, SafeFetchError };
+export type { SafeFetchErrorCode, ResolvedAddress, SafeFetchOptions, SafeFetchResponse, McpRequestBody, SafePostOptions };
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -34,7 +56,7 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 export { isBlockedAddress };
 
-// ---- the fetch itself ------------------------------------------------------------------------------------
+// ---- the guarded request: rules 1, 2, 3, 5 and 6, shared by safeFetch and safePost --------------------------------
 
 const defaultResolver = async (hostname: string): Promise<ResolvedAddress[]> => {
   const found = await dns.promises.lookup(hostname, { all: true, verbatim: true });
@@ -56,15 +78,35 @@ function lowerHeaders(raw: http.IncomingHttpHeaders): Record<string, string> {
   return out;
 }
 
-export async function safeFetch(url: string, options: SafeFetchOptions = {}): Promise<SafeFetchResponse> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  // a runtime or signed code file may exceed a network definition's ceiling, only when the caller says so
-  const ceiling = options.ceiling === "runtime" ? MAX_RUNTIME_FILE_BYTES : MAX_BODY_BYTES;
-  const maxBytes = Math.min(options.maxBytes ?? ceiling, ceiling);
-  const maxRedirects = Math.min(options.maxRedirects ?? MAX_REDIRECTS, MAX_REDIRECTS);
-  const allowLocal = options.allowLocal === true;
-  const resolver = options.resolver ?? defaultResolver;
+interface Limits {
+  timeoutMs: number;
+  maxBytes: number;
+  allowLocal: boolean;
+  resolver: (hostname: string) => Promise<ResolvedAddress[]>;
+}
 
+/** What one call's hops share: its limits and its one absolute deadline. */
+interface Guard extends Limits {
+  abort: AbortController;
+  /** Rejects with the timeout error when the deadline passes; raced against DNS. */
+  aborted: Promise<never>;
+}
+
+/** What one request sends (method, headers, body) and when its read may end early. */
+interface Send {
+  method: "GET" | "POST";
+  headers: Record<string, string>;
+  body?: string;
+  /** True ends the read at this chunk and closes the connection (safePost's SSE reader). */
+  complete?: (bytes: Uint8Array, headers: Record<string, string>) => boolean;
+}
+
+/**
+ * Runs `run` under one absolute timeout (rule 6) and turns whatever it throws into a SafeFetchError: its own, a timeout
+ * when the deadline passed, else a network failure.
+ */
+async function guarded<T>(limits: Limits, run: (guard: Guard) => Promise<T>): Promise<T> {
+  const { timeoutMs } = limits;
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
   const aborted = new Promise<never>((_, reject) => {
@@ -73,106 +115,154 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
     });
   });
   aborted.catch(() => undefined); // the race below consumes it; this stops an unhandled rejection after success
-
-  const hop = async (target: URL, headers: Record<string, string>): Promise<Hop> => {
-    if (target.protocol !== "https:" && target.protocol !== "http:") {
-      throw new SafeFetchError("insecure-scheme", `refused scheme ${target.protocol}`);
-    }
-    if (target.protocol === "http:" && !allowLocal) throw new SafeFetchError("insecure-scheme", "refused http: only https is fetched");
-    const host = target.hostname.startsWith("[") ? target.hostname.slice(1, -1) : target.hostname;
-    if (host === "") throw new SafeFetchError("bad-url", "no host");
-
-    let addresses: ResolvedAddress[];
-    const literal = net.isIP(host);
-    if (literal !== 0) addresses = [{ address: host, family: literal }];
-    else {
-      try {
-        addresses = await Promise.race([resolver(host), aborted]);
-      } catch (error) {
-        if (error instanceof SafeFetchError) throw error;
-        throw new SafeFetchError("dns-failed", `could not resolve ${host}`);
-      }
-    }
-    if (addresses.length === 0) throw new SafeFetchError("dns-failed", `${host} resolved to no address`);
-    for (const a of addresses) {
-      if (isBlockedAddress(a.address, allowLocal)) {
-        throw new SafeFetchError("blocked-address", `refused ${host}: it resolves to a non-public address`);
-      }
-    }
-    if (target.protocol === "http:" && !addresses.every((a) => isBlockedAddress(a.address, false))) {
-      throw new SafeFetchError("insecure-scheme", "refused http to a public address");
-    }
-    const pinned = addresses[0] as ResolvedAddress;
-
-    return await new Promise<Hop>((resolve, reject) => {
-      const lib = target.protocol === "https:" ? https : http;
-      const request = lib.request(
-        {
-          method: "GET",
-          hostname: host,
-          port: target.port === "" ? undefined : Number(target.port),
-          path: `${target.pathname}${target.search}`,
-          agent: false,
-          signal: abort.signal,
-          headers: { host: target.host, "user-agent": "plumbline", "accept-encoding": "identity", ...headers },
-          ...(literal === 0 && target.protocol === "https:" ? { servername: host } : {}),
-          // Rule 3: the connection goes to the address checked above; nothing is resolved a second time.
-          lookup: ((_host: string, opts: dns.LookupOptions, cb: (...args: unknown[]) => void) => {
-            if (opts.all) cb(null, [{ address: pinned.address, family: pinned.family }]);
-            else cb(null, pinned.address, pinned.family);
-          }) as never,
-        },
-        (response) => {
-          const status = response.statusCode ?? 0;
-          const responseHeaders = lowerHeaders(response.headers);
-          if (REDIRECT_STATUSES.has(status) && responseHeaders.location !== undefined) {
-            // A redirect's body is never read. Close its connection here instead of draining it: a drain outlives
-            // this call's timer (cleared when safeFetch returns), so a host whose redirect body never ends would hold
-            // the socket, and the process, open past rule 6's timeout. The destroy's own "aborted" error is expected.
-            resolve({ status, headers: responseHeaders, bytes: new Uint8Array(0) });
-            response.on("error", () => undefined);
-            request.destroy();
-            return;
-          }
-          const declared = Number(responseHeaders["content-length"] ?? "");
-          if (Number.isFinite(declared) && declared > maxBytes) {
-            request.destroy();
-            reject(new SafeFetchError("body-too-large", `body is ${declared} bytes, over the ${maxBytes} byte ceiling`));
-            return;
-          }
-          const chunks: Buffer[] = [];
-          let total = 0;
-          response.on("data", (chunk: Buffer) => {
-            total += chunk.length;
-            if (total > maxBytes) {
-              request.destroy();
-              reject(new SafeFetchError("body-too-large", `body passed the ${maxBytes} byte ceiling`));
-              return;
-            }
-            chunks.push(chunk);
-          });
-          response.on("end", () => resolve({ status, headers: responseHeaders, bytes: new Uint8Array(Buffer.concat(chunks)) }));
-          response.on("error", (error) => reject(new SafeFetchError("network", error.message)));
-        },
-      );
-      request.on("error", (error: NodeJS.ErrnoException) => {
-        if (abort.signal.aborted) reject(new SafeFetchError("timeout", `timed out after ${timeoutMs} ms`));
-        else reject(new SafeFetchError("network", error.code ?? error.message));
-      });
-      request.end();
-    });
-  };
-
   try {
-    let current: URL;
+    return await run({ ...limits, abort, aborted });
+  } catch (error) {
+    if (error instanceof SafeFetchError) throw error;
+    if (abort.signal.aborted) throw new SafeFetchError("timeout", `timed out after ${timeoutMs} ms`);
+    throw new SafeFetchError("network", error instanceof Error ? error.message : "request failed");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** One request to one address under rules 1, 2, 3, 5 and 6. A redirect is returned (empty body, connection closed), never followed here. */
+async function hop(target: URL, guard: Guard, send: Send): Promise<Hop> {
+  const { allowLocal, resolver, abort, aborted, maxBytes, timeoutMs } = guard;
+  if (target.protocol !== "https:" && target.protocol !== "http:") {
+    throw new SafeFetchError("insecure-scheme", `refused scheme ${target.protocol}`);
+  }
+  if (target.protocol === "http:" && !allowLocal) throw new SafeFetchError("insecure-scheme", "refused http: only https is fetched");
+  const host = target.hostname.startsWith("[") ? target.hostname.slice(1, -1) : target.hostname;
+  if (host === "") throw new SafeFetchError("bad-url", "no host");
+
+  let addresses: ResolvedAddress[];
+  const literal = net.isIP(host);
+  if (literal !== 0) addresses = [{ address: host, family: literal }];
+  else {
     try {
-      current = new URL(url);
-    } catch {
-      throw new SafeFetchError("bad-url", "not a URL");
+      addresses = await Promise.race([resolver(host), aborted]);
+    } catch (error) {
+      if (error instanceof SafeFetchError) throw error;
+      throw new SafeFetchError("dns-failed", `could not resolve ${host}`);
     }
+  }
+  if (addresses.length === 0) throw new SafeFetchError("dns-failed", `${host} resolved to no address`);
+  for (const a of addresses) {
+    if (isBlockedAddress(a.address, allowLocal)) {
+      throw new SafeFetchError("blocked-address", `refused ${host}: it resolves to a non-public address`);
+    }
+  }
+  if (target.protocol === "http:" && !addresses.every((a) => isBlockedAddress(a.address, false))) {
+    throw new SafeFetchError("insecure-scheme", "refused http to a public address");
+  }
+  const pinned = addresses[0] as ResolvedAddress;
+
+  return await new Promise<Hop>((resolve, reject) => {
+    const lib = target.protocol === "https:" ? https : http;
+    const request = lib.request(
+      {
+        method: send.method,
+        hostname: host,
+        port: target.port === "" ? undefined : Number(target.port),
+        path: `${target.pathname}${target.search}`,
+        agent: false,
+        signal: abort.signal,
+        headers: { host: target.host, "user-agent": "plumbline", "accept-encoding": "identity", ...send.headers },
+        ...(literal === 0 && target.protocol === "https:" ? { servername: host } : {}),
+        // Rule 3: the connection goes to the address checked above; nothing is resolved a second time.
+        lookup: ((_host: string, opts: dns.LookupOptions, cb: (...args: unknown[]) => void) => {
+          if (opts.all) cb(null, [{ address: pinned.address, family: pinned.family }]);
+          else cb(null, pinned.address, pinned.family);
+        }) as never,
+      },
+      (response) => {
+        const status = response.statusCode ?? 0;
+        const responseHeaders = lowerHeaders(response.headers);
+        if (REDIRECT_STATUSES.has(status) && responseHeaders.location !== undefined) {
+          // A redirect's body is never read. Close its connection here instead of draining it: a drain outlives
+          // this call's timer (cleared when safeFetch returns), so a host whose redirect body never ends would hold
+          // the socket, and the process, open past rule 6's timeout. The destroy's own "aborted" error is expected.
+          resolve({ status, headers: responseHeaders, bytes: new Uint8Array(0) });
+          response.on("error", () => undefined);
+          request.destroy();
+          return;
+        }
+        const declared = Number(responseHeaders["content-length"] ?? "");
+        if (Number.isFinite(declared) && declared > maxBytes) {
+          request.destroy();
+          reject(new SafeFetchError("body-too-large", `body is ${declared} bytes, over the ${maxBytes} byte ceiling`));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        let total = 0;
+        response.on("data", (chunk: Buffer) => {
+          total += chunk.length;
+          if (total > maxBytes) {
+            request.destroy();
+            reject(new SafeFetchError("body-too-large", `body passed the ${maxBytes} byte ceiling`));
+            return;
+          }
+          chunks.push(chunk);
+          if (send.complete !== undefined) {
+            const sofar = new Uint8Array(Buffer.concat(chunks));
+            if (send.complete(sofar, responseHeaders)) {
+              resolve({ status, headers: responseHeaders, bytes: sofar });
+              response.on("error", () => undefined);
+              request.destroy();
+            }
+          }
+        });
+        response.on("end", () => resolve({ status, headers: responseHeaders, bytes: new Uint8Array(Buffer.concat(chunks)) }));
+        response.on("error", (error) => reject(new SafeFetchError("network", error.message)));
+      },
+    );
+    request.on("error", (error: NodeJS.ErrnoException) => {
+      if (abort.signal.aborted) reject(new SafeFetchError("timeout", `timed out after ${timeoutMs} ms`));
+      else reject(new SafeFetchError("network", error.code ?? error.message));
+    });
+    request.end(send.body);
+  });
+}
+
+function parseUrl(url: string): URL {
+  try {
+    return new URL(url);
+  } catch {
+    throw new SafeFetchError("bad-url", "not a URL");
+  }
+}
+
+function responseOf(url: URL, redirects: number, result: Hop): SafeFetchResponse {
+  const bytes = result.bytes;
+  return {
+    status: result.status,
+    ok: result.status >= 200 && result.status < 300,
+    url: url.toString(),
+    redirects,
+    headers: result.headers,
+    bytes,
+    text: () => new TextDecoder("utf-8").decode(bytes),
+  };
+}
+
+// ---- the fetch ---------------------------------------------------------------------------------------------------
+
+export async function safeFetch(url: string, options: SafeFetchOptions = {}): Promise<SafeFetchResponse> {
+  // a runtime or signed code file may exceed a network definition's ceiling, only when the caller says so
+  const ceiling = options.ceiling === "runtime" ? MAX_RUNTIME_FILE_BYTES : MAX_BODY_BYTES;
+  const maxRedirects = Math.min(options.maxRedirects ?? MAX_REDIRECTS, MAX_REDIRECTS);
+  const limits: Limits = {
+    timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    maxBytes: Math.min(options.maxBytes ?? ceiling, ceiling),
+    allowLocal: options.allowLocal === true,
+    resolver: options.resolver ?? defaultResolver,
+  };
+  return guarded(limits, async (guard) => {
+    let current = parseUrl(url);
     let headers = { ...(options.headers ?? {}) };
     for (let redirects = 0; ; redirects += 1) {
-      const result = await hop(current, headers);
+      const result = await hop(current, guard, { method: "GET", headers });
       const location = result.headers.location;
       if (REDIRECT_STATUSES.has(result.status) && location !== undefined) {
         if (redirects >= maxRedirects) throw new SafeFetchError("too-many-redirects", `more than ${maxRedirects} redirects`);
@@ -186,22 +276,80 @@ export async function safeFetch(url: string, options: SafeFetchOptions = {}): Pr
         current = next;
         continue;
       }
-      const bytes = result.bytes;
-      return {
-        status: result.status,
-        ok: result.status >= 200 && result.status < 300,
-        url: current.toString(),
-        redirects,
-        headers: result.headers,
-        bytes,
-        text: () => new TextDecoder("utf-8").decode(bytes),
-      };
+      return responseOf(current, redirects, result);
     }
-  } catch (error) {
-    if (error instanceof SafeFetchError) throw error;
-    if (abort.signal.aborted) throw new SafeFetchError("timeout", `timed out after ${timeoutMs} ms`);
-    throw new SafeFetchError("network", error instanceof Error ? error.message : "request failed");
-  } finally {
-    clearTimeout(timer);
+  });
+}
+
+// ---- the guarded POST (MCP only) ---------------------------------------------------------------------------------
+
+/**
+ * The JSON text of one McpRequestBody: the whole closed set, written here and nowhere else. A value outside the set
+ * (a cast, a plain object from JavaScript) throws a TypeError before anything is sent.
+ */
+export function mcpRequestText(body: McpRequestBody): string {
+  const id = (value: unknown): number => {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw new TypeError("an MCP request id is a positive integer");
+    return value;
+  };
+  switch (body.method) {
+    case "initialize":
+      return JSON.stringify({
+        jsonrpc: "2.0",
+        id: id(body.id),
+        method: "initialize",
+        params: { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "plumbline", version: MCP_CLIENT_VERSION } },
+      });
+    case "notifications/initialized":
+      return JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
+    case "tools/list": {
+      const cursor: unknown = body.cursor;
+      if (cursor !== undefined && (typeof cursor !== "string" || cursor.length === 0 || cursor.length > MAX_MCP_CURSOR_LENGTH)) {
+        throw new TypeError(`a tools/list cursor is a string of 1 to ${MAX_MCP_CURSOR_LENGTH} characters`);
+      }
+      return JSON.stringify({ jsonrpc: "2.0", id: id(body.id), method: "tools/list", ...(cursor !== undefined ? { params: { cursor } } : {}) });
+    }
+    default:
+      throw new TypeError("not an MCP request Plumbline sends");
   }
+}
+
+/**
+ * safePost: the ONE POST Plumbline sends to an address it does not own, to read an MCP server's tool list. safeFetch's
+ * rules 1, 2, 3, 5 and 6 hold as written (the same code), and:
+ *   - the body is one of the closed set McpRequestBody, serialised here (mcpRequestText): there is no string body
+ *     parameter, so no caller can send text of its own;
+ *   - no redirect is followed: a 3xx with a Location throws `redirect-refused` (a POST re-sent elsewhere would carry
+ *     the session to an address nobody chose);
+ *   - headers: content-type application/json; accept application/json and text/event-stream; `MCP-Protocol-Version`
+ *     on every request after initialize; `Mcp-Session-Id` when the server issued one (both validated before sending);
+ *   - the body ceiling is MAX_MCP_BODY_BYTES (derived in fetch-types.ts from the recorded servers).
+ * A non-2xx answer is returned, not thrown, as safeFetch does.
+ */
+export async function safePost(url: string, body: McpRequestBody, options: SafePostOptions = {}): Promise<SafeFetchResponse> {
+  const text = mcpRequestText(body);
+  const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+  if (body.method !== "initialize" && options.protocolVersion !== undefined) {
+    if (!isValidMcpProtocolVersion(options.protocolVersion)) throw new TypeError("an MCP protocol version is a date, YYYY-MM-DD");
+    headers["mcp-protocol-version"] = options.protocolVersion;
+  }
+  if (options.sessionId !== undefined) {
+    if (!isValidMcpSessionId(options.sessionId)) throw new TypeError(`an MCP session id is 1 to ${MAX_MCP_SESSION_ID_LENGTH} visible ASCII characters`);
+    headers["mcp-session-id"] = options.sessionId;
+  }
+  headers["content-length"] = String(Buffer.byteLength(text));
+  const limits: Limits = {
+    timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    maxBytes: Math.min(options.maxBytes ?? MAX_MCP_BODY_BYTES, MAX_MCP_BODY_BYTES),
+    allowLocal: options.allowLocal === true,
+    resolver: options.resolver ?? defaultResolver,
+  };
+  return guarded(limits, async (guard) => {
+    const target = parseUrl(url);
+    const result = await hop(target, guard, { method: "POST", headers, body: text, ...(options.complete !== undefined ? { complete: options.complete } : {}) });
+    if (REDIRECT_STATUSES.has(result.status) && result.headers.location !== undefined) {
+      throw new SafeFetchError("redirect-refused", `answered ${result.status}; a POST is never redirected`);
+    }
+    return responseOf(target, 0, result);
+  });
 }

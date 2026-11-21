@@ -6,7 +6,7 @@ import { describeFetchError as gateDescribe } from "../gate/context.js";
 import { SafeFetchError, describeFetchError, type SafeFetchErrorCode } from "../net/fetch-types.js";
 import { why } from "../watch/detectors.js";
 
-const CODES: SafeFetchErrorCode[] = ["bad-url", "insecure-scheme", "blocked-address", "dns-failed", "too-many-redirects", "body-too-large", "timeout", "network"];
+const CODES: SafeFetchErrorCode[] = ["bad-url", "insecure-scheme", "blocked-address", "dns-failed", "too-many-redirects", "body-too-large", "timeout", "network", "redirect-refused"];
 
 test("one table: the gate and the watch word every fetch failure the same way, each code with its own sentence", () => {
   assert.equal(gateDescribe, describeFetchError, "the gate re-exports the shared table");

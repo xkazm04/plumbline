@@ -38,7 +38,8 @@ export type SafeFetchErrorCode =
   | "too-many-redirects"
   | "body-too-large"
   | "timeout"
-  | "network";
+  | "network"
+  | "redirect-refused";
 
 /** Every refusal or failure is one of these, so callers can tell a policy refusal from a network failure. */
 export class SafeFetchError extends Error {
@@ -120,6 +121,8 @@ export function describeFetchError(error: unknown, fallback = "the request faile
       return "the address is not a valid URL";
     case "network":
       return "the connection failed";
+    case "redirect-refused":
+      return "the address answered a POST with a redirect, which Plumbline never follows";
     default:
       return fallback;
   }
@@ -135,4 +138,90 @@ export function addressProblemOf(error: unknown): string | undefined {
   const code =
     typeof error === "object" && error !== null && (error as { name?: unknown }).name === "SafeFetchError" ? (error as { code?: unknown }).code : undefined;
   return code === "insecure-scheme" ? "it is not an https address" : code === "blocked-address" ? "it is a private or loopback address" : code === "bad-url" ? "it is not a valid URL" : undefined;
+}
+
+// ---- the guarded POST (MCP only) --------------------------------------------------------------------------------
+
+/** The MCP protocol version Plumbline asks for in `initialize` (the revision the vendored runtime's mcp.js speaks). */
+export const MCP_PROTOCOL_VERSION = "2025-06-18";
+
+/** `clientInfo.version` in `initialize`: Plumbline's own version, fixed here so no caller supplies text for the body. */
+export const MCP_CLIENT_VERSION = "0.1.0";
+
+/**
+ * The ceiling of one MCP answer (initialize, or one tools/list page), in bytes: 64 KiB.
+ *
+ * Derivation. The two recorded servers (src/test/fixtures/mcp/, 2026-11-21, scripts/record-mcp-fixture.mjs) answered
+ * tools/list with 4,950 bytes (learn.microsoft.com, 3 tools) and 1,779 bytes (mcp.deepwiki.com, 3 tools), each in one
+ * page. The ceiling is the larger times ten, 49,500, rounded up to a power-of-two KiB: 64 KiB = 65,536 bytes. The
+ * larger recorded initialize answer (4,258 bytes, mcp.deepwiki.com) is under it by the same order. A server whose one
+ * page is larger (a server with a hundred tools in one page) is refused with the ceiling's sentence, not read in part;
+ * re-derive from a recording of such a server if one is to be watched.
+ */
+export const MAX_MCP_BODY_BYTES = 65_536;
+
+/**
+ * The longest `Mcp-Session-Id` Plumbline stores and sends back: 2,048 characters. Derivation: the one recorded server
+ * that issued a session id (learn.microsoft.com, 2026-11-21) issued 200 characters; times ten, 2,000, rounded up to a
+ * power of two, 2,048. mcp.deepwiki.com issued none.
+ */
+export const MAX_MCP_SESSION_ID_LENGTH = 2_048;
+
+/**
+ * The longest `nextCursor` Plumbline sends back: 2,048 characters. Derivation: neither recorded server paginated (each
+ * answered tools/list in one page, no nextCursor), so no cursor was measured. A cursor is, like the session id, an
+ * opaque token the server issues and Plumbline returns unchanged, so it takes the session id's ceiling (200 measured
+ * characters times ten, rounded up to 2,048).
+ */
+export const MAX_MCP_CURSOR_LENGTH = MAX_MCP_SESSION_ID_LENGTH;
+
+/**
+ * The most tools/list pages one listing reads: 8. Derivation: neither recorded server paginated, so the page count
+ * is derived from the byte ceilings instead. A whole tool list is held to the ceiling of one network definition
+ * (MAX_BODY_BYTES, 512 KiB, derived above from the largest real network): 524,288 / MAX_MCP_BODY_BYTES (65,536) = 8
+ * pages, so a listing never reads more than a network definition could weigh.
+ */
+export const MAX_MCP_PAGES = MAX_BODY_BYTES / MAX_MCP_BODY_BYTES;
+
+/**
+ * The only bodies the guarded POST sends: a closed set, serialised inside safePost. No member carries text a caller
+ * wrote: `id` is a request number, and `cursor` is the opaque string the server itself returned as `nextCursor`
+ * (length-capped by MAX_MCP_CURSOR_LENGTH).
+ */
+export type McpRequestBody =
+  | { method: "initialize"; id: number }
+  | { method: "notifications/initialized" }
+  | { method: "tools/list"; id: number; cursor?: string };
+
+export interface SafePostOptions {
+  /** Absolute timeout in milliseconds for the whole call (DNS, connect, request, response). */
+  timeoutMs?: number;
+  /** Body ceiling in bytes; clamped to MAX_MCP_BODY_BYTES. */
+  maxBytes?: number;
+  /** As SafeFetchOptions.allowLocal: http and loopback only, every private range still refused. */
+  allowLocal?: boolean;
+  /** Replaces DNS resolution (tests inject one; production uses node:dns). */
+  resolver?: (hostname: string) => Promise<ResolvedAddress[]>;
+  /**
+   * The protocol version the server answered `initialize` with, sent as `MCP-Protocol-Version` on every later request
+   * (never on `initialize`). Must be a date (YYYY-MM-DD).
+   */
+  protocolVersion?: string;
+  /** The `Mcp-Session-Id` the server issued at `initialize`: visible ASCII (0x21 to 0x7E), at most MAX_MCP_SESSION_ID_LENGTH. */
+  sessionId?: string;
+  /**
+   * Called with the bytes so far after each chunk; true ends the read there (the connection is closed). An SSE response
+   * may stay open after the event that answers the request, so the reader says when it has that event.
+   */
+  complete?: (bytes: Uint8Array, headers: Record<string, string>) => boolean;
+}
+
+/** A session id the server issued is sent back only if it is visible ASCII and within the length cap (MCP spec). */
+export function isValidMcpSessionId(value: string): boolean {
+  return value.length >= 1 && value.length <= MAX_MCP_SESSION_ID_LENGTH && /^[\x21-\x7e]+$/.test(value);
+}
+
+/** A protocol version is a date, YYYY-MM-DD. */
+export function isValidMcpProtocolVersion(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
