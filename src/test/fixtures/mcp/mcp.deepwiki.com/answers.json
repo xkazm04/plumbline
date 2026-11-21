@@ -1,0 +1,38 @@
+{
+  "url": "https://mcp.deepwiki.com/mcp",
+  "recordedAt": "2026-11-21T12:32:35.395Z",
+  "outcome": {
+    "ok": true,
+    "protocol": "2025-06-18",
+    "tools": 3
+  },
+  "answers": [
+    {
+      "file": "01-initialize.body",
+      "method": "initialize",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "sessionIdPresent": false,
+      "bytes": 4258,
+      "ms": 744
+    },
+    {
+      "file": "02-notifications-initialized.body",
+      "method": "notifications/initialized",
+      "status": 202,
+      "contentType": "application/json",
+      "sessionIdPresent": false,
+      "bytes": 0,
+      "ms": 663
+    },
+    {
+      "file": "03-tools-list.body",
+      "method": "tools/list",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "sessionIdPresent": false,
+      "bytes": 1779,
+      "ms": 634
+    }
+  ]
+}

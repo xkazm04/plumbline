@@ -1,0 +1,41 @@
+{
+  "url": "https://learn.microsoft.com/api/mcp",
+  "recordedAt": "2026-11-21T12:32:37.451Z",
+  "outcome": {
+    "ok": true,
+    "protocol": "2025-06-18",
+    "tools": 3
+  },
+  "answers": [
+    {
+      "file": "01-initialize.body",
+      "method": "initialize",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "sessionIdPresent": true,
+      "sessionIdLength": 200,
+      "bytes": 1950,
+      "ms": 315
+    },
+    {
+      "file": "02-notifications-initialized.body",
+      "method": "notifications/initialized",
+      "status": 202,
+      "contentType": null,
+      "sessionIdPresent": true,
+      "sessionIdLength": 200,
+      "bytes": 0,
+      "ms": 277
+    },
+    {
+      "file": "03-tools-list.body",
+      "method": "tools/list",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "sessionIdPresent": true,
+      "sessionIdLength": 200,
+      "bytes": 4950,
+      "ms": 349
+    }
+  ]
+}
