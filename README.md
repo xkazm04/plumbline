@@ -26,15 +26,20 @@ From your agent's repository root, with your approval key kept outside it:
 plumbline keygen --out ../plumbline-approver                                         # your own key; never commit it
 plumbline approver add --key ../plumbline-approver/.well-known/plumbline-key.json --label "Your Name"
 plumbline agent init --wrap         # declares and locks the agent; puts the guard in front of each stdio server in .mcp.json
+# start your agent host once: the guard sees each stdio server's tools (and passes none yet: none is pinned)
+plumbline agent relock              # pins what the guard saw; review the tool names it lists
 plumbline approve --key ../plumbline-approver/plumbline.private.json   # signs the lock: commit the lock and the approval
 plumbline agent check               # exit 0: the agent is what you approved
 ```
 
 `approver add` writes your trust store at `$PLUMBLINE_HOME/approvers.json` (by default `~/.config/plumbline/`), never
-inside a repository. From then on your agent host starts each stdio MCP server through `plumbline guard`, which lets
-through only the tools the approved lock pins. After a change you accept: `plumbline agent relock`, review what it
-lists, `plumbline approve`, commit both files. `plumbline audit --out evidence` shows every approved change since the
-first lock.
+inside a repository. Plumbline never starts an MCP server to read it: a stdio server's tools are pinned from what the
+guard saw when your host ran it, so until that first relock the guard passes none of its tools and `agent check` warns
+that the server was never observed. From then on your host starts each stdio server through `plumbline guard`, which
+lets through only the tools the lock pins. `--wrap` writes the guard in `locked` mode (the lock's hashes, not its
+approval); add `--require approved` to a wrapped entry to refuse every tool unless an approver in your trust store
+signed the lock. After a change you accept: `plumbline agent relock`, review what it lists, `plumbline approve`,
+commit both files. `plumbline audit --out evidence` shows every approved change since the first lock.
 
 **In CI**, copy `action/templates/plumbline-agent.yml` into `.github/workflows/` and set the repository variable
 `PLUMBLINE_APPROVERS` to your approvers file's JSON text. Every pull request runs the offline check; make it a required
