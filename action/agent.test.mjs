@@ -228,3 +228,37 @@ test("the run step for agent, by bash against a stub CLI: a pull request's check
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("the agent template: offline check on pull requests with contents: read, full check daily with issues, approvers from a repository variable", () => {
+  const text = code(read("action/templates/plumbline-agent.yml"));
+  assert.match(text, /\non:\n {2}pull_request:\n {2}schedule:\n/);
+  assert.match(text, /\n {2}workflow_dispatch:\n/);
+  assert.match(text, /\npermissions:\n {2}contents: read\n\n/, "the workflow's default is read only");
+  const check = text.slice(text.indexOf("\n  check:"), text.indexOf("\n  watch:"));
+  const watch = text.slice(text.indexOf("\n  watch:"));
+  assert.match(check, /if: github\.event_name == 'pull_request'/);
+  assert.match(check, /permissions:\n {6}contents: read\n {4}steps:/);
+  assert.doesNotMatch(check, /issues: (write|true)/);
+  assert.match(check, /command: agent\n {10}root: "\."\n {10}offline: true\n {10}approvers: \$\{\{ vars\.PLUMBLINE_APPROVERS \}\}\n/);
+  assert.match(watch, /if: github\.event_name != 'pull_request'/);
+  assert.match(watch, /permissions:\n {6}contents: read\n {6}issues: write\b/);
+  assert.match(watch, /command: agent\n {10}root: "\."\n {10}issues: true\n {10}approvers: \$\{\{ vars\.PLUMBLINE_APPROVERS \}\}\n/);
+  assert.doesNotMatch(text, /signing-key|secrets\.|relock-pr|pull-requests: write|contents: write/);
+  for (const uses of text.matchAll(/uses: ([^\s@]+)@(\S+)/g)) assert.match(uses[2], /^[0-9a-f]{40}$/, `${uses[1]} is pinned by full commit SHA`);
+});
+
+test("the agent template pins a commit of this repository whose Action has command agent and every input and output the template uses", () => {
+  const text = code(read("action/templates/plumbline-agent.yml"));
+  const shas = new Set([...text.matchAll(/uses: xkazm04\/plumbline\/action@([0-9a-f]{40})/g)].map((m) => m[1]));
+  assert.equal(shas.size, 1, "both jobs pin the same commit");
+  const [sha] = shas;
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const shown = spawnSync("git", ["show", `${sha}:action/action.yml`], { cwd: root, encoding: "utf8" });
+  assert.equal(shown.status, 0, `the pinned commit ${sha} is in this repository's history`);
+  const pinned = shown.stdout;
+  assert.match(pinned, /\n {10}agent\)\n/, "the pinned Action runs command agent");
+  assert.match(pinned, /node "\$cli" agent check \$offline --json/);
+  const inputs = pinned.slice(pinned.indexOf("\ninputs:"), pinned.indexOf("\noutputs:"));
+  for (const name of ["command", "root", "offline", "issues", "approvers"]) assert.match(inputs, new RegExp(`\n {2}${name}:\n`), `the pinned Action declares ${name}`);
+  for (const name of ["state", "findings"]) assert.match(pinned.slice(pinned.indexOf("\noutputs:")), new RegExp(`\n {2}${name}:\n`));
+});
