@@ -1,0 +1,90 @@
+# Plumbline agent: agent change control in CI (docs/agent-lock.md). Copy this file to .github/workflows/ in the
+# repository that holds plumbline.agent.json, plumbline.agent.lock.json and plumbline.agent.approval.json.
+#
+# Before it can pass, set the repository variable PLUMBLINE_APPROVERS (Settings > Secrets and variables > Actions >
+# Variables) to the JSON text of your approvers file (`plumbline approver add` writes it under $PLUMBLINE_HOME): the
+# public keys of the people who may approve the agent lock. A pull request cannot edit a repository variable, so it
+# cannot approve itself. With no variable every approval is unverifiable and the check fails.
+#
+# - On every pull request, `check` runs `plumbline agent check --offline`: the repository's files and the approval
+#   only, no remote server asked, with `contents: read`. Make it a REQUIRED status check (branch protection), and no
+#   change to the agent merges without an approval. Protect .github/workflows/ with a code owner's review (CODEOWNERS):
+#   a pull request runs this file from its own branch.
+# - Daily and on demand, `watch` runs the full check (remote MCP servers and peers too) and keeps ONE issue titled
+#   "Plumbline agent drift" (opened on findings, edited with what is new, closed on the next clean run): `issues: write`.
+#
+# CI never approves: when a change is right, relock it in a clone (`plumbline agent relock`), review what it lists,
+# `plumbline approve --key <your key file>`, and commit the lock and the approval together.
+name: Plumbline agent
+
+on:
+  pull_request:
+  schedule:
+    - cron: "41 6 * * *" # every day at 06:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # Third-party actions are pinned by full commit SHA; the tag is only a comment for humans.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      # The Action builds plumbline from its own checkout: pinning it by commit SHA pins the code that runs.
+      - name: Run plumbline agent check
+        id: agent
+        uses: xkazm04/plumbline/action@6e9fe13fb9902ebcd886184114f620aeb5ef6170
+        with:
+          command: agent
+          root: "."
+          offline: true
+          approvers: ${{ vars.PLUMBLINE_APPROVERS }}
+
+  watch:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write # the Action keeps the agent drift issue with the job's token
+    concurrency:
+      group: plumbline-agent-watch
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Run plumbline agent check
+        id: agent
+        uses: xkazm04/plumbline/action@6e9fe13fb9902ebcd886184114f620aeb5ef6170
+        with:
+          command: agent
+          root: "."
+          issues: true
+          approvers: ${{ vars.PLUMBLINE_APPROVERS }}
+          # assignee: your-github-login   # the person the agent drift issue is assigned to
+
+      - name: State
+        shell: bash
+        env:
+          STATE: ${{ steps.agent.outputs.state }}
+          FINDINGS: ${{ steps.agent.outputs.findings }}
+        run: echo "agent check $STATE, warn or block findings $FINDINGS"

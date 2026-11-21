@@ -6,7 +6,7 @@
 overwrites a workflow that is there). Commit both: the daily watch runs on the lock alone and keeps one drift issue.
 Signing the site is the upgrade, and the lock is then one of the signed files.
 
-One composite Action (`action/action.yml`) with two commands, and a daily watch template that uses it. The Action
+One composite Action (`action/action.yml`) with three commands (`gate`, `watch`, and `agent`, below), and templates that use it. The Action
 builds Plumbline from its own checkout (`npm ci`, then the build) and runs `node dist/cli/index.js`, so **pinning the
 Action by commit SHA pins the code that runs**: no package registry is involved. (The npm name `plumbline` belongs to
 an unrelated package, and `npx`'s git installs fail on the runner's npm.)
@@ -222,6 +222,37 @@ that each refusal above fails the step before the build.
 Third-party actions are pinned by commit SHA (`actions/checkout` v7.0.1, `actions/setup-node` v7.1.0, resolved from
 GitHub's tag refs on 2026-11-17). What each adapter and detector does, and what a clean report does not mean:
 `docs/gate-and-watch.md`.
+
+## Agent change control in CI (`command: agent`)
+
+`command: agent` runs `plumbline agent check --json` in the repository folder at `root` (docs/agent-lock.md, "CI"):
+the agent's declared files, models, MCP servers and peers against `plumbline.agent.lock.json`, and the lock's approval
+against the approvers file. The approvers reach the CLI only through the `approvers` input, which the template fills
+from a **repository variable**, `${{ vars.PLUMBLINE_APPROVERS }}` (the JSON text of your `approvers.json`: public keys
+and labels, not a secret). A pull request can edit any file in the repository but not a repository variable, so it
+cannot add its own approver. With no variable, every approval is `unverifiable` and the check fails: it is never read
+as approved.
+
+- `state` output: `pass` (exit 0: nothing changed without an approval), `fail` (exit 1: findings, an unapproved change
+  among them) or `unknown` (the report could not be read). The job summary lists every finding by code and ref, and the
+  approval (approved by a label and kid, not approved, invalid, or unverifiable).
+- `offline: true` runs `agent check --offline`: the repository's files and the approval only, no remote MCP server or
+  peer asked. The template uses it on pull requests.
+- `issues: true` keeps ONE issue titled `Plumbline agent drift` (apart from a site's `Plumbline drift`), with the same
+  decisions as the watch: opened on warn or block findings, edited with a comment naming what is new, closed on the
+  next clean run. With `issues: true` findings leave the step green (the issue is the news, as with `watch`); without
+  it, findings fail the step, which is what makes the pull request check a gate.
+- Refused with `command: agent`: `signing-key` and `renew` (CI never approves an agent lock: a person runs
+  `plumbline approve` with their own key) and `relock-pr`. **A relock pull request for the agent lock is not built
+  yet**: relock with `plumbline agent relock` in a clone, review what it lists, approve and commit both files.
+
+**The template** (`templates/plumbline-agent.yml`): copy it to `.github/workflows/`. On every pull request it runs the
+offline check with `contents: read` only; make that job (`Plumbline agent / check`) a **required status check** in the
+branch protection rules, and an approval becomes mandatory for any change to the agent. Daily and on demand it runs the
+full check (remote servers and peers too) with `issues: true` and `issues: write`. Set the repository variable
+`PLUMBLINE_APPROVERS` first (Settings > Secrets and variables > Actions > Variables). A pull request runs the workflow
+file from its own branch, so protect `.github/workflows/` with a code owner's review (CODEOWNERS), or a pull request
+could edit the check away.
 
 ## Security fixes and updating the pinned commit
 

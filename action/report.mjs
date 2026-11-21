@@ -4,7 +4,9 @@
 //   node report.mjs inputs                               refuse bad inputs (read from PLUMBLINE_*), before any build
 //   node report.mjs gate  <report.json>                  the gate state and the job summary
 //   node report.mjs watch <report.json> <issue-body.md>  the warn-or-block count and the drift issue's body
-//   node report.mjs title                                print the drift issue's title
+//   node report.mjs agent <report.json> <exit> <issue-body.md>
+//                                                        `agent check`: the state, the job summary, the count and the body
+//   node report.mjs title [agent]                        print the drift issue's title (the agent's has its own)
 //   node report.mjs issue <findings> <issue-body.md> <open-issues.json> <comment.md> [<report.json>]
 //                                                        what to do with the drift issue: create, edit, close or none
 //   node report.mjs pr-branch <relock|renew>             print the branch of a mode's one pull request
@@ -25,6 +27,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const ISSUE_TITLE = "Plumbline drift";
+/** The agent check's own issue (`command: agent`), so a repository that watches a site too keeps the two apart. */
+export const AGENT_ISSUE_TITLE = "Plumbline agent drift";
 const SEVERITY_RANK = { block: 0, warn: 1 };
 
 /**
@@ -33,8 +37,8 @@ const SEVERITY_RANK = { block: 0, warn: 1 };
  * `rootIsFolder` says whether `root` names a folder in the workspace: `watch` needs one, and so does a `gate` with no
  * target, which checks the files there (UAT-22).
  */
-export function inputProblem({ command, target, failOn, issues, rootIsFolder, relockPr = "false", renew = "false", signingKey = false, origin = "", siteAddress = "", desk = "", assignee = "" }) {
-  if (command !== "gate" && command !== "watch") return "command must be gate or watch";
+export function inputProblem({ command, target, failOn, issues, rootIsFolder, relockPr = "false", renew = "false", signingKey = false, origin = "", siteAddress = "", desk = "", assignee = "", offline = "false" }) {
+  if (command !== "gate" && command !== "watch" && command !== "agent") return "command must be gate, watch or agent";
   // UAT-30: a GitHub login (the pattern GitHub allows), and only where there is an issue to assign
   if (assignee !== "" && !/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(assignee)) return "assignee must be a GitHub login, like octocat";
   if (assignee !== "" && issues !== "true") return "assignee goes with issues: true: it names the person the drift issue is assigned to";
@@ -44,6 +48,16 @@ export function inputProblem({ command, target, failOn, issues, rootIsFolder, re
   if (issues !== "true" && issues !== "false") return "issues must be true or false";
   if (relockPr !== "true" && relockPr !== "false") return "relock-pr must be true or false";
   if (renew !== "true" && renew !== "false") return "renew must be true or false";
+  if (offline !== "true" && offline !== "false") return "offline must be true or false";
+  if (command !== "agent" && offline === "true") return "offline goes with command agent only";
+  if (command === "agent") {
+    if (!rootIsFolder) return "root must name a folder in the workspace: the repository folder holding plumbline.agent.json";
+    // the agent lock's relock pull request is not built yet, and CI never signs or approves anything (UAT-34)
+    if (relockPr === "true") return "relock-pr does not go with command agent yet: relock the agent lock with plumbline agent relock, review it, approve it and commit both";
+    if (renew === "true") return "renew goes with command watch only: an agent lock is approved by a person, never renewed by CI";
+    if (signingKey) return "signing-key does not go with command agent: CI never approves an agent lock; a person runs plumbline approve with their own key";
+    return null;
+  }
   if (command === "gate") {
     if (failOn !== "fail" && failOn !== "unavailable") return "fail-on must be fail or unavailable";
     // UAT-22: with no target the gate checks the files at `root` (a branch before deployment), with the validator only
@@ -65,6 +79,11 @@ export function inputProblem({ command, target, failOn, issues, rootIsFolder, re
   }
   if (signingKey && renew !== "true") return "signing-key goes with renew only: nothing else signs";
   return null;
+}
+
+/** A finding's kind for the digest: a watch finding's `kind`, or an agent finding's `code` (it has no kind). */
+function kindOf(f) {
+  return String(f?.kind ?? f?.code ?? "");
 }
 
 /** One Markdown table cell: pipes escaped, line breaks folded, absent values empty. */
@@ -98,7 +117,7 @@ export function digestOf(report) {
   const seen = new Set();
   const rows = [];
   for (const f of openFindings(report)) {
-    const row = [String(f.severity), String(f.kind ?? ""), String(f.ref ?? ""), ...evidenceOf(f)];
+    const row = [String(f.severity), kindOf(f), String(f.ref ?? ""), ...evidenceOf(f)];
     const key = JSON.stringify(row);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -580,7 +599,7 @@ export function changeComment(before, now, runUrl, findings = [], beforeBody = "
   const gone = (before ?? []).filter((old) => !now.some((row) => same(old, row)) && !nowRefs.has(key3(old)));
   if (before !== null && added.length === 0 && gone.length === 0) return null;
   const summaryOf = (row) => {
-    const f = findings.find((x) => x && same([String(x.severity), String(x.kind ?? ""), String(x.ref ?? ""), ...evidenceOf(x)], row) && (row.length < 4 || evidenceOf(x)[0] === row[3]));
+    const f = findings.find((x) => x && same([String(x.severity), kindOf(x), String(x.ref ?? ""), ...evidenceOf(x)], row) && (row.length < 4 || evidenceOf(x)[0] === row[3]));
     return f?.summary;
   };
   // MAR-RC-3: a row that is new only by its evidence (the page changed again) and whose sentence the issue's table already
@@ -623,11 +642,11 @@ export function changeComment(before, now, runUrl, findings = [], beforeBody = "
  * - `none` when the body is unchanged, or the run is clean and no issue is open.
  * A count that is not a number throws: it means no report was read, and that is never clean.
  */
-export function issuePlan({ findings, body, open, runUrl, report }) {
+export function issuePlan({ findings, body, open, runUrl, report, title = ISSUE_TITLE }) {
   if (!Number.isInteger(findings) || findings < 0) throw new Error("the findings count is not a number");
-  const issue = (Array.isArray(open) ? open : []).find((i) => i && i.title === ISSUE_TITLE && Number.isInteger(i.number));
+  const issue = (Array.isArray(open) ? open : []).find((i) => i && i.title === title && Number.isInteger(i.number));
   if (findings > 0) {
-    if (!issue) return { action: "create", title: ISSUE_TITLE };
+    if (!issue) return { action: "create", title };
     // GitHub may hand the body back with CRLF line ends or without the final newline: that is the same body.
     const same = (text) => String(text ?? "").replace(/\r\n/g, "\n").trimEnd();
     if (same(issue.body) === same(body)) return { action: "none", number: issue.number };
@@ -637,6 +656,15 @@ export function issuePlan({ findings, body, open, runUrl, report }) {
     return comment === null ? { action: "edit", number: issue.number } : { action: "edit", number: issue.number, comment };
   }
   if (!issue) return { action: "none" };
+  if (title === AGENT_ISSUE_TITLE) {
+    return {
+      action: "close",
+      number: issue.number,
+      comment:
+        `Plumbline agent check is clean as of ${runUrl}: the agent's files, models, servers and peers match plumbline.agent.lock.json, and the lock's approval verifies against the approvers file. Closing. ` +
+        "(Clean is not safe: it means nothing locked has changed without an approval.)\n",
+    };
+  }
   return {
     action: "close",
     number: issue.number,
@@ -839,6 +867,69 @@ export function prPlan({ mode, wanted, body, signed, open, runUrl, refused = fal
   return { action: "edit", number: pr.number, draft, branch: PR_BRANCHES[mode] };
 }
 
+// ---- `command: agent`: plumbline agent check (docs/agent-lock.md, "CI") ----
+
+const APPROVAL_STATES = new Set(["verified", "invalid", "unverifiable", "absent"]);
+const APPROVAL_WORDS = {
+  verified: "approved",
+  invalid: "the approval does not verify",
+  unverifiable: "the approval names a key that is in no entry of the approvers file (PLUMBLINE_APPROVERS)",
+  absent: "not approved: no plumbline.agent.approval.json",
+};
+
+/** True when a value is an agent check report: a findings list and an approval state. */
+export function isAgentReport(report) {
+  return Array.isArray(report?.findings) && APPROVAL_STATES.has(report?.approval);
+}
+
+/** The approval, in words: the state, and the approver's label and kid when verified. Never more than the report holds. */
+export function approvalLine(report) {
+  const words = APPROVAL_WORDS[report.approval];
+  const by =
+    report.approval === "verified" && typeof report.approvedBy?.label === "string" && KID.test(String(report.approvedBy?.kid))
+      ? ` by ${cell(report.approvedBy.label)} (\`${report.approvedBy.kid}\`)`
+      : "";
+  return `Approval: ${words}${by}.`;
+}
+
+/** The agent drift issue's body: warn and block findings by code and ref, what to do, and the digest marker. */
+export function agentIssueBody(report) {
+  const findings = openFindings(report);
+  const rows = findings.map((f) => `| ${cell(f.severity)} | ${cell(f.code)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
+  return (
+    [
+      "Plumbline agent check found that the agent differs from its approved lock (`plumbline.agent.lock.json`), or that the lock's approval does not stand.",
+      "",
+      approvalLine(report),
+      "",
+      "| Severity | Code | Ref | What |",
+      "| --- | --- | --- | --- |",
+      ...rows,
+      "",
+      "Review each change. For one you accept, in the repository run `plumbline agent relock`, look at what it lists, then `plumbline approve --key <your private key file>` (a person approves; CI never does) and commit `plumbline.agent.lock.json` and `plumbline.agent.approval.json` together. The next clean run closes this issue.",
+      "",
+      "A clean check does not mean the agent is safe: it means what was locked has not changed without an approval.",
+      "",
+      digestMarker(digestOf(report)),
+    ].join("\n") + "\n"
+  );
+}
+
+/**
+ * The agent check's outputs from its report and the CLI's exit code: `state` pass (exit 0), fail (exit 1, findings) or
+ * unknown (any other exit, or a report that is not an agent report: never read as pass). With a readable report, the job
+ * summary lists the findings by code and ref, and `findings` and `body` are the warn-or-block count and the issue body.
+ */
+export function agentOutputs(report, code) {
+  if (!isAgentReport(report)) {
+    return { state: "unknown", summary: "### Plumbline agent check: unknown\nThe report could not be read, so nothing is known to be approved.\n" };
+  }
+  const state = code === 0 ? "pass" : code === 1 ? "fail" : "unknown";
+  const lines = report.findings.map((f) => `- **${cell(f?.severity)}** \`${cell(f?.code)}\` ${cell(f?.ref)}: ${cell(f?.summary)}`);
+  const summary = [`### Plumbline agent check: ${state}`, approvalLine(report), "", ...(lines.length > 0 ? lines : ["No findings."])].join("\n") + "\n";
+  return { state, summary, findings: openFindings(report).length, body: agentIssueBody(report) };
+}
+
 function readReport(file) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
@@ -901,6 +992,7 @@ function main(argv) {
       siteAddress: env.PLUMBLINE_SITE_ADDRESS ?? "",
       desk: env.PLUMBLINE_DESK ?? "",
       assignee: env.PLUMBLINE_ASSIGNEE ?? "",
+      offline: env.PLUMBLINE_OFFLINE ?? "false",
     });
     if (problem === null) return 0;
     process.stderr.write(`::error::${problem}\n`);
@@ -932,8 +1024,27 @@ function main(argv) {
     output("issue-body", bodyFile);
     return 0;
   }
-  if (command === "title" && argv.length === 1) {
-    process.stdout.write(`${ISSUE_TITLE}\n`);
+  if (command === "agent" && argv.length === 4) {
+    const [, file, exit, body] = argv;
+    let report;
+    try {
+      report = readReport(file);
+    } catch {
+      report = undefined;
+    }
+    const outputs = agentOutputs(report, /^[0-9]+$/.test(exit) ? Number(exit) : Number.NaN);
+    output("state", outputs.state);
+    if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, outputs.summary);
+    // no count and no body for a report that cannot be read: the issue step then refuses, and never closes the issue
+    if (outputs.body !== undefined) {
+      writeFileSync(body, outputs.body);
+      output("findings", String(outputs.findings));
+      output("issue-body", body);
+    }
+    return 0;
+  }
+  if (command === "title" && (argv.length === 1 || (argv.length === 2 && argv[1] === "agent"))) {
+    process.stdout.write(`${argv[1] === "agent" || env.PLUMBLINE_COMMAND === "agent" ? AGENT_ISSUE_TITLE : ISSUE_TITLE}\n`);
     return 0;
   }
   if (command === "issue" && (argv.length === 5 || argv.length === 6)) {
@@ -943,7 +1054,8 @@ function main(argv) {
     try {
       const findings = /^[0-9]+$/.test(count) ? Number(count) : Number.NaN;
       const report = reportFile === undefined ? undefined : readReport(reportFile);
-      plan = issuePlan({ findings, body: readFileSync(bodyPath, "utf8"), open: JSON.parse(readFileSync(openFile, "utf8")), runUrl, ...(report !== undefined ? { report } : {}) });
+      const title = env.PLUMBLINE_COMMAND === "agent" ? AGENT_ISSUE_TITLE : ISSUE_TITLE;
+      plan = issuePlan({ findings, body: readFileSync(bodyPath, "utf8"), open: JSON.parse(readFileSync(openFile, "utf8")), runUrl, title, ...(report !== undefined ? { report } : {}) });
     } catch (error) {
       process.stderr.write(`::error::cannot decide on the drift issue: ${error.message}\n`);
       return 2;
@@ -1000,7 +1112,8 @@ function main(argv) {
     return 0;
   }
   process.stderr.write(
-    "usage: node report.mjs inputs | gate <report.json> | watch <report.json> <issue-body.md> | title\n" +
+    "usage: node report.mjs inputs | gate <report.json> | watch <report.json> <issue-body.md> | title [agent]\n" +
+      "       | agent <report.json> <exit code> <issue-body.md>\n" +
       "       | issue <findings> <issue-body.md> <open-issues.json> <comment.md>\n" +
       "       | pr-branch <relock|renew> | renew-needed <report.json>\n" +
       "       | pr <relock|renew> <report.json> <relock.json|-> <sign.json|-> <open-prs.json> <body.md> <comment.md>\n",

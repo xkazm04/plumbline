@@ -1,5 +1,48 @@
 # Plumbline
 
+Agent change control: know what your agent is made of, and who approved each change to it.
+
+An AI agent is its prompt and instruction files, its host settings and hooks, its model ids, the MCP servers it calls
+and the tool definitions those servers advertise, and the agents it talks to. Any of these can change under you: a
+pull request edits `CLAUDE.md`, a hook appears in `.claude/settings.json`, an MCP server ships a new tool description
+the model will read and obey. Plumbline pins all of it by hash, has a named person sign each accepted state with their
+own key, and enforces the approved state in CI and at the moment a tool would run.
+
+| Part | What it does |
+|---|---|
+| **lock** | `plumbline agent init` declares the agent (`plumbline.agent.json`) and pins every component by hash in `plumbline.agent.lock.json`; `agent relock` accepts a reviewed change, and each lock names the one it replaces. |
+| **approve** | `plumbline approve` signs the lock's exact bytes with a person's own Ed25519 key (`plumbline.agent.approval.json`). Approvers are listed in a trust store held outside the repository (`plumbline approver add`), so a pull request cannot approve itself. |
+| **check** | `plumbline agent check` fails when anything differs from the approved lock, or when the lock's approval is absent, invalid or unverifiable. In CI it is a required check on every pull request. |
+| **guard** | `plumbline guard` sits between the agent host and each stdio MCP server: tools whose definition differs from the lock are hidden, and a call to one is refused. |
+| **audit** | `plumbline audit` walks the lock's git history: every version, who approved it, and where the chain breaks; `--out` writes a table to attach as change-management evidence. |
+
+A verified approval proves that a person you listed accepted exactly this agent. It does not prove the agent is safe.
+
+### Quick start
+
+From your agent's repository root, with your approval key kept outside it:
+
+```sh
+plumbline keygen --out ../plumbline-approver                                         # your own key; never commit it
+plumbline approver add --key ../plumbline-approver/.well-known/plumbline-key.json --label "Your Name"
+plumbline agent init --wrap         # declares and locks the agent; puts the guard in front of each stdio server in .mcp.json
+plumbline approve --key ../plumbline-approver/plumbline.private.json   # signs the lock: commit the lock and the approval
+plumbline agent check               # exit 0: the agent is what you approved
+```
+
+`approver add` writes your trust store at `$PLUMBLINE_HOME/approvers.json` (by default `~/.config/plumbline/`), never
+inside a repository. From then on your agent host starts each stdio MCP server through `plumbline guard`, which lets
+through only the tools the approved lock pins. After a change you accept: `plumbline agent relock`, review what it
+lists, `plumbline approve`, commit both files. `plumbline audit --out evidence` shows every approved change since the
+first lock.
+
+**In CI**, copy `action/templates/plumbline-agent.yml` into `.github/workflows/` and set the repository variable
+`PLUMBLINE_APPROVERS` to your approvers file's JSON text. Every pull request runs the offline check; make it a required
+status check and an approval becomes mandatory for any change to the agent. A daily run also checks remote MCP servers
+and peers and keeps one issue (`action/README.md`). The formats: `docs/agent-lock.md`.
+
+## The same engine for agentic websites
+
 Keep an agentic website true after it ships.
 
 An agentic website publishes `agent-manifest.json` and an agent network that runs in the visitor's browser (the
@@ -18,7 +61,7 @@ your visitor's tab. Generation is solved elsewhere; Plumbline is the layer after
 
 A verified signature proves who published the files and that they did not change. It does not prove a site is safe.
 
-## Use it
+## Use it for an agentic website
 
 Every block below names the folder it runs in. `plumbline --help` lists the commands by role, and `plumbline <command>
 --help` gives one command's options. Exit codes everywhere: 0 clean, 1 findings (for `trust` without `--yes`: nothing
@@ -126,7 +169,7 @@ each verifier the new kid out of band, as at first contact (`docs/signature-form
 ### CI
 
 The workflow `init --workflow` wrote runs the Action pinned by commit SHA: `uses: xkazm04/plumbline/action@<commit
-sha>` (gate or watch; `issues: true` keeps one drift issue, with a comment when its findings change). The Action builds
+sha>` (gate, watch or agent; `issues: true` keeps one drift issue, with a comment when its findings change). The Action builds
 Plumbline from the commit you pin, so the code that runs is exactly that commit's. To have it propose the relock as one
 pull request, the repository needs three settings, which the workflow's header and `action/README.md` name (it also
 says how to gate a branch before deployment, how to hear about security fixes and how to move the pin).
@@ -142,7 +185,8 @@ says how to gate a branch before deployment, how to hear about security fixes an
 - `docs/trust-bootstrap.md` - first contact through a second channel (a DNS record naming the kid), and the designs not built yet.
 - `docs/ecosystem-scan.md` - `plumbline scan` over a list of sites, its report schema, and the gate badge.
 - `site/README.md` - how the Desk is built, its Content-Security-Policy, and how to serve it.
-- `action/README.md` - the Action and the watch template.
+- `docs/agent-lock.md` - agent change control: the declaration, the lock and its chain, approval, the guard, audit and CI.
+- `action/README.md` - the Action, the watch template and the agent template.
 
 ## Develop
 
