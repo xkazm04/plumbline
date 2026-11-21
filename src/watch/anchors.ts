@@ -110,7 +110,24 @@ function phoneDigits(written: string): string | null {
   return digits.slice(-9);
 }
 
-const TIME_HALF = "(a\\.?m\\.?|p\\.?m\\.?)";
+/** A word just before a number that says the number is dialled ("Call us on", "tel.:"; read from the 40 characters before it, so a word is seen whole). */
+const PHONE_CUE = /\b(?:tel|telephone|phone|call|mobile|cell|fax|whatsapp)\b[^a-z\d]{0,3}(?:(?:us|me|them)\s)?(?:(?:on|at)\s)?(?:(?:no|number)\b\.?\s?:?\s?)?$/;
+
+/**
+ * Whether a grouped digit run (the phone pattern's third form, no + or 00 and no trunk 0) is a phone number. A run of
+ * 4-digit years (1900 to 2099) never is. Otherwise it needs a cue: an area code in parentheses ("(555) 123 4567"), the
+ * hyphen or dot grouping a national number is written in ("555-123-4567", "555.123.4567"), or a dialling word just
+ * before it ("call 555 123 4567"). Space-separated digits alone ("ref 12 345 678") are a reference, a count or a list.
+ */
+function groupedIsPhone(m: RegExpExecArray): boolean {
+  const written = m[0];
+  const groups = written.match(/\d+/g) ?? [];
+  if (groups.length >= 2 && groups.every((g) => g.length === 4 && Number(g) >= 1900 && Number(g) <= 2099)) return false;
+  if (written.includes("(") || /\d[.-]\d/.test(written)) return true;
+  return PHONE_CUE.test(m.input.slice(Math.max(0, m.index - 40), m.index));
+}
+
+const TIME_HALF ="(a\\.?m\\.?|p\\.?m\\.?)";
 const PATTERNS: Pattern[] = [
   {
     kind: "email",
@@ -132,12 +149,26 @@ const PATTERNS: Pattern[] = [
       return null;
     },
   },
-  // Money in three passes, so a number cell before a price is never read as the amount (UAT-1: "Sleeps 2 | €89" read
-  // EUR 2): a symbol written against its number first (€89), then a symbol or code after a number (89 €, 89 euros,
-  // 89,- €), then a symbol or code before a number with a space (EUR 89, € 89).
-  { kind: "money", re: new RegExp(`(${SYMBOL})(${NUMBER})`, "g"), norm: (m) => money(m[1], m[2]) },
-  { kind: "money", re: new RegExp(`\\b(${NUMBER})(?:[,.]-)?\\s?(${AFTER})(?![a-z])`, "g"), norm: (m) => money(m[2], m[1]) },
-  { kind: "money", re: new RegExp(`(${SYMBOL}|\\b(?:${CODE})\\b)\\s?(${NUMBER})`, "g"), norm: (m) => money(m[1], m[2]) },
+  // Money in four passes, so a number cell before a price is never read as the amount (UAT-1: "Sleeps 2 | €89" read
+  // EUR 2):
+  //   1. a currency word with its cents written out (2 euros 89 cents, 3 pounds 50 pence) is one amount (eur 2.89);
+  //   2. a symbol or code written against its number (€89, EUR89);
+  //   3. a symbol, code or word after a number (89 €, 89 euros, 89,- €), UNLESS another number follows it with only a
+  //      space between (the both-sides rule below);
+  //   4. a symbol or code before a number with a space (EUR 89, € 89).
+  // The both-sides rule (O-1): a symbol or code with a number on BOTH sides and only spaces between ("Sleeps 2 € 89",
+  // "2 EUR 89") binds to the FOLLOWING number, because symbol-first is the dominant written form for €, $ and £; "89 €"
+  // with nothing numeric after it stays number-first. A currency WORD between two numbers with no cents ("2 euros 89")
+  // is genuinely ambiguous and anchors nothing: pass 3 skips it and pass 4 reads symbols and codes only. The cost: in
+  // "89 € 2 nights" the price read is 2; a page writes that rarely, and "€89 2 nights" or "89 € | 2 nights" read 89.
+  {
+    kind: "money",
+    re: new RegExp(`\\b(\\d{1,12})\\s?(euros?|dollars?|pounds?)\\s(?:and\\s)?(\\d{1,2})\\s?(?:cents?|pence)(?![a-z])`, "g"),
+    norm: (m) => money(m[2], `${m[1]}.${(m[3] ?? "").padStart(2, "0")}`),
+  },
+  { kind: "money", re: new RegExp(`(${SYMBOL}|(?<![a-z])(?:${CODE}))(${NUMBER})`, "g"), norm: (m) => money(m[1], m[2]) },
+  { kind: "money", re: new RegExp(`\\b(${NUMBER})(?:[,.]-)?\\s?(${AFTER})(?![a-z])(?!\\s?\\d)`, "g"), norm: (m) => money(m[2], m[1]) },
+  { kind: "money", re: new RegExp(`(${SYMBOL}|(?<![a-z])(?:${CODE})(?![a-z]))\\s?(${NUMBER})`, "g"), norm: (m) => money(m[1], m[2]) },
   {
     kind: "percent",
     re: /\b(\d{1,12}(?:[.,]\d{1,6})?)\s?(?:%|percent\b|per cent\b)/g,
@@ -167,9 +198,11 @@ const PATTERNS: Pattern[] = [
   },
   {
     kind: "phone",
-    // international (+ or 00), national with a trunk 0 (01632 960418), or grouped (555) 123-4567; 7 to 15 digits
-    re: /(?:\+|\b00)\d[\d\s().-]{5,24}\d\b|\(?\b0\d{2,5}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}\b|\(?\b\d{2,4}\)?[\s.-]\d{2,4}[\s.-]\d{2,4}(?:[\s.-]\d{2,4})?\b/g,
-    norm: (m) => phoneDigits(m[0]),
+    // international (+ or 00), national with a trunk 0 (01632 960418), or grouped (555) 123-4567; 7 to 15 digits.
+    // The grouped form (captured) is held to a cue, because a run of numbers is not a phone number (O-1: "years 1998
+    // 2001 2010", "ref 12 345 678"): see groupedIsPhone.
+    re: /(?:\+|\b00)\d[\d\s().-]{5,24}\d\b|\(?\b0\d{2,5}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}\b|(\(?\b\d{2,4}\)?[\s.-]\d{2,4}[\s.-]\d{2,4}(?:[\s.-]\d{2,4})?)\b/g,
+    norm: (m) => (m[1] === undefined || groupedIsPhone(m) ? phoneDigits(m[0]) : null),
     legacy: (m) => {
       const digits = m[0].replace(/\D/g, "");
       if (digits.length < 7 || digits.length > 15) return null;

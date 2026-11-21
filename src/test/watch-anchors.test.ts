@@ -171,6 +171,42 @@ test("UAT-1: a number cell before a price is never the amount; every form MAR-L2
   assert.deepEqual(networkLiterals(JSON.stringify({ tools: [{ instructions: "The double room costs 89 euros a night." }] })), ["money:eur 89"]);
 });
 
+test("UAT-1 residual (O-1): a symbol or code between two numbers binds to the following one, never the count before it", () => {
+  assert.deepEqual(kinds("Sleeps 2 € 89", "money"), ["money:eur 89"]);
+  assert.deepEqual(kinds("Sleeps 2 EUR 89", "money"), ["money:eur 89"]);
+  assert.deepEqual(kinds("Sleeps 2 £ 89 a night", "money"), ["money:gbp 89"]);
+  assert.deepEqual(kinds("2 € 89 €", "money"), ["money:eur 89"]);
+  // number-first stays number-first when nothing numeric follows, or a separator does
+  assert.deepEqual(kinds("Double room 89 € a night", "money"), ["money:eur 89"]);
+  assert.deepEqual(page("<tr><td>89 €</td><td>2 nights</td></tr>").filter((l) => l.startsWith("money:")), ["money:eur 89"]);
+});
+
+test("UAT-1 residual (O-1): a currency word with its cents is one amount; a word between two bare numbers anchors nothing", () => {
+  assert.deepEqual(kinds("for 2 euros 89 cents", "money"), ["money:eur 2.89"]);
+  assert.deepEqual(kinds("3 pounds 50 pence", "money"), ["money:gbp 3.5"]);
+  // the false-positive guard: never eur 2
+  assert.ok(!kinds("for 2 euros 89 cents", "money").includes("money:eur 2"));
+  assert.deepEqual(kinds("for 2 euros 89", "money"), []);
+});
+
+test("UAT-1 residual (O-1): a code written against its number anchors (EUR89), and a code inside a word does not", () => {
+  assert.deepEqual(kinds("EUR89", "money"), ["money:eur 89"]);
+  assert.deepEqual(kinds("only USD1,500 today", "money"), ["money:usd 1500"]);
+  assert.deepEqual(kinds("neur89 europe 89", "money"), []);
+});
+
+test("UAT-1 residual (O-1): a run of years or a bare reference is not a phone number; a cued or grouped one still is", () => {
+  assert.deepEqual(kinds("years 1998 2001 2010", "phone"), []);
+  assert.deepEqual(kinds("ref 12 345 678", "phone"), []);
+  assert.deepEqual(kinds("1998-2001-2010", "phone"), []);
+  assert.deepEqual(kinds("recall 555 123 4567", "phone"), []);
+  // a cue keeps the grouped form: a dialling word, parentheses, the national hyphen or dot grouping
+  assert.deepEqual(kinds("Call us on 555 123 4567", "phone"), ["phone:551234567"]);
+  assert.deepEqual(kinds("tel.: 12 345 678", "phone"), ["phone:12345678"]);
+  assert.deepEqual(kinds("(555) 123 4567", "phone"), ["phone:551234567"]);
+  assert.deepEqual(kinds("555-123-4567 or 555.123.4567", "phone"), ["phone:551234567"]);
+});
+
 test("UAT-1: the network's replacement strings are what its agents state", () => {
   const net = { commondefs: { replacement_strings: { rules: "Quiet hours are 22:00 to 07:00." } }, tools: [{ name: "a", instructions: "Check-in from 15:00. {rules} {missing}" }] };
   assert.deepEqual(networkLiterals(JSON.stringify(net)), ["time:07:00", "time:15:00", "time:22:00"]);
