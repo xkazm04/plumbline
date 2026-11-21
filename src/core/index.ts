@@ -12,3 +12,4 @@ export { revokeKey, applyRevocation, applyRevocationText, spreadRevocations, typ
 export { signedPathsOf, networkPathOf, codePathOf, isSafeSubjectPath, parseManifest, type SitePresence } from "./signed-paths.js";
 export { countDuplicateKeys, duplicateKeys } from "./json-keys.js";
 export { JWS_ALG, jwsSigningInput, parseDetachedJws, signDetachedJws, verifyDetachedJws, type PlumblineJwsHeader } from "./jws.js";
+export { approveLock, verifyApproval, parseApprovers, approversKidProblem, approvalShapeProblem, MAX_APPROVER_LABEL, type ApproveOptions, type ApprovalVerdict } from "./approve.js";
