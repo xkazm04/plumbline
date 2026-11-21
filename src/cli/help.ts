@@ -163,7 +163,7 @@ const EXIT_CODES = "Exit codes: 0 clean, 1 findings (for trust without --yes: no
 /** The top-level help: the commands grouped by role, one line each. */
 export function topHelp(): string {
   const width = Math.max("watch --url".length, ...COMMANDS.map((c) => c.length)) + 2;
-  const lines = ["plumbline: keep an agentic website true after it ships. Needs Node 22 or later.", "", "usage: plumbline <command> [options]", ""];
+  const lines = ["plumbline: agent change control: lock what your agent is made of, approve each change, check and guard it, audit who approved what. The same engine keeps an agentic website true after it ships. Needs Node 22 or later.", "", "usage: plumbline <command> [options]", ""];
   for (const role of ["agent", "publisher", "verifier", "operator"] as const) {
     lines.push(`${ROLE_TITLES[role]}:`);
     for (const [name, help] of Object.entries(COMMAND_HELP)) if (help.role === role) lines.push(`  ${name.padEnd(width)}${help.line}`);
