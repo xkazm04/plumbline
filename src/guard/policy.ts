@@ -33,14 +33,14 @@ export interface PolicyDecision {
 }
 
 /**
- * The policy. The command's target is compared with the lock's in both spellings of "no arguments" (args omitted, or
- * an empty list), since the guard's argv cannot tell which the declaration used; any argument makes them one spelling.
+ * The policy. The command's target is hashed as `agent init` hashes a declaration: `args` only when there is at least
+ * one argument (an empty list and no list are the same command).
  */
 export async function guardPolicy(inputs: PolicyInputs): Promise<PolicyDecision> {
-  const bare = await serverTarget({ transport: "stdio", command: inputs.command });
-  const listed = await serverTarget({ transport: "stdio", command: inputs.command, args: [...inputs.args] });
-  const targets = inputs.args.length === 0 ? [bare, listed] : [listed];
-  const refuse = (reason: Extract<GuardPolicy, { mode: "refuse" }>["reason"], target = targets[0] as string): PolicyDecision => ({
+  const ran = await serverTarget(
+    inputs.args.length === 0 ? { transport: "stdio", command: inputs.command } : { transport: "stdio", command: inputs.command, args: [...inputs.args] },
+  );
+  const refuse = (reason: Extract<GuardPolicy, { mode: "refuse" }>["reason"], target = ran): PolicyDecision => ({
     policy: { mode: "refuse", reason },
     target,
   });
@@ -52,8 +52,8 @@ export async function guardPolicy(inputs: PolicyInputs): Promise<PolicyDecision>
   const record = mcp !== undefined && Object.hasOwn(mcp, inputs.server) ? mcp[inputs.server] : undefined;
   if (record === undefined) return refuse("server-absent");
   if (record.transport !== "stdio") return refuse("server-not-stdio");
-  const target = targets.find((t) => t === record.target);
-  if (target === undefined) return refuse("server-target-changed");
+  if (record.target !== ran) return refuse("server-target-changed");
+  const target = ran;
 
   if (inputs.require === "approved") {
     let outcome: ApprovalOutcome;

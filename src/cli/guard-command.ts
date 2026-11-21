@@ -12,11 +12,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { parseAgentLock, type Parsed } from "../agent/lock.js";
+import { pendingFileName } from "../agent/pending.js";
 import { verifyApproval, type ApprovalVerdict } from "../core/approve.js";
 import { AGENT_APPROVAL_FILE, AGENT_PENDING_DIR, GUARD_REQUIRE, type AgentLock, type ApproverEntry, type GuardRequire } from "../core/types.js";
 import { GuardFilter } from "../guard/filter.js";
 import { guardPolicy, type ApprovalOutcome } from "../guard/policy.js";
 import { runGuardProcess } from "../guard/process.js";
+import { resolveApprovers, type ApproversSource } from "./approvers-file.js";
 import { CliError, UsageError, parseArgs, required } from "./args.js";
 import type { Out } from "./commands.js";
 import { printable } from "./diff-command.js";
@@ -28,11 +30,7 @@ export const GUARD_USAGE =
 export const LOCKED_MODE_WARNING =
   "plumbline guard: --require locked: tools are matched against the agent lock by hash only; the lock is not checked for approval, and anything that can write the repository can change it (use --require approved to require a person's approval)";
 
-/** What `resolveApprovers` (src/cli/approvers-file.ts, WP4) returns; shared-deps.md, "Approvers resolution". */
-export type ApproversSource =
-  | { ok: true; approvers: ApproverEntry[]; source: "file" | "env" | "default"; path?: string }
-  | { ok: false; absent: true; looked: string }
-  | { ok: false; problem: string; source: "file" | "env" | "default" };
+export type { ApproversSource };
 export type ResolveApprovers = (file: string | undefined, env: NodeJS.ProcessEnv, repoRoot?: string) => Promise<ApproversSource>;
 
 /** What the command reaches outside itself; tests replace any of it. */
@@ -44,21 +42,6 @@ export interface GuardDeps {
   input: Readable;
   output: Writable;
   stderr: (line: string) => void;
-}
-
-/**
- * WP4's resolveApprovers, loaded when its module exists. Until WP4's branch is merged it does not, and every approval
- * is unverifiable (fail closed). The Director replaces this with a static import at merge.
- */
-async function loadResolveApprovers(): Promise<ResolveApprovers> {
-  const spec = "./approvers-file.js";
-  try {
-    const mod = (await import(spec)) as { resolveApprovers?: ResolveApprovers };
-    if (typeof mod.resolveApprovers === "function") return mod.resolveApprovers;
-  } catch {
-    // not built in this tree
-  }
-  return async () => ({ ok: false, problem: "the approvers reader is not built in this tree", source: "default" });
 }
 
 /** A server name usable as a file name in the pending folder: no folder separator, no control or Windows-reserved character. */
@@ -131,7 +114,8 @@ export async function guardCommand(argv: string[], deps: GuardDeps): Promise<num
   });
 
   const pendingDir = path.resolve(args.values.get("pending") ?? path.join(path.dirname(lockFile), ...AGENT_PENDING_DIR.split("/")));
-  const pendingFile = isFileSafeName(server) ? path.join(pendingDir, `${server}.json`) : undefined;
+  const fileName = pendingFileName(server);
+  const pendingFile = isFileSafeName(fileName) ? path.join(pendingDir, fileName) : undefined;
   const filter = new GuardFilter({ policy: decision.policy, label, strict: args.flags.has("strict"), ...(pendingFile === undefined ? {} : { pendingPath: pendingFile }) });
 
   if (requireMode === "locked") deps.stderr(LOCKED_MODE_WARNING);
@@ -159,7 +143,7 @@ export async function runGuardCommand(argv: string[], out: Out): Promise<number>
     code = await guardCommand(argv, {
       parseLock: parseAgentLock,
       verifyApproval,
-      resolveApprovers: await loadResolveApprovers(),
+      resolveApprovers,
       env: process.env,
       input: process.stdin,
       output: process.stdout,

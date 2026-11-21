@@ -170,6 +170,17 @@ test("guard usage: the command after --, a known --require, --approvers only wit
   await assert.rejects(runInProcess(["--server", "s", "--", "x"], [], deps), /missing --lock/);
 });
 
+test("a host-prefixed server name writes its pending file with the colon encoded; the document keeps the real name", async () => {
+  const dir = scratchDir();
+  const args = [FAKE_SERVER, config({ tools: [ECHO] })];
+  const lockFile = path.join(dir, "plumbline.agent.lock.json");
+  writeFileSync(lockFile, JSON.stringify(await lockFor("claude:docs", args, [ECHO])));
+  const r = await runInProcess(["--lock", lockFile, "--server", "claude:docs", "--", process.execPath, ...args], [rpc(1, "tools/list")]);
+  assert.deepEqual(listed(r, 1), ["echo"]);
+  const pending = parsePending(readFileSync(path.join(dir, ".plumbline", "pending", "claude__docs.json"), "utf8"));
+  assert.equal(pending?.server, "claude:docs");
+});
+
 test("a server name that cannot be a file name writes no pending file and says so", () => {
   for (const bad of ["", ".", "..", "a/b", "a\\b", "c:x", "x\u0000", "trail."]) assert.equal(isFileSafeName(bad), false, JSON.stringify(bad));
   for (const good of ["docs", "my-server_1", "github.com"]) assert.equal(isFileSafeName(good), true);

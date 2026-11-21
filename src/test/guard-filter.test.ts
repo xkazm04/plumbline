@@ -258,11 +258,9 @@ test("policy --require approved: the four approval states map as shared-deps say
   assert.equal((await policyOf({ require: "locked", approval: "throws" })).mode, "enforce");
 });
 
-test("policy: no arguments matches a lock that recorded args omitted or empty", async () => {
-  for (const args of [undefined, []]) {
-    const target = await serverTarget(args === undefined ? { transport: "stdio", command: "srv" } : { transport: "stdio", command: "srv", args });
-    const d = await guardPolicy({ lockText: lockText({ s: { transport: "stdio", target } }), parseLock, server: "s", command: "srv", args: [], require: "locked", approval: async () => ({ state: "verified" }) });
-    assert.equal(d.policy.mode, "enforce");
-    assert.equal(d.target, target);
-  }
+test("policy: no arguments is hashed with args omitted, as agent init hashes a declaration", async () => {
+  const target = await serverTarget({ transport: "stdio", command: "srv" });
+  const d = await guardPolicy({ lockText: lockText({ s: { transport: "stdio", target } }), parseLock, server: "s", command: "srv", args: [], require: "locked", approval: async () => ({ state: "verified" }) });
+  assert.equal(d.policy.mode, "enforce");
+  assert.equal(d.target, target);
 });
