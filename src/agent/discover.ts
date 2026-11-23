@@ -3,8 +3,10 @@
 // and the repository files a declaration's globs match now. Node: reads the checkout. Reading is not running: nothing
 // here starts a server.
 //
-// Secrets: a host entry's `env` and `headers` hold tokens. They are never copied into anything this module returns, so
-// no Plumbline file can carry them. Files that are never locked, whatever a glob says: anything under `.git`,
+// Secrets: a host entry's `env` and `headers` hold tokens. Their values are never read, so no Plumbline file can carry
+// them: of `headers` only the NAMES are read, and each becomes an `auth` entry naming an environment variable the person
+// sets (suggestedAuthVariable). An address with a query string is not declared at all (it may carry a token).
+// Files that are never locked, whatever a glob says: anything under `.git`,
 // `node_modules` (at any depth), `.plumbline` and `.claude/worktrees`, `.claude/settings.local.json` (a person's own
 // settings, often with tokens), and Plumbline's own agent files (the declaration is pinned by its own hash; the lock and
 // the approval cannot pin themselves). Symbolic links are not followed: a declared file replaced by a link reads as
@@ -17,7 +19,8 @@ import { isSafeSubjectPath } from "../core/signed-paths.js";
 import { AGENT_APPROVAL_FILE, AGENT_FILE, AGENT_LOCK_FILE, AGENT_PENDING_DIR, type McpServerDecl } from "../core/types.js";
 import { CliError } from "../cli/args.js";
 import { byPath, globMatch } from "./glob.js";
-import { isHttpsAddress, isModelLabel, isServerName, MODEL_ID_PATTERN } from "./lock.js";
+import { isBlockedAddress } from "../net/address.js";
+import { isAuthHeaderName, isEnvName, isHttpsAddress, isModelLabel, isServerName, MAX_AUTH_HEADERS, MODEL_ID_PATTERN } from "./lock.js";
 
 /** The hosts whose MCP config is read, with the file each keeps it in and the member that holds the servers. */
 export const HOSTS = [
@@ -192,8 +195,48 @@ export function unwrapGuard(command: string, args: readonly string[]): { command
   return { command: args[dash + 1] as string, args: args.slice(dash + 2) };
 }
 
-/** A host entry as a declaration, or why not. Never reads `env` or `headers`. */
-function entryDecl(entry: unknown): { decl: McpServerDecl; wrapped: boolean; sse: boolean } | { why: string } {
+/** The environment variable init suggests for one auth header: `PLUMBLINE_<SERVER>_<HEADER>`, upper-case, every other character `_`. */
+export function suggestedAuthVariable(server: string, header: string): string {
+  return `PLUMBLINE_${server}_${header}`.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+}
+
+/** Why a host entry's address is not declared (fixed words), or undefined when it is declared. */
+export function addressSkipReason(url: string): string | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "its address is not a URL";
+  }
+  if (parsed.username !== "" || parsed.password !== "") return "its address carries credentials (a user name or password)";
+  const host = parsed.hostname.startsWith("[") ? parsed.hostname.slice(1, -1) : parsed.hostname;
+  const name = host.toLowerCase().replace(/\.$/, "");
+  if (name === "localhost" || name.endsWith(".localhost") || ((/^[0-9.]+$/.test(name) || name.includes(":")) && isBlockedAddress(name))) {
+    return "it is a local address (your own server): not locked";
+  }
+  if (parsed.protocol !== "https:" || !isHttpsAddress(url)) return "its address is not https";
+  if (parsed.search !== "" || url.includes("?")) {
+    return "its address has a query string, which may carry a token: move the key into the entry's headers, which init declares as auth (a header whose value comes from an environment variable)";
+  }
+  return undefined;
+}
+
+/** The header NAMES of an http entry's `headers` (values never read), or why they cannot be declared as auth. */
+function headerNames(headers: unknown): { names: string[] } | { why: string } {
+  if (headers === undefined) return { names: [] };
+  if (!isObject(headers)) return { why: "its headers are not an object" };
+  const names = Object.keys(headers);
+  if (names.length > MAX_AUTH_HEADERS) return { why: `it sends more than ${MAX_AUTH_HEADERS} headers` };
+  if (!names.every(isAuthHeaderName)) return { why: "it sends a header Plumbline does not send as auth (a protocol, cookie or hop-by-hop header, or not a header name)" };
+  if (new Set(names.map((n) => n.toLowerCase())).size !== names.length) return { why: "it names one header twice" };
+  return { names };
+}
+
+/**
+ * A host entry as a declaration, or why not. Never reads `env`, nor a value of `headers` (`headers` is the http entry's
+ * header names, declared as `auth` once the server's name is known).
+ */
+function entryDecl(entry: unknown): { decl: McpServerDecl; wrapped: boolean; sse: boolean; headers: string[] } | { why: string } {
   if (!isObject(entry)) return { why: "its entry is not an object" };
   const type = entry.type;
   if (typeof entry.command === "string" && (type === undefined || type === "stdio")) {
@@ -208,11 +251,14 @@ function entryDecl(entry: unknown): { decl: McpServerDecl; wrapped: boolean; sse
     const runArgs = inner?.args ?? args ?? [];
     // args are omitted when there are none, so `"args": []` and no args are one target (serverTarget)
     const decl: McpServerDecl = runArgs.length > 0 ? { transport: "stdio", command, args: runArgs } : { transport: "stdio", command };
-    return { decl, wrapped: inner !== undefined, sse: false };
+    return { decl, wrapped: inner !== undefined, sse: false, headers: [] };
   }
   if (typeof entry.url === "string" && (type === undefined || type === "http" || type === "sse" || type === "streamable-http")) {
-    if (!isHttpsAddress(entry.url)) return { why: "its address is not https (or carries credentials)" };
-    return { decl: { transport: "http", url: entry.url }, wrapped: false, sse: type === "sse" };
+    const why = addressSkipReason(entry.url);
+    if (why !== undefined) return { why };
+    const headers = headerNames(entry.headers);
+    if ("why" in headers) return headers;
+    return { decl: { transport: "http", url: entry.url }, wrapped: false, sse: type === "sse", headers: headers.names };
   }
   return { why: "it is neither a command nor an address Plumbline reads" };
 }
@@ -241,7 +287,7 @@ export async function readRepoJson(root: string, rel: string): Promise<Record<st
 /** Every server the three hosts' configs declare. A name used by two hosts for different targets is kept under `<host>:<name>`. */
 export async function discoverHosts(root: string, target: (decl: McpServerDecl) => Promise<string>): Promise<HostDiscovery> {
   const configs: HostConfig[] = [];
-  const raw: HostServer[] = [];
+  const raw: (HostServer & { headers: string[] })[] = [];
   const skipped: SkippedServer[] = [];
   for (const { host, file, member } of HOSTS) {
     const json = await readRepoJson(root, file);
@@ -266,12 +312,20 @@ export async function discoverHosts(root: string, target: (decl: McpServerDecl) 
   const servers: HostServer[] = [];
   const entries: HostServer[] = [];
   const declared = new Set<string>();
-  for (const s of raw) {
+  for (const { headers, ...s } of raw) {
     const clash = (targets.get(s.key)?.size ?? 0) > 1;
     const name = clash ? `${s.host}:${s.key}` : s.key;
     if (!isServerName(name)) {
       skipped.push({ host: s.host, file: s.file, name: s.key, why: "its name is outside [A-Za-z0-9._-] (rename it in the host file to declare it)" });
       continue;
+    }
+    if (headers.length > 0 && s.decl.transport === "http") {
+      const auth = Object.fromEntries(headers.map((h) => [h, suggestedAuthVariable(name, h)]));
+      if (!Object.values(auth).every(isEnvName)) {
+        skipped.push({ host: s.host, file: s.file, name: s.key, why: "the environment variable names its headers would take run past 128 characters (shorten its name or its header names)" });
+        continue;
+      }
+      s.decl = { ...s.decl, auth };
     }
     entries.push({ ...s, name });
     if (declared.has(name)) continue; // the same server in a second host

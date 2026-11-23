@@ -16,6 +16,8 @@
 //   6. One absolute timeout covers DNS, connect, redirects and body together; it trips with its own error. A redirect's
 //      body is never read: its connection is closed as soon as the Location is known, so nothing outlives the call.
 // No cookies, no credentials, no `accept-encoding` (so no decompression bomb): the cap counts the bytes on the wire.
+// The one named exception to "no credentials" is safePost's `auth` (a declared server's key headers, D-4): sent to the
+// one origin of one POST, which follows no redirect, and never logged or put into an error.
 //
 // safePost (below) is the one POST, for reading an MCP server's tool list: rules 1, 2, 3, 5 and 6 through the same
 // code (`guarded` and `hop`), a closed set of bodies serialised here, and no redirect followed at all.
@@ -26,6 +28,7 @@ import https from "node:https";
 import net from "node:net";
 
 import { isBlockedAddress } from "./address.js";
+import { isAuthHeaderName } from "../agent/lock.js";
 import {
   MAX_BODY_BYTES,
   MAX_RUNTIME_FILE_BYTES,
@@ -37,6 +40,7 @@ import {
   MCP_CLIENT_VERSION,
   MCP_PROTOCOL_VERSION,
   SafeFetchError,
+  isSendableHeaderValue,
   isValidMcpProtocolVersion,
   isValidMcpSessionId,
   type SafeFetchErrorCode,
@@ -51,6 +55,9 @@ export { MAX_BODY_BYTES, MAX_REDIRECTS, DEFAULT_TIMEOUT_MS, MAX_MCP_BODY_BYTES, 
 export type { SafeFetchErrorCode, ResolvedAddress, SafeFetchOptions, SafeFetchResponse, McpRequestBody, SafePostOptions };
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/** Every header safePost and `hop` set themselves, lower-case: an `auth` entry may name none of them. */
+const OWN_HEADERS: ReadonlySet<string> = new Set(["host", "user-agent", "accept-encoding", "content-type", "accept", "content-length", "mcp-protocol-version", "mcp-session-id"]);
 
 // ---- address classification: the one table, in the pure ./address.js (the Desk's drift reader reads it too) ----
 
@@ -323,12 +330,26 @@ export function mcpRequestText(body: McpRequestBody): string {
  *     the session to an address nobody chose);
  *   - headers: content-type application/json; accept application/json and text/event-stream; `MCP-Protocol-Version`
  *     on every request after initialize; `Mcp-Session-Id` when the server issued one (both validated before sending);
+ *     and `auth`, the caller's key headers for this one request: a name must be an auth header name and none that
+ *     safePost or `hop` sets (OWN_HEADERS), a value printable ASCII; anything else throws a TypeError before sending,
+ *     naming neither the value nor, past its rule, the header. Auth goes in before safePost's own headers are set, so
+ *     no entry can override one of them;
  *   - the body ceiling is MAX_MCP_BODY_BYTES (derived in fetch-types.ts from the recorded servers).
  * A non-2xx answer is returned, not thrown, as safeFetch does.
  */
 export async function safePost(url: string, body: McpRequestBody, options: SafePostOptions = {}): Promise<SafeFetchResponse> {
   const text = mcpRequestText(body);
-  const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(options.auth ?? {})) {
+    const lower = name.toLowerCase();
+    if (!isAuthHeaderName(name) || OWN_HEADERS.has(lower) || Object.hasOwn(headers, lower)) {
+      throw new TypeError("an auth header is a header name Plumbline does not set itself, named once");
+    }
+    if (!isSendableHeaderValue(value)) throw new TypeError("an auth header value is printable ASCII without line breaks");
+    headers[lower] = value;
+  }
+  headers["content-type"] = "application/json";
+  headers.accept = "application/json, text/event-stream";
   if (body.method !== "initialize" && options.protocolVersion !== undefined) {
     if (!isValidMcpProtocolVersion(options.protocolVersion)) throw new TypeError("an MCP protocol version is a date, YYYY-MM-DD");
     headers["mcp-protocol-version"] = options.protocolVersion;

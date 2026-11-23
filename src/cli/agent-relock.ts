@@ -1,17 +1,27 @@
 // `plumbline agent relock`: rebuild the lock after a person reviewed the change, chained to the one it replaces.
+//
+// Host config wins (format version 2): before building, the declaration's `from` servers are re-synced from the hosts'
+// files (src/agent/host-sync.ts), and when that changes the declaration it is rewritten (the form init writes) with the
+// lock. So a version bump in `.mcp.json` moves the declared command, and the guard's pending file for the new command
+// (matched by target) is taken. The change list says how many servers each host file re-synced and each command,
+// address or header change, in the caller's own words through printable; a header's value is never read.
 
 import { existsSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
-import { AGENT_APPROVAL_FILE, AGENT_FILE, AGENT_LOCK_FILE, type AgentLock } from "../core/types.js";
+import { serverTarget } from "../core/agent-tools.js";
+import { AGENT_APPROVAL_FILE, AGENT_FILE, AGENT_LOCK_FILE, type AgentLock, type McpServerDecl } from "../core/types.js";
 import { buildLock, lockText, repoPath, type AgentDeps } from "../agent/build.js";
 import { readBytesIfPresent } from "../agent/check.js";
 import { writeDefinitions } from "../agent/definitions.js";
+import { discoverHosts } from "../agent/discover.js";
 import { byPath } from "../agent/glob.js";
+import { syncDeclaration, type DeclarationChange, type HostSync } from "../agent/host-sync.js";
 import { parseAgentLock, parseDeclaration } from "../agent/lock.js";
 import { CliError } from "./args.js";
 import type { Out } from "./commands.js";
 import { printable } from "./diff-command.js";
 import { serverLine } from "./agent-changes.js";
+import { jsonText, plural } from "./agent-shared.js";
 
 interface FilesDiff {
   added: string[];
@@ -31,6 +41,45 @@ function modelsDiff(before: Record<string, string>, after: Record<string, string
   return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((k) => before[k] !== after[k]).sort(byPath);
 }
 
+/** What a server runs, in the caller's own words (a command line or an address), for its own terminal. */
+function runText(d: McpServerDecl): string {
+  return d.transport === "stdio" ? [d.command, ...(d.args ?? [])].join(" ") : d.url;
+}
+
+const authText = (d: McpServerDecl): string => {
+  const entries = d.transport === "http" ? Object.entries(d.auth ?? {}) : [];
+  return entries.length === 0 ? "none" : entries.map(([h, v]) => `${h} from ${v}`).join(", ");
+};
+
+/** The declaration lines of the change list: per host file a count, then one line per server changed, added or removed. */
+export function declarationLines(sync: HostSync): string[] {
+  const lines: string[] = [];
+  if (sync.migrated !== undefined) {
+    lines.push(
+      `  declaration: version 2; ${plural(sync.migrated.marked, "server")} now re-synced from ${sync.migrated.marked === 1 ? "its" : "their"} host file, ${plural(sync.migrated.hand, "server")} ${sync.migrated.hand === 1 ? "stays" : "stay"} declared by hand (not identical to a host entry)`,
+    );
+  }
+  const files = [...new Set(sync.changes.map((c) => c.file))].sort(byPath);
+  for (const file of files) {
+    const mine = sync.changes.filter((c) => c.file === file);
+    lines.push(`  declaration: ${plural(mine.length, "server")} re-synced from ${file}`);
+    for (const c of mine) lines.push(changeLine(c));
+  }
+  for (const n of sync.notAdded) lines.push(`  declaration: ${printable(n.server)} in ${n.file} is not added: a server declared by hand has its name`);
+  return lines;
+}
+
+function changeLine(c: DeclarationChange): string {
+  const name = printable(c.server);
+  if (c.kind === "added") return `    ${name}: added (${printable(runText(c.after))})`;
+  if (c.kind === "removed") return `    ${name}: removed (no longer in the host file)`;
+  const parts: string[] = [];
+  const what = c.after.transport === "stdio" ? "command" : "address";
+  if (runText(c.before) !== runText(c.after) || c.before.transport !== c.after.transport) parts.push(`${what} ${printable(runText(c.before))} -> ${printable(runText(c.after))}`);
+  if (authText(c.before) !== authText(c.after)) parts.push(`auth ${printable(authText(c.before))} -> ${printable(authText(c.after))}`);
+  return `    ${name}: ${parts.join("; ")}`;
+}
+
 export async function relock(root: string, json: boolean, out: Out, deps: AgentDeps): Promise<number> {
   const lockBytes = await readBytesIfPresent(root, AGENT_LOCK_FILE);
   if (lockBytes === undefined) throw new CliError("there is no agent lock: run plumbline agent init");
@@ -42,7 +91,19 @@ export async function relock(root: string, json: boolean, out: Out, deps: AgentD
   if (!parsed.ok) throw new CliError(`${AGENT_FILE} cannot be read (${parsed.problem}): fix it, then run this again`);
 
   const old: AgentLock = parsedLock.value;
-  const built = await buildLock(root, parsed.value, declarationBytes, deps, { lock: old, bytes: lockBytes });
+  // host config wins: re-sync the `from` servers, and build from the declaration as it will be written
+  const sync = syncDeclaration(parsed.value, await discoverHosts(root, serverTarget));
+  let declaration = parsed.value;
+  let bytes = declarationBytes;
+  if (sync.rewrite) {
+    const text = jsonText(sync.declaration);
+    const reread = parseDeclaration(text);
+    if (!reread.ok) throw new CliError(`the declaration re-synced from the host files is not one (${reread.problem}); please report this`);
+    declaration = reread.value;
+    bytes = new TextEncoder().encode(text);
+  }
+  const built = await buildLock(root, declaration, bytes, deps, { lock: old, bytes: lockBytes });
+  if (sync.rewrite) await writeFile(repoPath(root, AGENT_FILE), bytes);
   await writeFile(repoPath(root, AGENT_LOCK_FILE), lockText(built.lock));
   const definitionsWritten = await writeDefinitions(root, built.lock, built.definitions);
   let approvalRemoved = false;
@@ -65,6 +126,12 @@ export async function relock(root: string, json: boolean, out: Out, deps: AgentD
         written: AGENT_LOCK_FILE,
         previous: built.lock.previous,
         declarationChanged: old.declaration !== built.lock.declaration,
+        declaration: {
+          written: sync.rewrite,
+          changes: sync.changes.map((c) => ({ kind: c.kind, server: printable(c.server), file: c.file })),
+          ...(sync.migrated !== undefined ? { migrated: sync.migrated } : {}),
+          notAdded: sync.notAdded.map((n) => ({ server: printable(n.server), file: n.file })),
+        },
         files,
         models,
         servers: { added: serversAdded, removed: serversRemoved, tools: shownServers },
@@ -77,7 +144,9 @@ export async function relock(root: string, json: boolean, out: Out, deps: AgentD
     return 0;
   }
   out(`Wrote ${AGENT_LOCK_FILE}; it names the lock it replaces (previous ${built.lock.previous?.slice(0, 12)}).`);
+  if (sync.rewrite) out(`Rewrote ${AGENT_FILE} from the host files (host config wins for servers declared from one).`);
   if (old.declaration !== built.lock.declaration) out(`${AGENT_FILE} changed since the last lock.`);
+  for (const line of declarationLines(sync)) out(line);
   for (const rel of files.added) out(`  file added: ${rel}`);
   for (const rel of files.removed) out(`  file removed: ${rel}`);
   for (const rel of files.changed) out(`  file changed: ${rel}`);
@@ -90,6 +159,6 @@ export async function relock(root: string, json: boolean, out: Out, deps: AgentD
   for (const url of peersChanged) out(`  peer changed: ${printable(url)}`);
   for (const f of built.findings) out(`[${f.severity}] ${f.code} ${printable(f.ref)}: ${f.summary}`);
   if (approvalRemoved) out(`Removed ${AGENT_APPROVAL_FILE}: the approval covered the old lock; approve the new one.`);
-  out(`Next: a person reviews the change list, approves the new lock (plumbline approve --key <your key file>), then commits ${AGENT_LOCK_FILE} and ${AGENT_APPROVAL_FILE}.`);
+  out(`Next: a person reviews the change list, approves the new lock (plumbline approve --key <your key file>), then commits ${sync.rewrite ? `${AGENT_FILE}, ` : ""}${AGENT_LOCK_FILE} and ${AGENT_APPROVAL_FILE}.`);
   return 0;
 }

@@ -3,11 +3,12 @@
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { serverTarget } from "../core/agent-tools.js";
-import { AGENT_APPROVAL_FILE, AGENT_FILE, AGENT_FORMAT_VERSION, AGENT_LOCK_FILE, AGENT_TYPE, type AgentDeclaration, type McpServerDecl } from "../core/types.js";
+import { AGENT_APPROVAL_FILE, AGENT_CURRENT_VERSION, AGENT_FILE, AGENT_LOCK_FILE, AGENT_TYPE, type AgentDeclaration, type McpServerDecl } from "../core/types.js";
 import { buildLock, hashDeclaredFiles, lockText, repoPath, type AgentDeps } from "../agent/build.js";
 import { writeDefinitions } from "../agent/definitions.js";
 import { defaultGlobs, discoverHosts, discoverModels, type HostServer } from "../agent/discover.js";
 import { byPath } from "../agent/glob.js";
+import { fromDecl } from "../agent/host-sync.js";
 import { parseDeclaration } from "../agent/lock.js";
 import { CliError } from "./args.js";
 import type { Out } from "./commands.js";
@@ -23,10 +24,11 @@ export async function init(root: string, wrap: boolean, json: boolean, out: Out,
   const models = await discoverModels(root);
   const files = await defaultGlobs(root);
   const mcp: Record<string, McpServerDecl> = {};
-  for (const s of [...hosts.servers].sort((a, b) => byPath(a.name, b.name))) mcp[s.name] = s.decl;
+  // every discovered server is declared `from` its host file, so relock re-syncs it from there (host config wins)
+  for (const s of [...hosts.servers].sort((a, b) => byPath(a.name, b.name))) mcp[s.name] = fromDecl(s);
   const declaration: AgentDeclaration = {
     type: AGENT_TYPE,
-    version: AGENT_FORMAT_VERSION,
+    version: AGENT_CURRENT_VERSION,
     files,
     ...(Object.keys(models.models).length > 0 ? { models: models.models } : {}),
     ...(Object.keys(mcp).length > 0 ? { mcp } : {}),
@@ -56,6 +58,10 @@ export async function init(root: string, wrap: boolean, json: boolean, out: Out,
   const stdio = hosts.servers.filter((s) => s.decl.transport === "stdio");
   const http = hosts.servers.filter((s) => s.decl.transport === "http");
   const counts = { stdio: stdio.length, http: http.length, files: Object.keys(built.lock.files).length, models: Object.keys(models.models).length, peers: 0 };
+  // the variables an http server's headers are declared to come from (header names only: a value is never read)
+  const auth = http.flatMap((s) =>
+    Object.entries(s.decl.transport === "http" ? (s.decl.auth ?? {}) : {}).map(([header, variable]) => ({ file: s.file, server: s.name, header, variable })),
+  );
   if (json) {
     out(
       JSON.stringify({
@@ -66,6 +72,7 @@ export async function init(root: string, wrap: boolean, json: boolean, out: Out,
         wrap: toWrap.map((e) => ({ file: e.file, server: printable(e.key), entry: JSON.parse(wrapShown(e.name, e.decl)) as unknown })),
         alreadyWrapped: hosts.entries.filter((e) => e.wrapped).map((e) => ({ file: e.file, server: printable(e.key) })),
         sse: hosts.entries.filter((e) => e.sse).map((e) => ({ file: e.file, server: printable(e.key) })),
+        auth: auth.map((a) => ({ file: a.file, server: printable(a.server), header: printable(a.header), variable: a.variable })),
         skipped: hosts.skipped.map((s) => ({ file: s.file, server: printable(s.name), why: s.why })),
         modelsSkipped: models.skipped,
         gitignore: gitignored,
@@ -79,6 +86,12 @@ export async function init(root: string, wrap: boolean, json: boolean, out: Out,
   for (const e of hosts.entries.filter((x) => x.sse)) out(`${e.file}: ${printable(e.key)} is an SSE server; it is declared as http (Streamable HTTP), which is what Plumbline reads.`);
   for (const e of hosts.entries.filter((x) => x.name !== x.key)) out(`${e.file}: ${printable(e.key)} names a different server in another host, so it is declared as ${printable(e.name)}.`);
   for (const s of hosts.skipped) out(`${s.file}: ${printable(s.name)} is not declared: ${s.why}.`);
+  for (const s of http.filter((x) => x.decl.transport === "http" && x.decl.auth !== undefined)) {
+    const mine = auth.filter((a) => a.server === s.name);
+    out(
+      `${s.file}: ${printable(s.name)} sends ${plural(mine.length, "header")}; ${mine.length === 1 ? "its value is" : "their values are"} never read. Set ${mine.map((a) => `${a.variable} (${printable(a.header)})`).join(", ")} in the environment of init, check and relock (a CI secret), and its tools are listed.`,
+    );
+  }
   for (const rel of models.skipped) out(`${rel}: its model is not declared (a label or id Plumbline does not read); add it to ${AGENT_FILE} by hand if it matters.`);
   for (const f of built.findings) out(`[${f.severity}] ${f.code} ${printable(f.ref)}: ${f.summary}`);
   if (gitignored) out(`Added ${GITIGNORE_LINE} to .gitignore (the guard's local observations are never committed).`);

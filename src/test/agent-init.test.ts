@@ -66,16 +66,17 @@ test("Claude Code only: servers, files and models are declared; secrets, setting
     ".claude/commands/ship.md": "ship it\n",
     "src/app.ts": "export {};\n",
   });
-  const s = spy();
+  const s = spy({ PLUMBLINE_DOCS_AUTHORIZATION: "Bearer the-variable-value" });
   const { code, out } = await agent(s.deps, "init", "--root", dir);
   assert.equal(code, 0);
   const d = declared(dir);
+  assert.equal(d.version, 2);
   assert.deepEqual(d.files, ["CLAUDE.md", ".mcp.json", ".claude/settings.json", ".claude/agents/**", ".claude/commands/**"]);
   assert.deepEqual(d.models, { default: "claude-opus-5-5", reviewer: "claude-sonnet-5" });
   assert.deepEqual(d.mcp, {
-    docs: { transport: "http", url: "https://docs.example/mcp" },
-    files: { transport: "stdio", command: "npx", args: ["-y", "@example/files"] },
-    old: { transport: "http", url: "https://old.example/sse" },
+    docs: { transport: "http", url: "https://docs.example/mcp", auth: { Authorization: "PLUMBLINE_DOCS_AUTHORIZATION" }, from: "claude" },
+    files: { transport: "stdio", command: "npx", args: ["-y", "@example/files"], from: "claude" },
+    old: { transport: "http", url: "https://old.example/sse", from: "claude" },
   });
   const l = locked(dir);
   assert.equal(l.previous, undefined, "a first lock has no previous");
@@ -112,7 +113,10 @@ test("VS Code only: servers under `servers` with type stdio and http", async () 
   const d = declared(dir);
   assert.deepEqual(d.files, [".vscode/mcp.json"]);
   assert.equal(d.models, undefined);
-  assert.deepEqual(d.mcp, { git: { transport: "stdio", command: "uvx", args: ["mcp-server-git"] }, learn: { transport: "http", url: "https://learn.example/api/mcp" } });
+  assert.deepEqual(d.mcp, {
+    git: { transport: "stdio", command: "uvx", args: ["mcp-server-git"], from: "vscode" },
+    learn: { transport: "http", url: "https://learn.example/api/mcp", auth: { "X-Key": "PLUMBLINE_LEARN_X_KEY" }, from: "vscode" },
+  });
   assert.equal(read(dir, ".gitignore"), "node_modules/\n.plumbline/\n", "an ignored .plumbline/ is not added twice");
   noSecret(dir, out);
 });
@@ -124,7 +128,10 @@ test("Cursor only: remote servers by url, no type", async () => {
   const s = spy();
   const { code, out } = await agent(s.deps, "init", "--root", dir);
   assert.equal(code, 0);
-  assert.deepEqual(declared(dir).mcp, { local: { transport: "stdio", command: "node", args: ["server.js"] }, wiki: { transport: "http", url: "https://wiki.example/mcp" } });
+  assert.deepEqual(declared(dir).mcp, {
+    local: { transport: "stdio", command: "node", args: ["server.js"], from: "cursor" },
+    wiki: { transport: "http", url: "https://wiki.example/mcp", auth: { a: "PLUMBLINE_WIKI_A" }, from: "cursor" },
+  });
   noSecret(dir, out);
 });
 
@@ -139,9 +146,9 @@ test("all three hosts: one name for two targets is kept per host; the same serve
   assert.equal(code, 0);
   const d = declared(dir);
   assert.deepEqual(Object.keys(d.mcp ?? {}).sort(), ["claude:github", "cursor:github", "other", "same"]);
-  assert.deepEqual(d.mcp?.["cursor:github"], { transport: "stdio", command: "npx", args: ["gh-b"] });
+  assert.deepEqual(d.mcp?.["cursor:github"], { transport: "stdio", command: "npx", args: ["gh-b"], from: "cursor" });
   assert.match(out, /names a different server in another host, so it is declared as claude:github/);
-  assert.match(out, /plain is not declared: its address is not https/);
+  assert.match(out, /plain is not declared: it is a local address \(your own server\): not locked/);
   assert.deepEqual(d.files, [".mcp.json", ".cursor/mcp.json", ".vscode/mcp.json"]);
 });
 
@@ -149,7 +156,7 @@ test("none at all: an empty repository gets an empty declaration and a lock", as
   const dir = repo();
   const { code, out } = await agent(spy().deps, "init", "--root", dir);
   assert.equal(code, 0);
-  assert.deepEqual(declared(dir), { type: "plumbline-agent", version: 1, files: [] });
+  assert.deepEqual(declared(dir), { type: "plumbline-agent", version: 2, files: [] });
   assert.deepEqual(locked(dir).files, {});
   assert.match(out, /Locked: 0 MCP servers \(0 stdio, 0 http\), 0 files, 0 models, 0 peers/);
 });
@@ -159,7 +166,7 @@ test("an already-wrapped .mcp.json is declared with the command the guard runs, 
   const dir = repo({ ".mcp.json": json({ mcpServers: { files: wrapped } }) });
   const { code, out } = await agent(spy().deps, "init", "--root", dir, "--wrap");
   assert.equal(code, 0);
-  assert.deepEqual(declared(dir).mcp, { files: { transport: "stdio", command: "npx", args: ["-y", "files"] } });
+  assert.deepEqual(declared(dir).mcp, { files: { transport: "stdio", command: "npx", args: ["-y", "files"], from: "claude" } });
   assert.match(out, /files already runs the guard/);
   assert.equal(existsSync(path.join(dir, ".mcp.json.plumbline-backup")), false, "nothing to wrap, so no backup");
   noSecret(dir, out);
@@ -175,7 +182,7 @@ test("--wrap writes the backup first, wraps each stdio entry keeping env, and lo
   assert.deepEqual(host.mcpServers.files, { command: "plumbline", args: ["guard", "--lock", "plumbline.agent.lock.json", "--server", "files", "--", "npx", "-y", "files"], env: { T: SECRET } });
   assert.deepEqual(host.mcpServers.docs, { type: "http", url: "https://d.example/mcp" });
   assert.equal(locked(dir).files[".mcp.json"], await sha256Hex(read(dir, ".mcp.json")), "the lock holds the wrapped file");
-  assert.deepEqual(declared(dir).mcp?.files, { transport: "stdio", command: "npx", args: ["-y", "files"] });
+  assert.deepEqual(declared(dir).mcp?.files, { transport: "stdio", command: "npx", args: ["-y", "files"], from: "claude" });
   assert.match(out, /Put the guard in front of 1 stdio server/);
   noSecret(dir, out);
 });

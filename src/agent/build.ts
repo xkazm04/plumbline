@@ -6,7 +6,9 @@
 // guard's pending file when its `target` matches the declared command; else the previous lock's tools are kept when the
 // target did not change; else none (not yet observed). An http server's tools are listed now; one that cannot be read
 // keeps the previous record when its target did not change, else it is locked without tools, and either way a warn
-// says so. A peer is read now; one that cannot be read keeps its previous record, else it is left out, with a warn.
+// says so. An http server whose `auth` names a variable that is unset or unsendable is not contacted at all
+// (server-auth-missing, kept the same way); the values are read from the environment for that one listing only. A
+// peer is read now; one that cannot be read keeps its previous record, else it is left out, with a warn.
 // Nothing the network said is ever dropped silently, and a server's own words never reach a finding.
 
 import { readFile } from "node:fs/promises";
@@ -23,8 +25,10 @@ import {
   type AgentMcpRecord,
   type AgentPending,
   type ExternalRecord,
+  type McpServerDecl,
 } from "../core/types.js";
 import { CliError } from "../cli/args.js";
+import { isSendableHeaderValue } from "../net/fetch-types.js";
 import type { Fetcher } from "../net/locate.js";
 import type { McpListResult, McpToolLister } from "../net/mcp-http.js";
 import { observeExternal, type ExternalObservation } from "../watch/external.js";
@@ -72,6 +76,28 @@ export async function hashDeclaredFiles(root: string, globs: readonly string[]):
     }
   }
   return files;
+}
+
+/**
+ * The header values an http server's `auth` names, read from the environment now (never stored), or the variables that
+ * are unset, empty, or hold a value Plumbline does not send (printable ASCII only, so no CR or LF). No auth: no values.
+ */
+export function resolveAuth(decl: McpServerDecl, env: NodeJS.ProcessEnv): { ok: true; values?: Record<string, string> } | { ok: false; missing: string[] } {
+  if (decl.transport !== "http" || decl.auth === undefined) return { ok: true };
+  const values: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const [header, variable] of Object.entries(decl.auth)) {
+    const value = Object.hasOwn(env, variable) ? env[variable] : undefined;
+    if (value === undefined || value === "" || !isSendableHeaderValue(value)) missing.push(variable);
+    else values[header] = value;
+  }
+  return missing.length > 0 ? { ok: false, missing: [...new Set(missing)] } : { ok: true, values };
+}
+
+/** The fixed sentence start of a server-auth-missing finding: names the variables, never a value. */
+export function authMissingWords(missing: readonly string[]): string {
+  const one = missing.length === 1;
+  return `An MCP server over HTTP was not contacted: the environment variable${one ? "" : "s"} ${missing.join(", ")} it names for a header ${one ? "is" : "are"} unset or hold${one ? "s" : ""} a value Plumbline does not send (printable ASCII, no line breaks)`;
 }
 
 /** Why a list result is not a list, in words completing "could not be read (...)", and whether the address was refused. */
@@ -164,6 +190,9 @@ export async function buildLock(
     const target = await serverTarget(decl);
     const held = previous?.lock.mcp?.[name];
     const same = held !== undefined && held.target === target && held.transport === decl.transport ? held : undefined;
+    // what the change list compares with: the earlier record under this name, even for another command or address (a
+    // version bump reads as the tools it changed, not as every tool added); what is KEPT needs the same target
+    const prior = held !== undefined && held.transport === decl.transport ? held.tools : undefined;
     const keep = (): AgentMcpRecord => (same?.tools !== undefined && same.observedAt !== undefined ? { transport: decl.transport, target, tools: same.tools, observedAt: same.observedAt } : { transport: decl.transport, target });
     if (decl.transport === "stdio") {
       const pending = await readPending(root, name);
@@ -172,26 +201,39 @@ export async function buildLock(
         const tools = toolsRecord(parts);
         mcp[name] = { transport: "stdio", target, tools, observedAt: pending.observedAt };
         definitions[name] = pending.tools.map((t) => toolDefinition(t));
-        servers.push({ ...counted(name, "pending", same?.tools, tools), ...pendingNames(pending, parts, same?.tools) });
+        servers.push({ ...counted(name, "pending", prior, tools), ...pendingNames(pending, parts, prior) });
       } else {
         mcp[name] = keep();
-        servers.push(counted(name, mcp[name].tools !== undefined ? "kept" : "none", same?.tools, mcp[name].tools));
+        servers.push(counted(name, mcp[name].tools !== undefined ? "kept" : "none", prior, mcp[name].tools));
       }
       continue;
     }
-    const listed = await deps.lister(decl.url);
+    const auth = resolveAuth(decl, deps.env);
+    if (!auth.ok) {
+      mcp[name] = keep();
+      const kept = mcp[name].tools !== undefined;
+      servers.push(counted(name, kept ? "kept" : "none", prior, mcp[name].tools));
+      findings.push({
+        severity: "warn",
+        code: "server-auth-missing",
+        ref: name,
+        summary: `${authMissingWords(auth.missing)}; ${kept ? "the lock keeps its earlier tools" : "the lock holds it without tools"}.`,
+      });
+      continue;
+    }
+    const listed = auth.values !== undefined ? await deps.lister(decl.url, auth.values) : await deps.lister(decl.url);
     if (listed.ok) {
       const { parts } = await toolsParts(listed.tools);
       const tools = toolsRecord(parts);
       mcp[name] = { transport: "http", target, tools, observedAt: deps.now.toISOString() };
       definitions[name] = listed.tools.filter((t): t is Record<string, unknown> => typeof t === "object" && t !== null && !Array.isArray(t)).map((t) => toolDefinition(t));
-      servers.push(counted(name, "listed", same?.tools, tools));
+      servers.push(counted(name, "listed", prior, tools));
       continue;
     }
     const failure = listFailure(listed);
     mcp[name] = keep();
     const kept = mcp[name].tools !== undefined;
-    servers.push(counted(name, kept ? "kept" : "none", same?.tools, mcp[name].tools));
+    servers.push(counted(name, kept ? "kept" : "none", prior, mcp[name].tools));
     findings.push({
       severity: "warn",
       code: failure.refused ? "server-refused" : "server-unreachable",
