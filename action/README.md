@@ -184,8 +184,9 @@ For example, after the Action step (`id: watch`), with a webhook URL in a secret
 
 The body holds Plumbline's sentences, the findings' refs and the digest marker; a site's own words are never in it.
 
-**Refusals.** Before the build, the Action refuses a `command` other than `gate` or `watch`, a gate without `target`, a
-`fail-on` other than `fail` or `unavailable`, an `issues` other than `true` or `false`, `issues: true` with the gate,
+**Refusals.** Before the build, the Action refuses a `command` other than `gate`, `watch` or `agent`, a gate without
+`target`, a `fail-on` other than `fail` or `unavailable` (and any `fail-on` other than the default `fail` with the
+watch, which has no unavailable state and would ignore it), an `issues` other than `true` or `false`, `issues: true` with the gate,
 a watch `root` that is not a folder in the workspace, a `relock-pr` or `renew` other than `true` or `false` or with the gate, both together, `renew` without `signing-key`, a `signing-key` without an https `origin`, and a `signing-key` without `renew` (with `relock-pr` too: UAT-34). Each fails the step with its reason.
 
 Every decision is in `action/report.mjs` (plain Node, no dependencies): the input check, the one read of the report, and
@@ -233,15 +234,23 @@ and labels, not a secret). A pull request can edit any file in the repository bu
 cannot add its own approver. With no variable, every approval is `unverifiable` and the check fails: it is never read
 as approved.
 
-- `state` output: `pass` (exit 0: nothing changed without an approval), `fail` (exit 1: findings, an unapproved change
-  among them) or `unknown` (the report could not be read). The job summary lists every finding by code and ref, and the
-  approval (approved by a label and kid, not approved, invalid, or unverifiable).
+- `state` output: the check's own state (docs/agent-lock.md, "States and exit codes"): `pass` (nothing changed without
+  an approval), `fail` (a change, an unapproved or unverifiable lock, no lock), `unavailable` (nothing that was checked
+  failed, but something could not be checked: a remote server that answers 401, a stdio server the guard has not
+  observed, a peer that could not be read, a link absent from the checkout) or `unknown` (the report could not be
+  read). The job summary states what was not checked (`Not checked: 1 MCP server`), lists every finding by code and
+  ref, and the approval (approved by a label and kid, not approved, invalid, or unverifiable).
+- `fail-on` (the same input as the gate's, default `fail`): with `fail` the step fails on `fail` only, so a server
+  nobody can reach from a pull request does not block every merge; with `unavailable` it fails on `unavailable` too,
+  for a repository that wants every server checked before a merge (give the job the variables its servers' keys need).
+  `unavailable` is never folded into `pass`: the state output and the summary say it either way.
 - `offline: true` runs `agent check --offline`: the repository's files and the approval only, no remote MCP server or
   peer asked. The template uses it on pull requests.
 - `issues: true` keeps ONE issue titled `Plumbline agent drift` (apart from a site's `Plumbline drift`), with the same
   decisions as the watch: opened on warn or block findings, edited with a comment naming what is new, closed on the
-  next clean run. With `issues: true` findings leave the step green (the issue is the news, as with `watch`); without
-  it, findings fail the step, which is what makes the pull request check a gate.
+  next clean run; warn findings that say something was not checked keep the issue open too. With `issues: true`
+  findings leave the step green (the issue is the news, as with `watch`); without it, the check's exit decides
+  (`fail`, or `unavailable` under `fail-on: unavailable`), which is what makes the pull request check a gate.
 - Refused with `command: agent`: `signing-key` and `renew` (CI never approves an agent lock: a person runs
   `plumbline approve` with their own key) and `relock-pr`. **A relock pull request for the agent lock is not built
   yet**: relock with `plumbline agent relock` in a clone, review what it lists, approve and commit both files.

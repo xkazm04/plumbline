@@ -1,5 +1,5 @@
 name: Plumbline
-description: Check an agent against its approved lock (plumbline.agent.lock.json; an unapproved change fails), gate an agentic website (validator port, Agent Atlas, Agent Customs; unreachable is `unavailable`, never `pass`) or watch a site for drift against its plumbline.lock.json and keep its drift issue. Runs the code of the commit you pin.
+description: Check an agent against its approved lock (plumbline.agent.lock.json; an unapproved change fails, what could not be checked is `unavailable`), gate an agentic website (validator port, Agent Atlas, Agent Customs; unreachable is `unavailable`, never `pass`) or watch a site for drift against its plumbline.lock.json and keep its drift issue. Runs the code of the commit you pin.
 author: Plumbline
 
 inputs:
@@ -12,11 +12,11 @@ inputs:
     required: false
     default: validator,atlas,customs
   fail-on:
-    description: "`fail` fails the step when the gate state is fail, or when EVERY adapter was unavailable (nothing was checked). `unavailable` also fails it when any adapter had no verdict; Agent Customs has receipts for few sites, so with `unavailable` leave customs out of `adapters` or nearly every site fails."
+    description: "For `gate` and `agent` (refused with `watch`). Gate: `fail` fails the step when the gate state is fail, or when EVERY adapter was unavailable (nothing was checked). `unavailable` also fails it when any adapter had no verdict; Agent Customs has receipts for few sites, so with `unavailable` leave customs out of `adapters` or nearly every site fails. Agent: `fail` fails the step when the check's state is fail (a change, an unapproved lock, no lock); `unavailable` also fails it when something could not be checked (a remote server that answers 401, a stdio server the guard has not observed, an unreachable peer, an absent link)."
     required: false
     default: fail
   command:
-    description: "`agent` runs `plumbline agent check` in the repository folder at `root` (the agent against its approved lock; an unapproved change fails); `gate` checks `target` with the three adapters; `watch` reports drift of the site at `root` against its plumbline.lock.json."
+    description: "`agent` runs `plumbline agent check` in the repository folder at `root` (the agent against its approved lock; an unapproved change fails; `fail-on` says what something not checked does); `gate` checks `target` with the three adapters; `watch` reports drift of the site at `root` against its plumbline.lock.json."
     required: false
     default: gate
   root:
@@ -70,7 +70,7 @@ inputs:
 
 outputs:
   state:
-    description: For `gate`, the gate state, pass, fail or unavailable. For `agent`, pass (clean and approved), fail (findings) or unknown (the report could not be read).
+    description: For `gate`, the gate state, pass, fail or unavailable. For `agent`, the check's state, pass (clean and approved), fail (a change, or the approval does not stand), unavailable (nothing failed, something was not checked) or unknown (the report could not be read).
     value: ${{ steps.run.outputs.state }}
   report:
     description: Path to the JSON report plumbline wrote.
@@ -172,12 +172,13 @@ runs:
             node "$GITHUB_ACTION_PATH/report.mjs" watch "$report" "$RUNNER_TEMP/plumbline-issue.md"
             ;;
           agent)
-            # Exit 0 clean and approved, 1 findings (an unapproved change among them), 2 usage or I/O. The check runs in
-            # the repository folder; --offline asks no remote server or peer.
+            # Exit 0 pass (or unavailable under fail-on fail), 1 fail (an unapproved change among them; or unavailable
+            # under fail-on unavailable), 2 usage or I/O. The check runs in the repository folder; --offline asks no
+            # remote server or peer. fail-on was checked (fail or unavailable) before the build.
             offline=""
             if [ "$PLUMBLINE_OFFLINE" = "true" ]; then offline="--offline"; fi
             set +e
-            (cd "$GITHUB_WORKSPACE/$PLUMBLINE_ROOT" && node "$cli" agent check $offline --json) > "$report"
+            (cd "$GITHUB_WORKSPACE/$PLUMBLINE_ROOT" && node "$cli" agent check $offline --fail-on "$PLUMBLINE_FAIL_ON" --json) > "$report"
             code=$?
             set -e
             cat "$report"
@@ -185,7 +186,8 @@ runs:
             node "$GITHUB_ACTION_PATH/report.mjs" agent "$report" "$code" "$RUNNER_TEMP/plumbline-issue.md"
             if [ "$code" -gt 1 ]; then echo "::error::plumbline agent check failed with exit code $code"; exit "$code"; fi
             # With issues: true (the scheduled run) findings keep the issue and the step stays green, as watch does; as a
-            # pull request's required check (issues: false) findings fail the step, so an unapproved change cannot merge.
+            # pull request's required check (issues: false) the exit decides, so an unapproved change cannot merge and
+            # something not checked fails it only with fail-on: unavailable.
             if [ "$PLUMBLINE_ISSUES" != "true" ]; then exit "$code"; fi
             ;;
           *) echo "::error::command must be gate, watch or agent"; exit 2 ;;

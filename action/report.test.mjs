@@ -212,8 +212,9 @@ test("refusals: a bad command, a gate without target, a bad fail-on, a bad issue
   assert.match(inputProblem({ ...ok, failOn: "maybe" }), /fail-on must be fail or unavailable/);
   assert.match(inputProblem({ ...ok, issues: "maybe" }), /issues must be true or false/);
   assert.match(inputProblem({ ...ok, issues: "true" }), /watch only/);
-  const watch = { command: "watch", target: "", failOn: "maybe", issues: "true", rootIsFolder: true };
-  assert.equal(inputProblem(watch), null, "fail-on and target are not the watch's business");
+  const watch = { command: "watch", target: "", failOn: "fail", issues: "true", rootIsFolder: true };
+  assert.equal(inputProblem(watch), null, "target is not the watch's business");
+  assert.match(inputProblem({ ...watch, failOn: "maybe" }), /fail-on goes with command gate or agent only/, "a fail-on the watch would ignore is refused");
   assert.match(inputProblem({ ...watch, rootIsFolder: false }), /root must name a folder/);
 });
 
