@@ -38,7 +38,7 @@ export const AGENT_USAGE =
 
 /** The production dependencies: the guarded MCP lister and fetch, the clock and the environment. */
 export function defaultDeps(): AgentDeps {
-  return { lister: (url) => listMcpTools(url), fetcher: safeFetch, now: new Date(), env: process.env };
+  return { lister: (url, auth) => listMcpTools(url, auth !== undefined ? { auth } : {}), fetcher: safeFetch, now: new Date(), env: process.env };
 }
 
 export async function runAgentCommand(argv: string[], out: Out): Promise<number> {

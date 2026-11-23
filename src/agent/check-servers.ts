@@ -1,10 +1,12 @@
 // `agent check`, the servers and peers part: MCP servers against the lock (targets, the guard's pending observation,
 // remote tool lists) and A2A peers. The network only through the injected lister and fetcher, and not with `offline`.
+// An http server's `auth` variables are read from the environment at list time; one unset or unsendable leaves the
+// server uncontacted (server-auth-missing, warn: not checked), and its sentence names the variable, never a value.
 
 import { serverTarget, toolsDecision, toolsParts, toolsUnchanged, type ToolsDecision } from "../core/agent-tools.js";
 import { type AgentCounts, type AgentDeclaration, type AgentFinding, type AgentLock, type Severity } from "../core/types.js";
 import { externalFinding, observeExternal } from "../watch/external.js";
-import { listFailure, readPending, type AgentDeps } from "./build.js";
+import { authMissingWords, listFailure, readPending, resolveAuth, type AgentDeps } from "./build.js";
 import { byPath } from "./glob.js";
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
@@ -66,7 +68,12 @@ export async function serverFindings(root: string, lock: AgentLock, declaration:
       out.push({ severity: "info", code: "server-unreachable", ref: name, summary: "Not contacted (--offline): this MCP server's tools were not checked." });
       continue;
     }
-    const listed = await deps.lister(decl.url);
+    const auth = resolveAuth(decl, deps.env);
+    if (!auth.ok) {
+      out.push({ severity: "warn", code: "server-auth-missing", ref: name, summary: `${authMissingWords(auth.missing)}, so its tools were not checked.` });
+      continue;
+    }
+    const listed = auth.values !== undefined ? await deps.lister(decl.url, auth.values) : await deps.lister(decl.url);
     if (!listed.ok) {
       const failure = listFailure(listed);
       out.push(
