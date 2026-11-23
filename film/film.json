@@ -7,11 +7,12 @@
   },
   "voice": {
     "role": "narrator",
+    "voiceId": "nPczCjzI2devNBz1zQrb",
     "model": "eleven_multilingual_v2",
     "settings": {
-      "stability": 0.45,
+      "stability": 0.35,
       "similarity": 0.8,
-      "style": 0.2
+      "style": 0.4
     }
   },
   "breathMs": 350,
@@ -42,7 +43,7 @@
     {
       "id": "cold",
       "chapter": "open",
-      "line": "An agentic website publishes an agent that runs in every visitor's browser. Once it ships, nobody checks it again.",
+      "line": "An agentic website ships an agent that runs in every visitor's browser. Once it's live, nobody checks it again. Plumbline does.",
       "settleMs": 2500,
       "capture": {
         "beat": "desk-home",
@@ -52,7 +53,7 @@
     {
       "id": "gate",
       "chapter": "open",
-      "line": "Plumbline checks any site, live, with three independent checkers. Here one of them has no answer, so the verdict is unavailable: never a quiet pass.",
+      "line": "It checks any site, live, with three independent checkers. Here, one of them has no answer, so the verdict is unavailable. Never a quiet pass.",
       "settleMs": 4000,
       "capture": {
         "beat": "open-gate",
@@ -64,7 +65,7 @@
     {
       "id": "spectrum",
       "chapter": "open",
-      "line": "Three examples: a guesthouse, a clinic, and the agent that writes your code.",
+      "line": "Here are three examples: a guesthouse, a clinic, and the agent that writes your code.",
       "settleMs": 2000
     },
     {
@@ -90,7 +91,7 @@
     {
       "id": "larch-drift",
       "chapter": "guesthouse",
-      "line": "Plumbline's daily watch reads the page against what was locked, and says it plainly: the assistant may still be telling guests eighty-nine euros, where the page now says ninety-five.",
+      "line": "Plumbline's daily watch reads the page against what was locked, and says it plainly: the assistant may still be quoting eighty-nine euros, where the page now says ninety-five.",
       "settleMs": 4000,
       "capture": {
         "beat": "larch-drift",
@@ -114,7 +115,7 @@
     {
       "id": "larch-cost",
       "chapter": "guesthouse",
-      "line": "No key and no account: one command wrote the lock and the daily check.",
+      "line": "All it took was one command. No key, and no account.",
       "settleMs": 2500,
       "capture": {
         "beat": "larch-init"
@@ -123,7 +124,7 @@
     {
       "id": "clinic-sign",
       "chapter": "clinic",
-      "line": "Northgate Clinic signs its agent files with a key only the clinic holds. Before anything is signed, the page lists every file and its fingerprint.",
+      "line": "Now, Northgate Clinic. It signs its agent files with a key only the clinic holds, and before anything is signed, the page lists every file and its fingerprint.",
       "settleMs": 3500,
       "capture": {
         "beat": "clinic-sign-dialog"
@@ -156,7 +157,7 @@
     {
       "id": "clinic-mirror",
       "chapter": "clinic",
-      "line": "Then a copycat site serves the clinic's agent, signed with the clinic's stolen key. It is still refused: the signature names the clinic's address, not this one.",
+      "line": "Then a copycat site serves the clinic's agent, signed with the clinic's stolen key. It's still refused: the signature names the clinic's address, not this one.",
       "settleMs": 4000,
       "capture": {
         "beat": "clinic-mirror",
@@ -189,7 +190,7 @@
     {
       "id": "agent-lock",
       "chapter": "agent",
-      "line": "The same engine guards a coding agent: its instructions, its settings and every tool its servers offer, pinned and approved by a named person.",
+      "line": "Last, the agent that writes your code. Plumbline pins its instructions, its settings, and every tool its servers offer, and a named person approves them.",
       "settleMs": 3000,
       "capture": {
         "beat": "agent-locked"
@@ -225,7 +226,7 @@
     {
       "id": "close",
       "chapter": "close",
-      "line": "A guesthouse, a clinic, a coding agent. Plumbline keeps each one what its owner approved, and says plainly when it cannot tell.",
+      "line": "A guesthouse, a clinic, a coding agent. Plumbline keeps each one what its owner approved, and says plainly when it can't tell. Thanks for watching.",
       "settleMs": 3000,
       "capture": {
         "beat": "desk-home-end",
