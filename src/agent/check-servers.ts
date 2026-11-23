@@ -1,13 +1,17 @@
 // `agent check`, the servers and peers part: MCP servers against the lock (targets, the guard's pending observation,
-// remote tool lists) and A2A peers. The network only through the injected lister and fetcher, and not with `offline`.
-// An http server's `auth` variables are read from the environment at list time; one unset or unsendable leaves the
-// server uncontacted (server-auth-missing, warn: not checked), and its sentence names the variable, never a value.
+// remote tool lists), the declaration's `from` servers against the hosts' files (host-changed), and A2A peers. The
+// network only through the injected lister and fetcher, and not with `offline`. An http server's `auth` variables are
+// read from the environment at list time; one unset or unsendable leaves the server uncontacted (server-auth-missing,
+// warn: not checked), and its sentence names the variable, never a value.
 
 import { serverTarget, toolsDecision, toolsParts, toolsUnchanged, type ToolsDecision } from "../core/agent-tools.js";
 import { type AgentCounts, type AgentDeclaration, type AgentFinding, type AgentLock, type Severity } from "../core/types.js";
 import { externalFinding, observeExternal } from "../watch/external.js";
+import { CliError } from "../cli/args.js";
 import { authMissingWords, listFailure, readPending, resolveAuth, type AgentDeps } from "./build.js";
+import { discoverHosts } from "./discover.js";
 import { byPath } from "./glob.js";
+import { sameRun, syncDeclaration, type DeclarationChange } from "./host-sync.js";
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
@@ -86,7 +90,41 @@ export async function serverFindings(root: string, lock: AgentLock, declaration:
     const d = toolsDecision(record.tools, (await toolsParts(listed.tools)).parts);
     if (!toolsUnchanged(d)) out.push(...toolFindings(name, d, "block", "The server lists"));
   }
+  out.push(...(await hostFindings(root, declaration)));
   return out;
+}
+
+/** The fixed sentence for one way a host file and a version 2 declaration differ. */
+function hostChangedWords(change: DeclarationChange): string {
+  const relock = "plumbline agent relock re-syncs the declaration from it";
+  if (change.kind === "removed") return `The host file this MCP server was declared from no longer declares it: ${relock}.`;
+  if (change.kind === "added") return `A host file declares an MCP server the declaration does not record: ${relock}.`;
+  if (!sameRun(change.before, change.after)) {
+    return change.after.transport === "stdio"
+      ? `The host file runs a command the declaration does not record for this MCP server: ${relock}.`
+      : `The host file names an address the declaration does not record for this MCP server: ${relock}.`;
+  }
+  return `The host file sends headers the declaration's auth does not name for this MCP server: ${relock}.`;
+}
+
+/**
+ * host-changed (block), version 2 declarations only: each `from` server whose host entry runs another command, names
+ * another address or sends other headers, or is gone, and each host entry not yet declared, as relock would re-sync
+ * them. A host file that cannot be read (not JSON, a repeated key) is a change to every `from` server.
+ */
+export async function hostFindings(root: string, declaration: AgentDeclaration): Promise<AgentFinding[]> {
+  if (declaration.version === 1) return [];
+  let hosts;
+  try {
+    hosts = await discoverHosts(root, serverTarget);
+  } catch (error) {
+    if (!(error instanceof CliError)) throw error;
+    return Object.entries(declaration.mcp ?? {})
+      .filter(([, d]) => d.from !== undefined)
+      .map(([name]) => ({ severity: "block" as const, code: "host-changed" as const, ref: name, summary: "The host file this MCP server was declared from cannot be read, so the declaration could not be compared with it." }));
+  }
+  const { changes } = syncDeclaration(declaration, hosts);
+  return changes.sort((a, b) => byPath(a.server, b.server)).map((c) => ({ severity: "block", code: "host-changed", ref: c.server, summary: hostChangedWords(c) }));
 }
 
 export async function peerFindings(lock: AgentLock, declaration: AgentDeclaration, options: CheckOptions, deps: AgentDeps): Promise<AgentFinding[]> {
