@@ -278,6 +278,31 @@ const ACTS = {
       ctx.changed.push("larch-house/site/plumbline.lock.json", "larch-house/.github/workflows/plumbline-watch.yml", "larch-house/site/plumbline.signature.json");
       return { note: "locked (rooms.html as a source), workflow written, signed with keys/larch-house (Jonas's key)" };
     },
+    // The demo film's guesthouse (film/README.md, backlog item 3): the same site without its bike-rental partner, so a
+    // reading before anything changed is clean. The partner is a loopback peer the watch never contacts, so with it every
+    // reading carries a pending-peer warning the film's story does not have. Needs setup; relocks and signs again.
+    solo(ctx) {
+      const s = ctx.site("larch-house");
+      if (!existsSync(ctx.file("larch-house", "plumbline.lock.json"))) throw new Refused("solo relocks the site: play setup first");
+      const netText = ctx.read("larch-house", "larch_house.network.json");
+      if (!netText.includes("fellside_bikes")) return { already: true, note: "the guesthouse already links no partner" };
+      const net = JSON.parse(netText);
+      const peer = Object.keys(net.link_labels ?? {}).find((k) => k.endsWith("/fellside_bikes"));
+      delete net.link_labels[peer];
+      for (const tool of net.tools) {
+        if (Array.isArray(tool.tools)) tool.tools = tool.tools.filter((t) => t !== peer);
+        if (typeof tool.instructions === "string") tool.instructions = tool.instructions.replace(" For bike hire, ask Fellside Cycles.", "");
+      }
+      ctx.write("larch-house", "larch_house.network.json", JSON.stringify(net, null, indentOf(netText)) + "\n");
+      const manText = ctx.read("larch-house", "agent-manifest.json");
+      const man = JSON.parse(manText);
+      man.allowed_peers = [];
+      ctx.write("larch-house", "agent-manifest.json", JSON.stringify(man, null, indentOf(manText)) + "\n");
+      ctx.cli(["watch", "--root", "site", "--relock"], { cwd: s.repo, ok: [0, 1] });
+      ctx.sign("larch-house", "larch-house");
+      ctx.changed.push("larch-house/site/larch_house.network.json", "larch-house/site/agent-manifest.json", "larch-house/site/plumbline.lock.json", "larch-house/site/plumbline.signature.json");
+      return { note: "the bike-rental partner is unlinked (network and allowed_peers), the lock rewritten by watch --relock, the site signed again" };
+    },
     "raise-price"(ctx) {
       const text = ctx.read("larch-house", "rooms.html");
       if (text.includes("<td>Double room</td><td>2</td><td class=\"price\">€95 per night</td>")) return { already: true, note: "the double room is already €95" };

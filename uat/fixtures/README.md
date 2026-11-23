@@ -24,6 +24,7 @@ made by `keygen` inside the world's temp folder at `up` or during an act; none i
 | Act | What it changes | Confirmed |
 | --- | --- | --- |
 | `setup` (by up) | keygen `keys/larch-house` (Jonas's key), key record published, `init --root site --source rooms.html --workflow` from the repo (exit 1: the peer is pending), `sign` | `init: wrote plumbline.lock.json (3 grounding sources, 4 runtime files, 0 peers, 1 pending)`; `verify --url ... --allow-local` with the key trusted: `verified` |
+| `solo` (the demo film; needs setup) | unlinks the bike-rental partner from the network and `allowed_peers`, `watch --root site --relock`, `sign` | `watch --root`: `no drift (nothing at warn or block)`, exit 0; `watch --url --allow-local`: exit 0 (2026-11-23) |
 | `raise-price` | `rooms.html`: double €89 -> €95 | `watch --root`: `warn grounding rooms.html: A grounding source changed since the lock was written; all 5 facts the network states from it are still on it.` (see Observed 1); `verify`: still `verified` (the page is not a signed file) |
 | `fix-network` | network: €89 -> €95 (needs raise-price) | `warn grounding larch_house.network.json: ... the agent now answers from different facts.`; `verify`: `invalid tampered` |
 | `cosmetic-edit` | `rooms.html` wording only | `warn grounding rooms.html: ... all 5 facts the network states from it are still on it.` |

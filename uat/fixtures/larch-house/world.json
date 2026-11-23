@@ -19,6 +19,7 @@
   ],
   "acts": {
     "setup": "The site as Jonas left it: plumbline.lock.json written by init with rooms.html as a --source, the daily workflow file in the repository, the site signed with Jonas's throwaway key and its key record published. Played by up.",
+    "solo": "Added for the demo film (film/README.md): the guesthouse without its bike-rental partner. The partner is removed from the network and the manifest's allowed_peers, the lock is rewritten with watch --relock and the site signed again, so a reading before anything changed is clean. Needs setup.",
     "raise-price": "rooms.html: the double room goes from €89 to €95. The network still says €89.",
     "fix-network": "larch_house.network.json: the double room is corrected to €95 (what Jonas would do). Needs raise-price first. Nothing is relocked or signed.",
     "cosmetic-edit": "rooms.html: wording only (the introduction and the breakfast sentence are rewritten); every price, time and phone number the network states is still on the page.",
