@@ -171,10 +171,16 @@ test("the server's exit code is the guard's; an open request is answered when th
 });
 
 test("stdin closing ends the server and the guard; a server that ignores it is stopped", async () => {
+  // each server answers once before stdin closes: a server still starting when the 2 s grace runs out (a loaded test
+  // machine) is stopped by a signal, which is the stubborn case, not this one
   const s = guarded({ endCode: 3 }, { mode: "enforce", tools: undefined });
+  s.send(rpc(1, "initialize", {}));
+  await s.answer(1);
   s.end();
   assert.equal(await s.exit, 3);
   const stubborn = guarded({ ignoreEnd: true }, { mode: "enforce", tools: undefined });
+  stubborn.send(rpc(1, "initialize", {}));
+  await stubborn.answer(1);
   stubborn.end();
   assert.equal(await stubborn.exit, 1); // ended by a signal
 });
