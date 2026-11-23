@@ -5,7 +5,19 @@ import { rmSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { serverTarget } from "../core/agent-tools.js";
-import { AGENT_APPROVAL_FILE, AGENT_FILE, AGENT_LOCK_FILE, AGENT_PENDING_TYPE, type AgentDeclaration, type AgentReport } from "../core/types.js";
+import { agentState, reportExit, stateExit } from "../agent/check-state.js";
+import {
+  AGENT_APPROVAL_FILE,
+  AGENT_CODES,
+  AGENT_FILE,
+  AGENT_LOCK_FILE,
+  AGENT_NOT_CHECKED_CODES,
+  AGENT_PENDING_TYPE,
+  type AgentCode,
+  type AgentDeclaration,
+  type AgentFinding,
+  type AgentReport,
+} from "../core/types.js";
 import { agent, approve, approversText, json, person, read, repo, spy, TOOLS_A, write, type Spy } from "./agent-helpers.js";
 import { run } from "./cli-helpers.js";
 
@@ -63,7 +75,9 @@ test("a locked, approved and unchanged agent is clean: exit 0, approval verified
   assert.deepEqual(report.approvedBy, { kid: f.alice.entry.kid, label: "Alice" });
   const text = await agent(f.s.deps, "check", "--root", f.dir);
   assert.match(text.out, /Approval: verified, by Alice/);
-  assert.match(text.out, /The agent matches its approved lock/);
+  assert.match(text.out, /State: pass: the agent matches its approved lock\./);
+  assert.doesNotMatch(text.out, /Next:/, "nothing to do when the state is pass");
+  assert.equal(report.state, "pass");
 });
 
 test("file-changed, file-added, file-removed and declaration-changed", async () => {
@@ -102,7 +116,9 @@ test("server-not-observed (warn), and the guard's pending file: tool-added/chang
   let { report, code } = await check(f, "--offline");
   // --offline: info only for the http server and the peer; the unobserved stdio server is a warn
   assert.deepEqual(codes(report), ["info server-unreachable docs", "warn server-not-observed files", "info peer-unreachable " + PEER]);
-  assert.equal(code, 1);
+  // not observed is not checked: unavailable, exit 0 under the default --fail-on fail (never folded into fail)
+  assert.equal(report.state, "unavailable");
+  assert.equal(code, 0);
   // the guard saw it: relock takes it, then the guard sees a change
   write(f.dir, { ".plumbline/pending/files.json": await pending([{ name: "read" }, { name: "write", description: "w" }, { name: "gone" }]) });
   ({ report } = await check(f, "--offline"));
@@ -221,4 +237,142 @@ test("spawned with no network: absent lock exits 1, an unknown option exits 2", 
   const again = run("agent", "init", "--root", dir);
   assert.equal(again.code, 2);
   assert.match(again.err, /exists: edit it, then plumbline agent relock/);
+});
+
+// --- states and --fail-on (docs/agent-lock.md, "States and exit codes") ---
+
+const finding = (severity: AgentFinding["severity"], code: AgentCode): AgentFinding => ({ severity, code, ref: "x", summary: "s" });
+const reportOf = (findings: AgentFinding[]): AgentReport => ({ state: agentState(findings), findings, approval: "verified", checkedAt: "2026-11-21T10:00:00.000Z" });
+
+test("the exit table: each not-checked code alone is unavailable (exit 0, 1 under --fail-on unavailable); with a block, fail (1 both); clean, pass (0)", () => {
+  assert.equal(AGENT_NOT_CHECKED_CODES.length, 6);
+  for (const code of AGENT_NOT_CHECKED_CODES) {
+    const alone = reportOf([finding("warn", code)]);
+    assert.equal(alone.state, "unavailable", code);
+    assert.equal(reportExit(alone), 0, `${code}: default --fail-on fail`);
+    assert.equal(reportExit(alone, "fail"), 0, code);
+    assert.equal(reportExit(alone, "unavailable"), 1, `${code}: --fail-on unavailable`);
+    const withBlock = reportOf([finding("warn", code), finding("block", "file-changed")]);
+    assert.equal(withBlock.state, "fail", code);
+    assert.equal(reportExit(withBlock, "fail"), 1, code);
+    assert.equal(reportExit(withBlock, "unavailable"), 1, code);
+  }
+  const clean = reportOf([]);
+  assert.equal(clean.state, "pass");
+  assert.equal(reportExit(clean, "fail"), 0);
+  assert.equal(reportExit(clean, "unavailable"), 0);
+  // --offline's info findings say what was not looked at by choice: still pass
+  assert.equal(reportOf([finding("info", "server-unreachable"), finding("info", "peer-unreachable")]).state, "pass");
+  // any other warn (the guard saw a stdio server's tools drift) and every block code: fail
+  for (const code of AGENT_CODES.filter((c) => !(AGENT_NOT_CHECKED_CODES as readonly string[]).includes(c))) {
+    assert.equal(agentState([finding("block", code)]), "fail", code);
+    assert.equal(agentState([finding("warn", code)]), "fail", code);
+  }
+  assert.deepEqual([stateExit("pass"), stateExit("unavailable"), stateExit("fail")], [0, 0, 1]);
+  assert.deepEqual([stateExit("pass", "unavailable"), stateExit("unavailable", "unavailable"), stateExit("fail", "unavailable")], [0, 1, 1]);
+});
+
+/** check, both ways: the exit under the default and under --fail-on unavailable, and the --json report. */
+async function bothWays(f: Fixture, ...extra: string[]): Promise<{ codes: [number, number]; report: AgentReport }> {
+  const byDefault = await check(f, ...extra);
+  const strict = await check(f, ...extra, "--fail-on", "unavailable");
+  assert.equal(strict.report.state, byDefault.report.state);
+  return { codes: [byDefault.code, strict.code], report: byDefault.report };
+}
+
+test("check end to end: each not-checked code it produces alone is unavailable, exit 0 then 1; with a block, 1 both; --json carries state", async () => {
+  // server-not-observed: a stdio server the guard never ran (offline: nothing else is contacted)
+  let f = await fixture(false);
+  let r = await bothWays(f, "--offline");
+  assert.equal(r.report.state, "unavailable");
+  assert.deepEqual(r.codes, [0, 1]);
+
+  f = await fixture();
+  // server-unreachable: a remote server that answers 401 (the trial's), and one that answers 503
+  for (const status of [401, 503]) {
+    f.s.lists.set("https://docs.example/mcp", { ok: false, status });
+    r = await bothWays(f);
+    assert.deepEqual(codes(r.report), ["warn server-unreachable docs"], String(status));
+    assert.equal(r.report.state, "unavailable");
+    assert.deepEqual(r.codes, [0, 1]);
+  }
+  // server-refused
+  f.s.lists.set("https://docs.example/mcp", { ok: false, refused: "it is a private or loopback address" });
+  r = await bothWays(f);
+  assert.deepEqual(codes(r.report), ["warn server-refused docs"]);
+  assert.deepEqual(r.codes, [0, 1]);
+  f.s.lists.delete("https://docs.example/mcp");
+  // peer-unreachable
+  f.s.cards.set(PEER, 404);
+  r = await bothWays(f);
+  assert.deepEqual(codes(r.report), [`warn peer-unreachable ${PEER}`]);
+  assert.equal(r.report.state, "unavailable");
+  assert.deepEqual(r.codes, [0, 1]);
+  // with a block beside it: fail, exit 1 both ways
+  write(f.dir, { "CLAUDE.md": "# rules, edited\n" });
+  r = await bothWays(f);
+  assert.equal(r.report.state, "fail");
+  assert.deepEqual(r.codes, [1, 1]);
+  // (server-auth-missing and link-absent come from the servers and files parts; the table above covers their state)
+});
+
+test("a clean check is pass and exit 0 under both --fail-on values; a bad --fail-on is a usage error (exit 2)", async () => {
+  const f = await fixture();
+  const r = await bothWays(f);
+  assert.equal(r.report.state, "pass");
+  assert.deepEqual(r.codes, [0, 0]);
+  const dir = repo();
+  assert.equal(run("agent", "check", "--root", dir, "--offline", "--fail-on", "warn").code, 2);
+  const bad = run("agent", "check", "--root", dir, "--offline", "--fail-on", "sometimes");
+  assert.equal(bad.code, 2);
+  assert.match(bad.err, /--fail-on takes fail or unavailable/);
+  assert.equal(run("agent", "check", "--root", dir, "--offline", "--fail-on").code, 2, "--fail-on with no value");
+  assert.equal(run("agent", "relock", "--root", dir, "--fail-on", "fail").code, 2, "--fail-on is check's alone");
+  // an absent lock checked nothing: exit 1 whatever --fail-on says
+  assert.equal(run("agent", "check", "--root", dir, "--offline", "--fail-on", "fail").code, 1);
+});
+
+test("Next lines by state: a 401 is told about its key, an unobserved stdio server about the guard, never to approve a verified lock", async () => {
+  const f = await fixture();
+  // a remote server that answers 401: unavailable; set a key, never relock or approve
+  f.s.lists.set("https://docs.example/mcp", { ok: false, status: 401 });
+  let { out } = await agent(f.s.deps, "check", "--root", f.dir);
+  assert.match(out, /Approval: verified, by Alice/);
+  assert.match(out, /State: unavailable: nothing that was checked differs from the approved lock, but 1 MCP server was not checked\./);
+  assert.match(out, /Next: check that each MCP server that could not be read answers at its address; one that answers HTTP 401 or 403 needs a key/);
+  assert.doesNotMatch(out, /relock|plumbline approve/, "a server that was not checked is not a change to relock, and the approval verifies");
+  f.s.lists.delete("https://docs.example/mcp");
+
+  // verified approval with an unreachable peer and a server: one line each, still no approval advice
+  f.s.cards.set(PEER, 404);
+  f.s.lists.set("https://docs.example/mcp", { ok: false, status: 503 });
+  ({ out } = await agent(f.s.deps, "check", "--root", f.dir));
+  assert.match(out, /but 1 MCP server and 1 A2A peer were not checked\./);
+  assert.match(out, /Next: check that each A2A peer that could not be read serves its card/);
+  assert.equal((out.match(/^Next:/gm) ?? []).length, 2);
+  assert.doesNotMatch(out, /plumbline approve/);
+  f.s.cards.delete(PEER);
+  f.s.lists.delete("https://docs.example/mcp");
+
+  // an unobserved stdio server: put the guard in place, then relock; not "approve this lock"
+  const g = await fixture(false);
+  ({ out } = await agent(g.s.deps, "check", "--root", g.dir, "--offline"));
+  assert.match(out, /State: unavailable: .*1 MCP server was not checked\./);
+  assert.match(out, /Next: run the agent once with the guard in place \(plumbline agent wrap\)/);
+  assert.equal((out.match(/^Next:/gm) ?? []).length, 1);
+  assert.doesNotMatch(out, /approve --key/);
+
+  // unapproved: the approval is what failed, so the advice is to approve, not to review a change
+  rmSync(path.join(f.dir, AGENT_APPROVAL_FILE));
+  ({ out } = await agent(f.s.deps, "check", "--root", f.dir));
+  assert.match(out, /Approval: absent\./);
+  assert.match(out, /State: fail: 1 change to block, 0 warnings\./);
+  assert.match(out, /Next: a person reviews the lock and approves it \(plumbline approve --key <your key file>\)\./);
+  assert.doesNotMatch(out, /review what changed/);
+
+  // a change: review, relock, approve
+  await approve(f.dir, f.alice);
+  write(f.dir, { "CLAUDE.md": "# rules, edited\n" });
+  ({ out } = await agent(f.s.deps, "check", "--root", f.dir));
+  assert.match(out, /Next: review what changed; if it is intended, plumbline agent relock/);
 });
