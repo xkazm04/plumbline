@@ -1,0 +1,50 @@
+[
+  {
+    "name": "browser_snapshot",
+    "title": "Page snapshot",
+    "description": "Capture an accessibility snapshot of the current page.",
+    "inputSchema": { "type": "object", "properties": {} },
+    "annotations": { "title": "Page snapshot", "readOnlyHint": true, "openWorldHint": true }
+  },
+  {
+    "name": "browser_navigate",
+    "title": "Navigate to a URL",
+    "description": "Navigate to a URL.",
+    "inputSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"] },
+    "annotations": { "title": "Navigate to a URL", "readOnlyHint": false, "destructiveHint": false, "openWorldHint": true }
+  },
+  {
+    "name": "browser_run_code_unsafe",
+    "title": "Run Playwright code",
+    "description": "Run a Playwright code snippet in the page context.",
+    "inputSchema": { "type": "object", "properties": { "code": { "type": "string" } }, "required": ["code"] },
+    "annotations": { "title": "Run Playwright code", "readOnlyHint": false, "destructiveHint": false, "openWorldHint": false },
+    "_meta": { "volatile": "not part of a definition" }
+  },
+  {
+    "name": "browser_close",
+    "title": "Close browser",
+    "description": "Close the page.",
+    "inputSchema": { "type": "object", "properties": {} },
+    "annotations": { "title": "Close browser", "readOnlyHint": false, "destructiveHint": false, "openWorldHint": false }
+  },
+  {
+    "name": "browser_file_upload",
+    "title": "Upload files",
+    "description": "Upload one or multiple files.",
+    "inputSchema": { "type": "object", "properties": { "paths": { "type": "array", "items": { "type": "string" } } } },
+    "annotations": { "title": "Upload files", "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
+  },
+  {
+    "name": "browser_evaluate",
+    "title": "Evaluate JavaScript",
+    "description": "Evaluate a JavaScript expression on the page or an element.",
+    "inputSchema": { "type": "object", "properties": { "function": { "type": "string" } }, "required": ["function"] },
+    "annotations": { "title": "Evaluate JavaScript", "readOnlyHint": false, "destructiveHint": true, "openWorldHint": true }
+  },
+  {
+    "name": "browser_type",
+    "description": "Type text into an editable element.",
+    "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] }
+  }
+]

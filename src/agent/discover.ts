@@ -7,14 +7,15 @@
 // no Plumbline file can carry them. Files that are never locked, whatever a glob says: anything under `.git`,
 // `node_modules` (at any depth), `.plumbline` and `.claude/worktrees`, `.claude/settings.local.json` (a person's own
 // settings, often with tokens), and Plumbline's own agent files (the declaration is pinned by its own hash; the lock and
-// the approval cannot pin themselves). Symbolic links are not followed: a declared file replaced by a link reads as
+// the approval cannot pin themselves; the committed tool definitions under plumbline.agent.tools are checked against the
+// lock's tool hashes instead). Symbolic links are not followed: a declared file replaced by a link reads as
 // removed.
 
 import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { countDuplicateKeys } from "../core/json-keys.js";
 import { isSafeSubjectPath } from "../core/signed-paths.js";
-import { AGENT_APPROVAL_FILE, AGENT_FILE, AGENT_LOCK_FILE, AGENT_PENDING_DIR, type McpServerDecl } from "../core/types.js";
+import { AGENT_APPROVAL_FILE, AGENT_FILE, AGENT_LOCK_FILE, AGENT_PENDING_DIR, AGENT_TOOLS_DIR, type McpServerDecl } from "../core/types.js";
 import { CliError } from "../cli/args.js";
 import { byPath, globMatch } from "./glob.js";
 import { isHttpsAddress, isModelLabel, isServerName, MODEL_ID_PATTERN } from "./lock.js";
@@ -43,7 +44,7 @@ export const DEFAULT_FILES = [
 /** Directories never walked, at any depth. */
 const NEVER_DIRS = new Set([".git", "node_modules"]);
 /** Repository paths never locked, with everything under them. */
-const NEVER_UNDER = [".plumbline", ".claude/worktrees", AGENT_PENDING_DIR];
+const NEVER_UNDER = [".plumbline", ".claude/worktrees", AGENT_PENDING_DIR, AGENT_TOOLS_DIR];
 /** Repository paths never locked. */
 const NEVER_FILES = new Set([".claude/settings.local.json", AGENT_FILE, AGENT_LOCK_FILE, AGENT_APPROVAL_FILE]);
 

@@ -222,6 +222,6 @@ test("every file init writes is free of every secret in the fixture (byte search
   const before = new Set(allFiles(dir));
   const { out } = await agent(spy().deps, "init", "--root", dir, "--json");
   const written = allFiles(dir).filter((f) => !before.has(f));
-  assert.deepEqual(written.sort(), [".gitignore", AGENT_FILE, AGENT_LOCK_FILE].sort());
+  assert.deepEqual(written.sort(), [".gitignore", AGENT_FILE, AGENT_LOCK_FILE, "plumbline.agent.tools/h.json", "plumbline.agent.tools/r.json"].sort(), "the definitions files of the two listed servers too");
   noSecret(dir, out, written);
 });

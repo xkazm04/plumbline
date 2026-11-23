@@ -118,3 +118,16 @@ export async function approve(dir: string, who: { privateKey: string }): Promise
   const approval = await approveLock({ privateKey: who.privateKey, lockBytes: bytes, lock, now: NOW });
   write(dir, { [AGENT_APPROVAL_FILE]: json(approval) });
 }
+
+/** The playwright-like tools list (src/test/fixtures/mcp/playwright-like): marked by name, by destructiveHint, by openWorldHint; one readOnly open-world tool unmarked. */
+export const PLAYWRIGHT_TOOLS = (): Record<string, unknown>[] =>
+  JSON.parse(readFileSync(new URL("../../src/test/fixtures/mcp/playwright-like/tools.json", import.meta.url), "utf8")) as Record<string, unknown>[];
+
+/** An environment whose PATH holds a fake `plumbline` (plumbline.cmd for Windows, an executable `plumbline` for POSIX), so the short form resolves whatever this machine's PATH holds. */
+export function plumblineOnPath(): NodeJS.ProcessEnv {
+  const dir = mkdtempSync(path.join(tmpdir(), "plumbline-bin-"));
+  scratch.push(dir);
+  writeFileSync(path.join(dir, "plumbline.cmd"), "@echo off\r\n");
+  writeFileSync(path.join(dir, "plumbline"), "#!/bin/sh\n", { mode: 0o755 });
+  return { PATH: dir };
+}

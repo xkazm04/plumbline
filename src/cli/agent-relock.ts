@@ -11,7 +11,7 @@ import { parseAgentLock, parseDeclaration } from "../agent/lock.js";
 import { CliError } from "./args.js";
 import type { Out } from "./commands.js";
 import { printable } from "./diff-command.js";
-import { serverLine } from "./agent-changes.js";
+import { reviewServers, serverLines } from "./agent-changes.js";
 
 interface FilesDiff {
   added: string[];
@@ -43,6 +43,7 @@ export async function relock(root: string, json: boolean, out: Out, deps: AgentD
 
   const old: AgentLock = parsedLock.value;
   const built = await buildLock(root, parsed.value, declarationBytes, deps, { lock: old, bytes: lockBytes });
+  const reviews = await reviewServers(root, old, built); // reads the definitions files before writeDefinitions replaces them
   await writeFile(repoPath(root, AGENT_LOCK_FILE), lockText(built.lock));
   const definitionsWritten = await writeDefinitions(root, built.lock, built.definitions);
   let approvalRemoved = false;
@@ -84,7 +85,7 @@ export async function relock(root: string, json: boolean, out: Out, deps: AgentD
   for (const label of models) out(`  model: ${label}`);
   for (const name of serversAdded) out(`  server added: ${name}`);
   for (const name of serversRemoved) out(`  server removed: ${name}`);
-  for (const s of shownServers) out(serverLine(s));
+  for (const s of built.servers) for (const line of serverLines(s, reviews[s.server])) out(line);
   for (const url of peersAdded) out(`  peer added: ${printable(url)}`);
   for (const url of peersRemoved) out(`  peer removed: ${printable(url)}`);
   for (const url of peersChanged) out(`  peer changed: ${printable(url)}`);
