@@ -14,7 +14,7 @@ import { CliError } from "./args.js";
 import type { Out } from "./commands.js";
 import { printable } from "./diff-command.js";
 import { BACKUP_SUFFIX, ensureGitignore, GITIGNORE_LINE, jsonText, plural } from "./agent-shared.js";
-import { applyWrap, wrapShown } from "./agent-wrap.js";
+import { applyWrap, guardLauncher, launcherSentence, wrapShown } from "./agent-wrap.js";
 
 export async function init(root: string, wrap: boolean, json: boolean, out: Out, deps: AgentDeps): Promise<number> {
   if (existsSync(repoPath(root, AGENT_FILE))) throw new CliError(`${AGENT_FILE} exists: edit it, then plumbline agent relock`);
@@ -41,11 +41,12 @@ export async function init(root: string, wrap: boolean, json: boolean, out: Out,
 
   const toWrap = hosts.entries.filter((e): e is HostServer & { decl: Extract<McpServerDecl, { transport: "stdio" }> } => e.decl.transport === "stdio" && !e.wrapped);
   const wrapFiles = [...new Set(toWrap.map((e) => e.file))].sort(byPath);
+  const launcher = guardLauncher(deps.env);
   if (wrap) {
     for (const file of wrapFiles) {
       if (existsSync(repoPath(root, file + BACKUP_SUFFIX))) throw new CliError(`${file}${BACKUP_SUFFIX} exists: move it away first, so the earlier copy is not lost`);
     }
-    await applyWrap(root, hosts, toWrap);
+    await applyWrap(root, hosts, toWrap, launcher);
   }
 
   const declarationBytes = new TextEncoder().encode(declarationText);
@@ -69,7 +70,7 @@ export async function init(root: string, wrap: boolean, json: boolean, out: Out,
         counts,
         declaration,
         wrapped: wrap ? wrapFiles : [],
-        wrap: toWrap.map((e) => ({ file: e.file, server: printable(e.key), entry: JSON.parse(wrapShown(e.name, e.decl)) as unknown })),
+        wrap: toWrap.map((e) => ({ file: e.file, server: printable(e.key), entry: JSON.parse(wrapShown(e.name, e.decl, launcher)) as unknown })),
         alreadyWrapped: hosts.entries.filter((e) => e.wrapped).map((e) => ({ file: e.file, server: printable(e.key) })),
         sse: hosts.entries.filter((e) => e.sse).map((e) => ({ file: e.file, server: printable(e.key) })),
         auth: auth.map((a) => ({ file: a.file, server: printable(a.server), header: printable(a.header), variable: a.variable })),
@@ -100,8 +101,9 @@ export async function init(root: string, wrap: boolean, json: boolean, out: Out,
   for (const e of hosts.entries.filter((x) => x.wrapped)) out(`${e.file}: ${printable(e.key)} already runs the guard.`);
   if (toWrap.length > 0) {
     if (wrap) out(`Put the guard in front of ${plural(toWrap.length, "stdio server")}; the earlier ${plural(wrapFiles.length, "file")} kept as ${wrapFiles.map((f) => f + BACKUP_SUFFIX).join(", ")}:`);
-    else out(`To put the guard in front of ${toWrap.length === 1 ? "it" : "them"}, run again with --wrap (after removing ${AGENT_FILE} and ${AGENT_LOCK_FILE}), or change each entry yourself (env stays as it is):`);
-    for (const e of toWrap) out(`  ${e.file} ${printable(e.key)}: ${printable(wrapShown(e.name, e.decl))}`);
+    else out(`To put the guard in front of ${toWrap.length === 1 ? "it" : "them"}, run plumbline agent wrap (it keeps a backup and relocks), or change each entry yourself (env stays as it is):`);
+    for (const e of toWrap) out(`  ${e.file} ${printable(e.key)}: ${printable(wrapShown(e.name, e.decl, launcher))}`);
+    if (launcherSentence(launcher) !== undefined) out(launcherSentence(launcher)!);
   }
   const commit = [AGENT_FILE, AGENT_LOCK_FILE, ...(gitignored ? [".gitignore"] : []), ...(wrap ? wrapFiles : [])];
   out(`Next: approve the lock (plumbline approve --key <your key file>), then commit ${commit.join(", ")} and ${AGENT_APPROVAL_FILE}.`);

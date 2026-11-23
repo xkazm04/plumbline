@@ -20,7 +20,7 @@ import { parseAgentLock, parseDeclaration } from "../agent/lock.js";
 import { CliError } from "./args.js";
 import type { Out } from "./commands.js";
 import { printable } from "./diff-command.js";
-import { serverLine } from "./agent-changes.js";
+import { reviewServers, serverLines } from "./agent-changes.js";
 import { jsonText, plural } from "./agent-shared.js";
 
 interface FilesDiff {
@@ -104,6 +104,7 @@ export async function relock(root: string, json: boolean, out: Out, deps: AgentD
   }
   const built = await buildLock(root, declaration, bytes, deps, { lock: old, bytes: lockBytes });
   if (sync.rewrite) await writeFile(repoPath(root, AGENT_FILE), bytes);
+  const reviews = await reviewServers(root, old, built); // reads the definitions files before writeDefinitions replaces them
   await writeFile(repoPath(root, AGENT_LOCK_FILE), lockText(built.lock));
   const definitionsWritten = await writeDefinitions(root, built.lock, built.definitions);
   let approvalRemoved = false;
@@ -112,7 +113,10 @@ export async function relock(root: string, json: boolean, out: Out, deps: AgentD
     approvalRemoved = true;
   }
 
-  const files = filesDiff(old.files, built.lock.files);
+  const diff = filesDiff(old.files, built.lock.files);
+  // a version 1 lock's files re-hashed under the text rule with unchanged contents are said once, never as changed
+  const rehashed = new Set(built.rehashed);
+  const files = { ...diff, changed: diff.changed.filter((k) => !rehashed.has(k)) };
   const models = modelsDiff(old.models ?? {}, built.lock.models ?? {});
   const serversAdded = Object.keys(built.lock.mcp ?? {}).filter((k) => !Object.hasOwn(old.mcp ?? {}, k)).sort(byPath);
   const serversRemoved = Object.keys(old.mcp ?? {}).filter((k) => !Object.hasOwn(built.lock.mcp ?? {}, k)).sort(byPath);
@@ -133,6 +137,7 @@ export async function relock(root: string, json: boolean, out: Out, deps: AgentD
           notAdded: sync.notAdded.map((n) => ({ server: printable(n.server), file: n.file })),
         },
         files,
+        rehashed: built.rehashed,
         models,
         servers: { added: serversAdded, removed: serversRemoved, tools: shownServers },
         peers: { added: peersAdded, removed: peersRemoved, changed: peersChanged },
@@ -150,10 +155,11 @@ export async function relock(root: string, json: boolean, out: Out, deps: AgentD
   for (const rel of files.added) out(`  file added: ${rel}`);
   for (const rel of files.removed) out(`  file removed: ${rel}`);
   for (const rel of files.changed) out(`  file changed: ${rel}`);
+  if (built.rehashed.length > 0) out(`  re-hashed ${plural(built.rehashed.length, "file")} under the text rule (line endings as git stores them), contents unchanged`);
   for (const label of models) out(`  model: ${label}`);
   for (const name of serversAdded) out(`  server added: ${name}`);
   for (const name of serversRemoved) out(`  server removed: ${name}`);
-  for (const s of shownServers) out(serverLine(s));
+  for (const s of built.servers) for (const line of serverLines(s, reviews[s.server])) out(line);
   for (const url of peersAdded) out(`  peer added: ${printable(url)}`);
   for (const url of peersRemoved) out(`  peer removed: ${printable(url)}`);
   for (const url of peersChanged) out(`  peer changed: ${printable(url)}`);

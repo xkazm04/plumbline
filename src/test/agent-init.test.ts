@@ -11,7 +11,7 @@ import { CliError } from "../cli/args.js";
 import { parseAgentLock, parseDeclaration } from "../agent/lock.js";
 import { globMatch } from "../agent/glob.js";
 import { frontMatterModel, unwrapGuard } from "../agent/discover.js";
-import { agent, allFiles, json, read, repo, spy, TOOLS_A } from "./agent-helpers.js";
+import { agent, allFiles, json, plumblineOnPath, read, repo, spy, TOOLS_A } from "./agent-helpers.js";
 
 const SECRET = "sk-SECRET-TOKEN-0123456789";
 
@@ -66,7 +66,7 @@ test("Claude Code only: servers, files and models are declared; secrets, setting
     ".claude/commands/ship.md": "ship it\n",
     "src/app.ts": "export {};\n",
   });
-  const s = spy({ PLUMBLINE_DOCS_AUTHORIZATION: "Bearer the-variable-value" });
+  const s = spy({ PLUMBLINE_DOCS_AUTHORIZATION: "Bearer the-variable-value", ...plumblineOnPath() });
   const { code, out } = await agent(s.deps, "init", "--root", dir);
   assert.equal(code, 0);
   const d = declared(dir);
@@ -91,6 +91,8 @@ test("Claude Code only: servers, files and models are declared; secrets, setting
   assert.match(out, /1 stdio server will be observed by the guard/);
   assert.match(out, /SSE server; it is declared as http/);
   assert.match(out, /"command":"plumbline","args":\["guard","--lock","plumbline.agent.lock.json","--server","files","--","npx","-y","@example\/files"\]/);
+  assert.match(out, /run plumbline agent wrap \(it keeps a backup and relocks\)/, "the hint points at agent wrap");
+  assert.doesNotMatch(out, /after removing|is not on PATH/);
   assert.match(out, /Next: approve the lock \(plumbline approve --key/);
   assert.match(read(dir, ".gitignore"), /^\.plumbline\/$/m);
   assert.match(out, /Added \.plumbline\/ to \.gitignore/);
@@ -175,7 +177,7 @@ test("an already-wrapped .mcp.json is declared with the command the guard runs, 
 test("--wrap writes the backup first, wraps each stdio entry keeping env, and locks the wrapped file", async () => {
   const original = json({ mcpServers: { files: { command: "npx", args: ["-y", "files"], env: { T: SECRET } }, docs: { type: "http", url: "https://d.example/mcp" } } });
   const dir = repo({ ".mcp.json": original });
-  const { code, out } = await agent(spy().deps, "init", "--root", dir, "--wrap");
+  const { code, out } = await agent(spy(plumblineOnPath()).deps, "init", "--root", dir, "--wrap");
   assert.equal(code, 0);
   assert.equal(read(dir, ".mcp.json.plumbline-backup"), original);
   const host = JSON.parse(read(dir, ".mcp.json")) as { mcpServers: Record<string, Record<string, unknown>> };
@@ -229,6 +231,8 @@ test("every file init writes is free of every secret in the fixture (byte search
   const before = new Set(allFiles(dir));
   const { out } = await agent(spy().deps, "init", "--root", dir, "--json");
   const written = allFiles(dir).filter((f) => !before.has(f));
+  // h and r carry headers, so init declares auth for them; with the variables unset neither is contacted
+  // (server-auth-missing), so no definitions file is written
   assert.deepEqual(written.sort(), [".gitignore", AGENT_FILE, AGENT_LOCK_FILE].sort());
   noSecret(dir, out, written);
 });

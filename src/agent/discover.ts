@@ -9,7 +9,8 @@
 // Files that are never locked, whatever a glob says: anything under `.git`,
 // `node_modules` (at any depth), `.plumbline` and `.claude/worktrees`, `.claude/settings.local.json` (a person's own
 // settings, often with tokens), and Plumbline's own agent files (the declaration is pinned by its own hash; the lock and
-// the approval cannot pin themselves).
+// the approval cannot pin themselves; the committed tool definitions under plumbline.agent.tools are checked against the
+// lock's tool hashes instead).
 //
 // Links (symbolic links, Windows junctions) under a declared glob are followed, to a file or a folder: what they lead to
 // is listed under the link's own path, and the link's path is returned so the lock can record it; where it points is
@@ -22,7 +23,7 @@ import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { countDuplicateKeys } from "../core/json-keys.js";
 import { isSafeSubjectPath } from "../core/signed-paths.js";
-import { AGENT_APPROVAL_FILE, AGENT_FILE, AGENT_LOCK_FILE, AGENT_PENDING_DIR, type McpServerDecl } from "../core/types.js";
+import { AGENT_APPROVAL_FILE, AGENT_FILE, AGENT_LOCK_FILE, AGENT_PENDING_DIR, AGENT_TOOLS_DIR, type McpServerDecl } from "../core/types.js";
 import { CliError } from "../cli/args.js";
 import { byPath, globMatch } from "./glob.js";
 import { isBlockedAddress } from "../net/address.js";
@@ -52,7 +53,7 @@ export const DEFAULT_FILES = [
 /** Directories never walked, at any depth. */
 const NEVER_DIRS = new Set([".git", "node_modules"]);
 /** Repository paths never locked, with everything under them. */
-const NEVER_UNDER = [".plumbline", ".claude/worktrees", AGENT_PENDING_DIR];
+const NEVER_UNDER = [".plumbline", ".claude/worktrees", AGENT_PENDING_DIR, AGENT_TOOLS_DIR];
 /** Repository paths never locked. */
 const NEVER_FILES = new Set([".claude/settings.local.json", AGENT_FILE, AGENT_LOCK_FILE, AGENT_APPROVAL_FILE]);
 
@@ -273,7 +274,7 @@ export interface HostServer {
   /** The name it is declared under: `key`, or `<host>:<key>` when two hosts use the key for different targets. */
   name: string;
   decl: McpServerDecl;
-  /** The host entry already runs the guard (`plumbline guard ... -- <command>`); `decl` is the command it guards. */
+  /** The host entry already runs the guard (`plumbline guard ... -- <command>`, or the absolute form); `decl` is the command it guards. */
   wrapped: boolean;
   /** The host said `sse`: declared as `http` (Streamable HTTP), which is what Plumbline reads. */
   sse: boolean;
@@ -304,9 +305,25 @@ export interface HostDiscovery {
   skipped: SkippedServer[];
 }
 
-/** The command a guard-wrapped entry guards, or undefined when the entry is not wrapped. */
+/** A node executable as process.execPath names it (`node`, `nodejs`, `node.exe`), in any folder. */
+const NODE_EXECUTABLE = /^node(?:js)?(?:\.exe)?$/i;
+/** The CLI entry the absolute form runs (src/cli/agent-wrap.ts, cliEntry): `.../dist/cli/index.js`, either separator. */
+const CLI_ENTRY = /(?:^|[\\/])dist[\\/]cli[\\/]index\.js$/;
+
+/**
+ * How a host entry runs the guard: `short` (`plumbline guard ...`), `absolute` (`<node> <.../dist/cli/index.js> guard
+ * ...`, what --wrap writes when `plumbline` is not on PATH), or undefined when it does not run the guard.
+ */
+export function guardForm(command: string, args: readonly string[]): "short" | "absolute" | undefined {
+  if (command === "plumbline" && args[0] === "guard") return "short";
+  const base = command.split(/[\\/]/).pop() ?? "";
+  if (NODE_EXECUTABLE.test(base) && typeof args[0] === "string" && CLI_ENTRY.test(args[0]) && args[1] === "guard") return "absolute";
+  return undefined;
+}
+
+/** The command a guard-wrapped entry (either form) guards, or undefined when the entry is not wrapped. */
 export function unwrapGuard(command: string, args: readonly string[]): { command: string; args: string[] } | undefined {
-  if (command !== "plumbline" || args[0] !== "guard") return undefined;
+  if (guardForm(command, args) === undefined) return undefined;
   const dash = args.indexOf("--");
   if (dash < 0 || dash + 1 >= args.length) return undefined;
   return { command: args[dash + 1] as string, args: args.slice(dash + 2) };

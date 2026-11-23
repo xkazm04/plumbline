@@ -88,7 +88,7 @@ test("a pending file for another target is ignored; one for this target is taken
   // a later relock without a pending file keeps the locked tools; a changed definition is listed by name, a removed one by count
   write(dir, { ".plumbline/pending/files.json": await pendingText([{ name: "read", description: "r2" }]) });
   const second = await agent(s.deps, "relock", "--root", dir);
-  assert.match(second.out, /tools 0 added, 1 removed, 1 changed \(changed read\)/);
+  assert.match(second.out, /tools 0 added, 1 removed, 1 changed \(changed read \[description\]\)/, "the changed key is named, never the text");
   // http tools are counted, never named
   assert.match(second.out, /server docs \(listed now\): tools 0 added, 0 removed, 0 changed/);
   assert.ok(!second.out.includes(TOOLS_A[0]!.name), "a remote server's tool names are never printed");
