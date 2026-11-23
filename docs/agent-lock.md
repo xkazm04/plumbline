@@ -403,9 +403,13 @@ lock version, oldest first, the link is
 - `start`: the oldest version in the history, naming no `previous`; or the first version after the lock was deleted
   from the repository, naming none (a re-init starts a new chain);
 - `ok`: `previous` equals the SHA-256 of the version before it, byte for byte;
+- `unseen`: the oldest version in the history names a `previous` git never saw. The documented first run does this:
+  `agent init`, then `agent relock` once the guard has seen the tools, then `approve` and the first commit. It is a
+  `chain-broken` finding, and under the default rule it is listed, not counted, when that version is the first approved
+  one: what it replaced came before approval began. `audit --all` counts it;
 - `broken` (`chain-broken`): anything else: a `previous` naming some other lock, none at all after the first (with
-  no deletion between them), a first lock in the history that names one the history does not hold, or bytes that are
-  not a lock document. A lock restored after a deletion that names the last version before it reads `ok`.
+  no deletion between them), or bytes that are not a lock document. A lock restored after a deletion that names the
+  last version before it reads `ok`.
 
 A broken link does not say what happened (a lock rewritten by hand, history squashed, a relock outside Plumbline); it
 says the history can no longer show that each change replaced the one approved before it. The lock's own bytes are

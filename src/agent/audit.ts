@@ -28,8 +28,12 @@ export interface AuditCommit {
   approval?: Uint8Array;
 }
 
-/** `start`: the first lock, which names none; `ok`: previous names the prior version; `broken`: it does not. */
-export type ChainLink = "start" | "ok" | "broken";
+/**
+ * `start`: the first lock, which names none; `ok`: previous names the prior version; `broken`: it does not;
+ * `unseen`: the oldest version in the history names a previous git never saw (the documented first run relocks before
+ * the first commit, or the history before it is not in this clone).
+ */
+export type ChainLink = "start" | "ok" | "broken" | "unseen";
 
 export interface AuditVersion {
   /** 1 for the oldest version. */
@@ -215,7 +219,7 @@ export async function auditHistory(
     const previous = typeof parsed?.previous === "string" && SHA256.test(parsed.previous) ? parsed.previous : undefined;
     const fresh = parsed !== undefined && parsed.previous === undefined;
     const chain: ChainLink =
-      i === 0 ? (fresh ? "start" : "broken") : span.afterDeletion && fresh ? "start" : previous !== undefined && previous === priorHash ? "ok" : "broken";
+      i === 0 ? (fresh ? "start" : previous !== undefined ? "unseen" : "broken") : span.afterDeletion && fresh ? "start" : previous !== undefined && previous === priorHash ? "ok" : "broken";
     const version: AuditVersion = {
       index: i + 1,
       commit: span.start.commit,
@@ -226,13 +230,15 @@ export async function auditHistory(
       ...(await approvalOf(span, hash, approvers)),
     };
     versions.push(version);
-    if (chain === "broken") {
+    if (chain === "broken" || chain === "unseen") {
       findings.push({
         code: "chain-broken",
         ref: String(version.index),
         summary:
-          i === 0
-            ? "The oldest lock in this history names a lock before it that the history does not hold, or is not a lock document."
+          chain === "unseen"
+            ? "The oldest lock in this history names a lock before it that git never saw: it was relocked before its first commit, or the history before it is not in this clone."
+            : i === 0
+            ? "The oldest lock in this history is not a lock document."
             : span.afterDeletion
               ? "This lock version, created after the lock was deleted, names a previous that is not the version before the deletion."
               : "This lock version does not name the version before it as its previous.",
@@ -250,7 +256,9 @@ export async function auditHistory(
 
   // since the first approval: what came before it is listed, not counted; so is the first approved version's own link
   // when it leads into versions before approval began (a first version in the history that names a lock the history does
-  // not hold is still counted: nothing before it was listed). The current version must be verified under either rule.
+  // not hold is listed too when it is the first approved one: whatever it replaced came before approval began, which is
+  // what the documented first run does: init, relock after the guard saw the tools, approve, then the first commit; a
+  // first version that is not a lock document is still counted). The current version must be verified under either rule.
   const first = versions.find((v) => v.approval === "verified")?.index;
   let beforeApproval = 0;
   if (rule === "since-first-approval" && first !== undefined) {
@@ -261,7 +269,8 @@ export async function auditHistory(
     }
     for (const f of findings) {
       const index = Number(f.ref);
-      if (Number.isInteger(index) && (index < first || (index === first && first > 1 && f.code === "chain-broken"))) f.beforeApproval = true;
+      const linkIntoBefore = index === first && f.code === "chain-broken" && (first > 1 || versions[0]?.chain === "unseen");
+      if (Number.isInteger(index) && (index < first || linkIntoBefore)) f.beforeApproval = true;
     }
   }
   const current = versions[versions.length - 1];
@@ -274,7 +283,8 @@ export async function auditHistory(
     invalid: count("invalid"),
     unverifiable: count("unverifiable"),
     absent: count("absent"),
-    chainBroken: versions.filter((v) => v.chain === "broken").length,
+    // an unseen first link counts as a break only where its finding counts (always under `all`)
+    chainBroken: versions.filter((v) => v.chain === "broken" || (v.chain === "unseen" && findings.some((f) => f.code === "chain-broken" && f.ref === String(v.index) && f.beforeApproval !== true))).length,
     beforeApproval,
   };
   return { rule, ...(first !== undefined ? { firstApproved: first } : {}), versions, summary, findings, clean };
@@ -319,7 +329,7 @@ export function auditMarkdown(result: AuditResult, context: { generatedAt: strin
     const approver = v.approval === "verified" && v.label !== undefined ? `${cell(v.label)} (${v.kid ?? ""})` : v.kid !== undefined ? `key ${v.kid}` : "-";
     const verdict = v.approval === "invalid" && v.reason !== undefined ? `${VERDICT_WORDS.invalid} (${v.reason})` : VERDICT_WORDS[v.approval];
     const before = v.beforeApproval === true ? " (before approval began)" : "";
-    lines.push(`| ${v.index} | ${v.date} | ${v.commit.slice(0, 12)} | ${v.lock.slice(0, 16)} | ${approver} | ${verdict}${before} | ${v.chain === "broken" ? "BROKEN" : v.chain} |`);
+    lines.push(`| ${v.index} | ${v.date} | ${v.commit.slice(0, 12)} | ${v.lock.slice(0, 16)} | ${approver} | ${verdict}${before} | ${v.chain === "broken" ? "BROKEN" : v.chain === "unseen" ? "earlier lock never committed" : v.chain} |`);
   }
   lines.push("");
   return lines.join("\n");

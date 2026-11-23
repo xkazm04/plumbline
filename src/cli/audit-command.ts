@@ -93,7 +93,7 @@ function lineOf(v: AuditResult["versions"][number]): string {
         : v.approval === "unverifiable"
           ? `approval UNVERIFIABLE: key ${v.kid ?? "?"} is in no approvers entry`
           : "NOT APPROVED";
-  const chain = v.chain === "broken" ? "chain BROKEN" : v.chain === "start" ? (v.index === 1 ? "first lock" : "a new chain starts") : "chain ok";
+  const chain = v.chain === "broken" ? "chain BROKEN" : v.chain === "unseen" ? "the lock it replaced was never committed" : v.chain === "start" ? (v.index === 1 ? "first lock" : "a new chain starts") : "chain ok";
   const before = v.beforeApproval === true ? " (before approval began)" : "";
   return `  ${v.index}. ${v.date} ${v.commit.slice(0, 12)} lock ${v.lock.slice(0, 12)}: ${who}; ${chain}${before}`;
 }

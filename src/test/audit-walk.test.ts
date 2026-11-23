@@ -79,10 +79,42 @@ test("broken chain: a version that does not name the one before; and a first loc
   assert.deepEqual(r.findings.map((f) => [f.code, f.ref]), [["chain-broken", "2"]]);
   assert.equal(r.summary.chainBroken, 1);
 
+});
+
+test("the documented first run: the oldest committed lock names one git never saw (unseen), approved: listed, not counted", async () => {
+  // init, relock once the guard saw the tools, approve, first commit: the first committed lock's previous is init's lock
+  const alice = await person("Alice");
   const orphan = lockBytes(1, "e".repeat(64));
-  const r2 = await auditHistory([c(orphan.bytes, await approvalBytes(alice.privateKey, orphan))], [alice.entry]);
-  assert.equal(r2.versions[0]?.chain, "broken");
-  assert.equal(r2.clean, false);
+  const history = [c(orphan.bytes, await approvalBytes(alice.privateKey, orphan))];
+  const r = await auditHistory(history, [alice.entry]);
+  assert.equal(r.versions[0]?.chain, "unseen");
+  assert.equal(r.clean, true);
+  assert.equal(r.summary.chainBroken, 0);
+  assert.deepEqual(r.findings.map((f) => [f.code, f.ref, f.beforeApproval]), [["chain-broken", "1", true]]);
+  assert.match(r.findings[0]!.summary, /git never saw/);
+  // --all certifies every link, so the link it cannot follow counts
+  const all = await auditHistory(history, [alice.entry], "all");
+  assert.equal(all.clean, false);
+  assert.equal(all.summary.chainBroken, 1);
+  // unapproved, it is counted: nothing was approved, so nothing began
+  const bare = await auditHistory([c(orphan.bytes)], [alice.entry]);
+  assert.equal(bare.versions[0]?.chain, "unseen");
+  assert.equal(bare.clean, false);
+  assert.equal(bare.summary.chainBroken, 1);
+  // and a change after it still has to name it
+  const l2 = lockBytes(2, "f".repeat(64));
+  const two = await auditHistory([...history, c(l2.bytes, await approvalBytes(alice.privateKey, l2))], [alice.entry]);
+  assert.deepEqual(two.versions.map((v) => v.chain), ["unseen", "broken"]);
+  assert.equal(two.clean, false);
+});
+
+test("a first version that is not a lock document stays broken and counted", async () => {
+  const alice = await person("Alice");
+  const junk = new TextEncoder().encode("not json\n");
+  const r = await auditHistory([c(junk)], [alice.entry]);
+  assert.equal(r.versions[0]?.chain, "broken");
+  assert.match(r.findings.find((f) => f.code === "chain-broken")!.summary, /not a lock document/);
+  assert.equal(r.clean, false);
 });
 
 test("an unapproved version: absent, lock-unapproved, never folded into invalid", async () => {
