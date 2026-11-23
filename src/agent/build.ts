@@ -2,13 +2,15 @@
 // read goes through the injected lister (MCP over HTTP, src/net/mcp-http.ts) and fetcher (A2A cards, safeFetch), so
 // tests inject both and production passes the guarded ones.
 //
-// Rules: files are the declaration's globs expanded now, hashed by exact bytes. A stdio server's tools come from the
-// guard's pending file when its `target` matches the declared command; else the previous lock's tools are kept when the
-// target did not change; else none (not yet observed). An http server's tools are listed now; one that cannot be read
-// keeps the previous record when its target did not change, else it is locked without tools, and either way a warn
-// says so. An http server whose `auth` names a variable that is unset or unsendable is not contacted at all
-// (server-auth-missing, kept the same way); the values are read from the environment for that one listing only. A
-// peer is read now; one that cannot be read keeps its previous record, else it is left out, with a warn.
+// Rules: files are the declaration's globs expanded now, links followed (src/agent/discover.ts), each hashed by the text
+// rule (src/agent/text-hash.ts: CRLF read as LF unless the file holds a NUL byte); the lock is written as version 2 with
+// `hashing: "text-lf"` and the links followed. A stdio server's tools come from the guard's pending file when its
+// `target` matches the declared command; else the previous lock's tools are kept when the target did not change; else
+// none (not yet observed). An http server's tools are listed now; one that cannot be read keeps the previous record when
+// its target did not change, else it is locked without tools, and either way a warn says so. An http server whose
+// `auth` names a variable that is unset or unsendable is not contacted at all (server-auth-missing, kept the same way);
+// the values are read from the environment for that one listing only. A peer is read now; one that cannot be read keeps
+// its previous record, else it is left out, with a warn.
 // Nothing the network said is ever dropped silently, and a server's own words never reach a finding.
 
 import { readFile } from "node:fs/promises";
@@ -16,7 +18,7 @@ import path from "node:path";
 import { toolDefinition, serverTarget, toolsParts, toolsRecord, type ToolPart } from "../core/agent-tools.js";
 import { sha256Hex } from "../core/canonical.js";
 import {
-  AGENT_FORMAT_VERSION,
+  AGENT_CURRENT_VERSION,
   AGENT_LOCK_TYPE,
   AGENT_PENDING_DIR,
   type AgentDeclaration,
@@ -35,6 +37,7 @@ import { observeExternal, type ExternalObservation } from "../watch/external.js"
 import { matchFiles } from "./discover.js";
 import { byPath } from "./glob.js";
 import { parsePending, pendingFileName } from "./pending.js";
+import { declaredFileHash } from "./text-hash.js";
 
 /** What every agent command is given, so tests inject the network and the clock. */
 export interface AgentDeps {
@@ -59,8 +62,25 @@ export async function readPending(root: string, server: string): Promise<AgentPe
   }
 }
 
-/** The files the declaration's globs match now, hashed. A matched file a lock cannot name is refused (exit 2). */
-export async function hashDeclaredFiles(root: string, globs: readonly string[]): Promise<Record<string, string>> {
+/** The declared files as a lock holds them. */
+export interface DeclaredFiles {
+  /** Repository path to SHA-256 under the text rule (`text-lf`). */
+  files: Record<string, string>;
+  /** The links followed that lead to a file in `files`, repository-relative, sorted (never where they point). */
+  links: string[];
+  /**
+   * The files whose hash differs from `exactBefore` (a version 1 lock's files) only because of the text rule: their
+   * exact bytes still hash to the old record, so their contents did not change. Sorted; empty without `exactBefore`.
+   */
+  rehashed: string[];
+}
+
+/**
+ * The files the declaration's globs match now, hashed by the text rule. A matched file a lock cannot name is refused
+ * (exit 2), as are a link cycle and a walk over MAX_DECLARED_FILES (src/agent/discover.ts). `exactBefore`: the files of
+ * a version 1 lock being replaced, whose hashes are of exact bytes (for `rehashed`).
+ */
+export async function hashDeclaredFiles(root: string, globs: readonly string[], exactBefore?: Record<string, string>): Promise<DeclaredFiles> {
   const matched = await matchFiles(root, globs);
   if (matched.unsafe > 0) {
     throw new CliError(
@@ -68,14 +88,19 @@ export async function hashDeclaredFiles(root: string, globs: readonly string[]):
     );
   }
   const files: Record<string, string> = {};
+  const rehashed: string[] = [];
   for (const rel of matched.paths) {
+    let bytes: Uint8Array;
     try {
-      files[rel] = await sha256Hex(new Uint8Array(await readFile(repoPath(root, rel))));
+      bytes = new Uint8Array(await readFile(repoPath(root, rel)));
     } catch {
       throw new CliError(`${rel} could not be read`);
     }
+    files[rel] = await declaredFileHash(bytes, "text-lf");
+    const before = exactBefore?.[rel];
+    if (before !== undefined && before !== files[rel] && (await declaredFileHash(bytes, undefined)) === before) rehashed.push(rel);
   }
-  return files;
+  return { files, links: matched.links, rehashed };
 }
 
 /**
@@ -142,6 +167,14 @@ export interface Built {
   /** warn findings: a server or peer that could not be read now (what the lock holds for it is said). */
   findings: AgentFinding[];
   servers: ServerChange[];
+  /**
+   * The first version 2 lock after a version 1 lock: the files whose recorded hash changed only because the text rule
+   * replaced exact bytes (their contents did not change), sorted. Relock reports them as re-hashed, not changed. Empty
+   * otherwise.
+   */
+  rehashed: string[];
+  /** How many links the files were followed through (`lock.links`), and how many locked files sit under them. */
+  linked: { links: number; files: number };
 }
 
 function counted(server: string, source: ServerChange["source"], before: Record<string, string> | undefined, after: Record<string, string> | undefined): ServerChange {
@@ -183,7 +216,8 @@ export async function buildLock(
   const findings: AgentFinding[] = [];
   const servers: ServerChange[] = [];
   const definitions: Record<string, Record<string, unknown>[]> = {};
-  const files = await hashDeclaredFiles(root, declaration.files);
+  const exactBefore = previous !== undefined && previous.lock.hashing === undefined ? previous.lock.files : undefined;
+  const { files, links, rehashed } = await hashDeclaredFiles(root, declaration.files, exactBefore);
   const mcp: Record<string, AgentMcpRecord> = {};
   for (const name of Object.keys(declaration.mcp ?? {}).sort(byPath)) {
     const decl = (declaration.mcp ?? {})[name]!;
@@ -261,16 +295,19 @@ export async function buildLock(
   }
   const lock: AgentLock = {
     type: AGENT_LOCK_TYPE,
-    version: AGENT_FORMAT_VERSION,
+    version: AGENT_CURRENT_VERSION,
     ...(previous !== undefined ? { previous: await sha256Hex(previous.bytes) } : {}),
     declaration: await sha256Hex(declarationBytes),
+    hashing: "text-lf",
     files,
+    ...(links.length > 0 ? { links } : {}),
     ...(declaration.models !== undefined && Object.keys(declaration.models).length > 0 ? { models: { ...declaration.models } } : {}),
     ...(Object.keys(mcp).length > 0 ? { mcp } : {}),
     ...(Object.keys(peers).length > 0 ? { peers } : {}),
     lockedAt: deps.now.toISOString(),
   };
-  return { lock, findings, servers, definitions };
+  const linkedFiles = Object.keys(files).filter((rel) => links.some((l) => rel === l || rel.startsWith(`${l}/`))).length;
+  return { lock, findings, servers, definitions, rehashed, linked: { links: links.length, files: linkedFiles } };
 }
 
 /** The bytes a lock is written as: two-space JSON and a newline. */

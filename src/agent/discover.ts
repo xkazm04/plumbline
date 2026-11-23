@@ -9,10 +9,16 @@
 // Files that are never locked, whatever a glob says: anything under `.git`,
 // `node_modules` (at any depth), `.plumbline` and `.claude/worktrees`, `.claude/settings.local.json` (a person's own
 // settings, often with tokens), and Plumbline's own agent files (the declaration is pinned by its own hash; the lock and
-// the approval cannot pin themselves). Symbolic links are not followed: a declared file replaced by a link reads as
-// removed.
+// the approval cannot pin themselves).
+//
+// Links (symbolic links, Windows junctions) under a declared glob are followed, to a file or a folder: what they lead to
+// is listed under the link's own path, and the link's path is returned so the lock can record it; where it points is
+// never returned (it is a path on this machine). Following one reads outside the repository: the files are hashed by
+// the caller, their contents go nowhere. A link back into a folder being walked is refused, and one walk reads at most
+// MAX_DECLARED_FILES files. Links outside a glob's reach are never touched, and model discovery does not follow
+// links at all (a model id is words, not a hash).
 
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { countDuplicateKeys } from "../core/json-keys.js";
 import { isSafeSubjectPath } from "../core/signed-paths.js";
@@ -59,29 +65,127 @@ export function isNeverLocked(rel: string): boolean {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-async function kindOf(full: string): Promise<"file" | "dir" | "other" | "none"> {
+/**
+ * The most regular files one walk (one `matchFiles`) visits, links followed. Derived from the field trial (2026-11-23):
+ * the largest declared tree seen was 85 files through 7 links (bp's `.claude/skills`); 100 times that, rounded up to a
+ * round number, is 10,000. Over it the walk stops with a sentence (exit 2) rather than reading a link into somewhere
+ * vast without end.
+ */
+export const MAX_DECLARED_FILES = 10_000;
+
+type Kind = "file" | "dir" | "other" | "none";
+
+/** What a path is, a link followed to what it points at (a dangling link is `none`), and whether it is a link. */
+async function kindOf(full: string): Promise<{ kind: Kind; link: boolean }> {
+  let s;
   try {
-    const s = await lstat(full);
-    return s.isFile() ? "file" : s.isDirectory() ? "dir" : "other";
+    s = await lstat(full);
   } catch {
-    return "none";
+    return { kind: "none", link: false };
+  }
+  if (!s.isSymbolicLink()) return { kind: s.isFile() ? "file" : s.isDirectory() ? "dir" : "other", link: false };
+  try {
+    const t = await stat(full);
+    return { kind: t.isFile() ? "file" : t.isDirectory() ? "dir" : "other", link: true };
+  } catch {
+    return { kind: "none", link: true };
   }
 }
 
-/** Every regular file under `dir` (repository-relative `rel`), pruning what is never locked. */
-async function walk(root: string, rel: string, out: string[]): Promise<void> {
+/**
+ * One walk's state: whether it follows links, the links it followed (repository paths) and the files it visited, for
+ * MAX_DECLARED_FILES.
+ */
+interface Walk {
+  root: string;
+  follow: boolean;
+  links: Set<string>;
+  visited: number;
+}
+
+const full = (root: string, rel: string): string => (rel === "" ? root : path.join(root, ...rel.split("/")));
+/** Real paths compare without case on Windows (one folder, however it is spelled). */
+const realKey = (p: string): string => (process.platform === "win32" ? p.toLowerCase() : p);
+/** True when real path `inner` is `outer` or inside it. */
+function within(inner: string, outer: string): boolean {
+  const i = realKey(inner);
+  const o = realKey(outer);
+  return i === o || i.startsWith(o.endsWith(path.sep) ? o : o + path.sep);
+}
+
+function visit(w: Walk): void {
+  if (++w.visited > MAX_DECLARED_FILES) {
+    throw new CliError(
+      `the declaration's globs reach more than ${MAX_DECLARED_FILES} files, the most one walk reads (100 times the largest agent seen in use): narrow the globs, or remove a link that leads somewhere large`,
+    );
+  }
+}
+
+/**
+ * Every regular file under `rel`, pruning what is never locked. A link (symbolic link, Windows junction) is followed:
+ * the files under it are listed under the link's path and the link is noted in `w.links`. `stack` holds the real paths
+ * of the folders being walked; a link to one of them or to a folder holding one is a cycle and is refused (exit 2). A
+ * dangling link has nothing to follow and is passed over.
+ */
+async function walk(w: Walk, rel: string, stack: readonly string[], out: string[]): Promise<void> {
   let entries;
   try {
-    entries = await readdir(rel === "" ? root : path.join(root, ...rel.split("/")), { withFileTypes: true });
+    entries = await readdir(full(w.root, rel), { withFileTypes: true });
   } catch {
     return;
   }
+  const here = stack[stack.length - 1] as string;
   for (const entry of entries) {
     const child = rel === "" ? entry.name : `${rel}/${entry.name}`;
     if (isNeverLocked(child)) continue;
-    if (entry.isDirectory()) await walk(root, child, out);
-    else if (entry.isFile()) out.push(child);
+    if (entry.isSymbolicLink()) {
+      if (!w.follow) continue;
+      const { kind } = await kindOf(full(w.root, child));
+      if (kind === "file") {
+        visit(w);
+        w.links.add(child);
+        out.push(child);
+      } else if (kind === "dir") {
+        const real = await realpath(full(w.root, child));
+        if (stack.some((s) => within(s, real))) {
+          throw new CliError(
+            `${isSafeSubjectPath(child) ? child : `a link under ${rel === "" ? "the repository" : rel}`} is a link to a folder that holds it, so following it would never end: remove the link or narrow the glob`,
+          );
+        }
+        w.links.add(child);
+        await walk(w, child, [...stack, real], out);
+      }
+    } else if (entry.isDirectory()) await walk(w, child, [...stack, path.join(here, entry.name)], out);
+    else if (entry.isFile()) {
+      visit(w);
+      out.push(child);
+    }
   }
+}
+
+/** Notes every link among the leading segments of `rel` (a glob's literal prefix: readdir follows them). */
+async function prefixLinks(w: Walk, rel: string): Promise<void> {
+  const segments = rel === "" ? [] : rel.split("/");
+  for (let i = 1; i <= segments.length; i++) {
+    const at = segments.slice(0, i).join("/");
+    if ((await kindOf(full(w.root, at))).link) w.links.add(at);
+  }
+}
+
+/**
+ * Every file under `rel` (a folder, through links), noting the links in `w.links`. A walk that does not follow links
+ * lists nothing when `rel` itself is reached through one.
+ */
+async function walkFrom(w: Walk, rel: string, out: string[]): Promise<void> {
+  let real: string;
+  try {
+    real = await realpath(full(w.root, rel));
+  } catch {
+    return;
+  }
+  await prefixLinks(w, rel);
+  if (!w.follow && w.links.size > 0) return;
+  await walk(w, rel, [real], out);
 }
 
 /** The literal segments a glob starts with (before its first segment holding `*`). */
@@ -92,30 +196,42 @@ function literalPrefix(glob: string): string[] {
 }
 
 export interface Matched {
-  /** Repository paths (safe ones only), sorted, each once. */
+  /** Repository paths (safe ones only), sorted, each once. A file reached through a link sits under the link's path. */
   paths: string[];
+  /**
+   * The links followed that lead to at least one path in `paths` (a link to a file is itself one), repository-relative,
+   * sorted. Where a link points is never returned.
+   */
+  links: string[];
   /** The globs that matched at least one file whose name is outside [A-Za-z0-9._/-] (a lock cannot hold it). */
   unsafeGlobs: string[];
   /** How many such files. */
   unsafe: number;
 }
 
-/** The repository files the globs match now. Walks only below each glob's literal prefix. */
+/**
+ * The repository files the globs match now. Walks only below each glob's literal prefix, following links (at most
+ * MAX_DECLARED_FILES files; a link cycle is refused).
+ */
 export async function matchFiles(root: string, globs: readonly string[]): Promise<Matched> {
   const found = new Set<string>();
   const walked = new Set<string>();
+  const w: Walk = { root, follow: true, links: new Set(), visited: 0 };
   for (const glob of globs) {
     const prefix = literalPrefix(glob);
     const rel = prefix.join("/");
     if (prefix.length === glob.split("/").length) {
-      // no wildcard: the one file, when it is a regular file
-      if (!isNeverLocked(rel) && (await kindOf(path.join(root, ...prefix))) === "file") found.add(rel);
+      // no wildcard: the one file, when it is a regular file (or a link to one)
+      if (!isNeverLocked(rel) && (await kindOf(full(root, rel))).kind === "file") {
+        await prefixLinks(w, rel);
+        found.add(rel);
+      }
       continue;
     }
     if (walked.has(rel) || (rel !== "" && isNeverLocked(rel))) continue;
     walked.add(rel);
     const files: string[] = [];
-    await walk(root, rel, files);
+    await walkFrom(w, rel, files);
     for (const f of files) found.add(f);
   }
   const paths: string[] = [];
@@ -130,15 +246,16 @@ export async function matchFiles(root: string, globs: readonly string[]): Promis
       for (const g of by) unsafeGlobs.add(g);
     }
   }
-  return { paths: paths.sort(byPath), unsafeGlobs: [...unsafeGlobs].sort(byPath), unsafe };
+  const links = [...w.links].filter((l) => paths.some((p) => p === l || p.startsWith(`${l}/`)));
+  return { paths: paths.sort(byPath), links: links.sort(byPath), unsafeGlobs: [...unsafeGlobs].sort(byPath), unsafe };
 }
 
-/** The DEFAULT_FILES that exist in the repository now (a glob when its directory does). */
+/** The DEFAULT_FILES that exist in the repository now (a glob when its directory does), links followed. */
 export async function defaultGlobs(root: string): Promise<string[]> {
   const out: string[] = [];
   for (const glob of DEFAULT_FILES) {
     const prefix = literalPrefix(glob);
-    const kind = await kindOf(path.join(root, ...prefix));
+    const { kind } = await kindOf(full(root, prefix.join("/")));
     if (glob.includes("*") ? kind === "dir" : kind === "file") out.push(glob);
   }
   return out;
@@ -367,8 +484,10 @@ export async function discoverModels(root: string): Promise<ModelDiscovery> {
     if (MODEL_ID_PATTERN.test(settings.model)) models.default = settings.model;
     else skipped.push(".claude/settings.json");
   }
+  // links are not followed here: a model id read through one would copy words from outside the repository into the
+  // declaration (a linked agent file is still locked by its hash when a glob matches it)
   const agents: string[] = [];
-  await walk(root, ".claude/agents", agents);
+  await walkFrom({ root, follow: false, links: new Set(), visited: 0 }, ".claude/agents", agents);
   for (const rel of agents.sort(byPath)) {
     if (!rel.endsWith(".md")) continue;
     let text: string;
