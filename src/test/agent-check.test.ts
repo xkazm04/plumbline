@@ -366,7 +366,8 @@ test("Next lines by state: a 401 is told about its key, an unobserved stdio serv
   rmSync(path.join(f.dir, AGENT_APPROVAL_FILE));
   ({ out } = await agent(f.s.deps, "check", "--root", f.dir));
   assert.match(out, /Approval: absent\./);
-  assert.match(out, /State: fail: 1 change to block, 0 warnings\./);
+  assert.match(out, /State: fail: 1 change to block\. Any finding fails the check\./);
+  assert.doesNotMatch(out, /\b0 warnings\b/, "a zero count is not shown");
   assert.match(out, /Next: a person reviews the lock and approves it \(plumbline approve --key <your key file>\)\./);
   assert.doesNotMatch(out, /review what changed/);
 

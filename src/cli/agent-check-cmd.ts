@@ -62,7 +62,9 @@ export function stateLine(report: AgentReport): string {
   const blocks = report.findings.filter((f) => f.severity === "block").length;
   const warns = report.findings.filter((f) => f.severity === "warn").length;
   const unseen = report.findings.some(isNotChecked) ? `; ${notCheckedPhrase(report.findings)}` : "";
-  return `State: fail: ${plural(blocks, "change")} to block, ${plural(warns, "warning")}${unseen}.`;
+  // only the counts that are not zero ("0 changes to block, 1 warning" read as a contradiction), and why it fails
+  const counts = [...(blocks > 0 ? [`${plural(blocks, "change")} to block`] : []), ...(warns > 0 ? [plural(warns, "warning")] : [])];
+  return `State: fail: ${listed(counts) || plural(report.findings.length, "finding")}${unseen}. Any finding fails the check.`;
 }
 
 /** The "Next:" lines for a report, chosen by its state. None for pass. */
