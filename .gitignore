@@ -24,3 +24,5 @@ ecosystem/out/
 # what the agent guard observed (plumbline guard); local, never committed
 .plumbline/
 film/out/
+film/audio/
+film/take/
