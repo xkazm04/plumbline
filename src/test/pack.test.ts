@@ -1,9 +1,13 @@
-// D2: the package can be packed and run from its tarball, under whatever name the owner chooses. `npm pack` runs with
-// --ignore-scripts (the prepack build would rewrite dist/ under the running tests), so it packs this build; the
-// tarball is unpacked here by a small tar reader (no dependency) and its CLI is run under the no-network preload.
+// D2: the package can be packed and run from its tarball, under whatever name the owner chooses. It is packed from a
+// staging copy of what package.json's `files` names, never in the repository: npm 10 runs the `prepare` script (tsc) on
+// `npm pack` even with --ignore-scripts, and a build rewriting dist/ under the other test files running the CLI broke a
+// random one on loaded Linux runs (a module half-written: "does not provide an export named ...", 2026-11-23). The
+// staging package.json is the real one without `prepare` (the build is already in dist/); --ignore-scripts keeps
+// prepack from running there. The tarball is unpacked here by a small tar reader (no dependency) and its CLI is run
+// under the no-network preload.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -17,8 +21,15 @@ let tmp: string;
 let entries: Map<string, Uint8Array>;
 before(() => {
   tmp = mkdtempSync(path.join(tmpdir(), "plumbline-pack-"));
+  const stage = path.join(tmp, "stage");
+  mkdirSync(stage);
+  const pkg = JSON.parse(readFileSync(path.join(REPO, "package.json"), "utf8")) as { files: string[]; scripts?: Record<string, string> };
+  const { prepare: _built, ...scripts } = pkg.scripts ?? {};
+  writeFileSync(path.join(stage, "package.json"), `${JSON.stringify({ ...pkg, scripts }, null, 2)}\n`);
+  // the positive entries of `files`; its negations (!dist/test, maps) are left for npm pack to apply, as it does in the repository
+  for (const entry of pkg.files.filter((f) => !f.startsWith("!"))) cpSync(path.join(REPO, entry), path.join(stage, entry), { recursive: true });
   // a fixed command line, no input from anywhere: shell is needed on Windows to run npm.cmd
-  const packed = spawnSync(`npm pack --ignore-scripts --json --pack-destination "${tmp}"`, { cwd: REPO, encoding: "utf8", shell: true });
+  const packed = spawnSync(`npm pack --ignore-scripts --json --pack-destination "${tmp}"`, { cwd: stage, encoding: "utf8", shell: true });
   assert.equal(packed.status, 0, packed.stderr);
   const tarball = readdirSync(tmp).find((n) => n.endsWith(".tgz"));
   assert.ok(tarball, "npm pack wrote a tarball");
