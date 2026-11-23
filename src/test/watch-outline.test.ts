@@ -156,3 +156,27 @@ test("plumbline diff: names and hosts for the caller's own files, control charac
   assert.equal(run(a).status, 2);
   assert.equal(printable("ok\u0007\u2066x"), "ok??x");
 });
+
+test("diff of two local files: each changed agent's removed and added sentences, printable, cut, and in --json", async () => {
+  const { sentenceDiff } = await import("../cli/diff-command.js");
+  const a = path.join(tmp, "words-a.network.json");
+  const b = path.join(tmp, "words-b.network.json");
+  const rx = { name: "rx", function: { description: "Repeat prescriptions." }, instructions: "Prescriptions are ordered through the portal, never by phone. Be kind.", tools: [] };
+  writeFileSync(a, network([front, rx]));
+  writeFileSync(b, network([front, { ...rx, instructions: "Prescriptions are now ordered at the new address with the patient's NHS number. Be kind.\u001b[2J" }]));
+  const run = (...args: string[]) => spawnSync(process.execPath, [CLI, "diff", ...args], { encoding: "utf8" });
+  const r = run(a, b);
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stdout, /^rx:\n  - Prescriptions are ordered through the portal, never by phone\.\n  - Be kind\.\n  \+ Prescriptions are now ordered at the new address with the patient's NHS number\.\n  \+ Be kind\.\?\[2J$/m);
+  assert.ok(!r.stdout.includes("\u001b"), "a control character never reaches the terminal");
+  const json = JSON.parse(run(a, b, "--json").stdout) as { changes: { agent: string; removed: string[]; added: string[] }[] };
+  assert.equal(json.changes[0]?.agent, "rx");
+  assert.deepEqual(json.changes[0]?.added, ["Prescriptions are now ordered at the new address with the patient's NHS number.", "Be kind.?[2J"]);
+  // the same words with another part changed (its tools): said so, no sentence printed
+  writeFileSync(b, network([front, { ...rx, tools: ["front"] }]));
+  assert.match(run(a, b).stdout, /^rx: its words are the same; another part of its definition changed$/m);
+  // a very long sentence is cut
+  const long = sentenceDiff("Short.", `${"x".repeat(400)}.`);
+  assert.equal(long.added[0]!.length, 301);
+  assert.ok(long.added[0]!.endsWith("…"));
+});

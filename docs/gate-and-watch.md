@@ -498,7 +498,10 @@ severity, and a peer whose outline is unchanged is still `block`.
 
 `plumbline diff <old> <new> [--json]` gives the same diff for two network files on your own disk, with the names and
 hosts shown (your files, your terminal; control and bidirectional-override characters are replaced by `?`). Exit 0 when
-the outlines are the same, 1 when they differ, 2 for a file that cannot be outlined.
+the outlines are the same, 1 when they differ, 2 for a file that cannot be outlined. Since 2026-11-23 it also prints, for each changed agent, the
+sentences of its description and instructions that were removed (`-`) and added (`+`), each cut at 300 characters
+(`changes` in `--json`); an agent whose words are the same says another part of its definition changed. The `--peer`
+form does not print sentences.
 
 ### The old partner definition: kept copies and `diff --peer`
 
