@@ -1548,6 +1548,19 @@ async function settle(rounds = 30) {
   for (let i = 0; i < rounds; i += 1) await new Promise((resolve) => setImmediate(resolve));
 }
 
+/**
+ * Turns the event loop until `done()` holds, for at most `ms` of wall-clock time. A run that fetches and hashes
+ * (WebCrypto digests go through the thread pool) needs more turns on a loaded machine than any fixed count: a fixed
+ * settle(200) failed the site-peers test in 2 of 4 runs beside a parallel `npm test` (2026-11-23).
+ */
+async function until(done, what, ms = 10_000) {
+  const deadline = Date.now() + ms;
+  while (!done()) {
+    if (Date.now() > deadline) throw new Error(`still waiting after ${ms} ms: ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 class TabStorage extends MemoryStorage {
   removeItem(key) {
     this.map.delete(key);
@@ -1911,16 +1924,16 @@ test("b0c44295 and p-42f194: the page's forms say the verdict in their live stat
     const before = site.calls.length;
     document.getElementById("gate-form").dispatch("submit");
     assert.equal(site.calls.length, before, "a second press started a second run");
-    await settle();
+    await until(() => document.getElementById("gate-run").disabled === false, "the gate run to finish");
     assert.equal(document.getElementById("gate-run").disabled, false);
     assert.equal(status("gate-status").textContent, `Check finished. Overall: ${STRINGS.states[App.page.gate.state]}.`);
     document.getElementById("drift-target").value = CUSTOMS;
     document.getElementById("drift-form").dispatch("submit");
-    await settle();
+    await until(() => status("drift-status").textContent === STRINGS.drift.doneNoLock, "the drift read to finish");
     assert.equal(status("drift-status").textContent, STRINGS.drift.doneNoLock);
     document.getElementById("verify-target").value = ATLAS;
     document.getElementById("verify-form").dispatch("submit");
-    await settle();
+    await until(() => status("verify-status").textContent.startsWith("Verify finished"), "the verify run to finish");
     assert.equal(status("verify-status").textContent, `Verify finished: ${STRINGS.states.unverifiable}.`);
     // A clean signed lock, findings, and a verdict with a reason are all said in words.
     assert.equal(desk.doneSentence("drift", { lockState: "found", lockFound: true, lockSigned: true, findings: [] }), "Drift read: nothing differs from the lock. Signed lock.");
@@ -2364,7 +2377,7 @@ test("p-6b5393: the partner check says in words who answered and who could not b
   try {
     document.getElementById("partners-check").dispatch("click");
     assert.ok(JSON.stringify(StubDocument.describe(document.getElementById("partners-result"))).includes(STRINGS.partners.checking));
-    await settle();
+    await until(() => App.page.partners?.checking === false, "the partner check to finish");
     assert.deepEqual(
       App.page.partners.results.map((r) => [r.name, r.reachable]),
       [
@@ -2728,7 +2741,7 @@ test("UAT-26 (TOM-L1-12): the Desk takes a site's address and checks that site's
   try {
     document.getElementById("site-peers-target").value = MARKET;
     document.getElementById("site-peers-form").dispatch("submit", { preventDefault() {} });
-    await settle(200);
+    await until(() => App.page.sitePeers?.results !== undefined, "the site-peers check to finish");
     const p = App.page.sitePeers;
     assert.equal(p.lockState, "found");
     assert.deepEqual([p.count, p.pending], [2, 1]);
