@@ -55,7 +55,7 @@ test("whole chain, every version approved: clean, each verified with the label a
   const r = await auditHistory(commits, [alice.entry]);
   assert.equal(r.clean, true);
   assert.deepEqual(r.findings, []);
-  assert.deepEqual(r.summary, { versions: 3, verified: 3, invalid: 0, unverifiable: 0, absent: 0, chainBroken: 0 });
+  assert.deepEqual(r.summary, { versions: 3, verified: 3, invalid: 0, unverifiable: 0, absent: 0, chainBroken: 0, beforeApproval: 0 });
   assert.deepEqual(r.versions.map((v) => v.chain), ["start", "ok", "ok"]);
   for (const v of r.versions) {
     assert.equal(v.approval, "verified");
@@ -65,7 +65,8 @@ test("whole chain, every version approved: clean, each verified with the label a
   const md = auditMarkdown(r, { generatedAt: NOW.toISOString(), approversSource: "test" });
   assert.match(md, /\| Version \| Date \| Commit \| Lock \(SHA-256\) \| Approver \| Verdict \| Chain \|/);
   assert.equal(md.split("\n").filter((l) => /^\| \d/.test(l)).length, 3);
-  assert.match(md, /Every change was approved and the chain is whole/);
+  assert.match(md, /The current lock is verified, and every change since approval began was approved with the chain whole\.\n/);
+  assert.match(auditMarkdown(await auditHistory(commits, [alice.entry], "all"), { generatedAt: "x", approversSource: "y" }), /Every change was approved and the chain is whole/);
 });
 
 test("broken chain: a version that does not name the one before; and a first lock that names one", async () => {
@@ -164,6 +165,89 @@ test("no lock in the history: lock-absent, not clean; a removed lock ends its ve
   const a1 = await approvalBytes(alice.privateKey, l1);
   const r2 = await auditHistory([c(l1.bytes), c(undefined, a1)], [alice.entry]);
   assert.equal(r2.versions[0]?.approval, "absent");
+});
+
+test("since the first approval: init's unapproved first lock, then two approved relocks, is clean and lists 1 before approval; --all is not", async () => {
+  const alice = await person("Alice");
+  const l1 = lockBytes(1);
+  const l2 = lockBytes(2, await sha256Hex(l1.bytes));
+  const l3 = lockBytes(3, await sha256Hex(l2.bytes));
+  // the trial's order: commit what init wrote, approve later (relock, approve, commit), then one more approved change
+  const history = [c(l1.bytes), c(l2.bytes, await approvalBytes(alice.privateKey, l2)), c(l3.bytes, await approvalBytes(alice.privateKey, l3))];
+  const r = await auditHistory(history, [alice.entry]);
+  assert.equal(r.rule, "since-first-approval");
+  assert.equal(r.clean, true);
+  assert.equal(r.firstApproved, 2);
+  assert.equal(r.summary.beforeApproval, 1);
+  assert.deepEqual(r.versions.map((v) => v.beforeApproval ?? false), [true, false, false]);
+  assert.deepEqual(r.versions.map((v) => v.approval), ["absent", "verified", "verified"]);
+  // the unapproved first version is still reported, marked as not counted
+  assert.deepEqual(r.findings, [{ code: "lock-unapproved", ref: "1", summary: "This lock version has no approval committed before the next change.", beforeApproval: true }]);
+  const md = auditMarkdown(r, { generatedAt: "x", approversSource: "y" });
+  assert.match(md, /NOT APPROVED \(before approval began\)/);
+  assert.match(md, /The current lock is verified, and every change since approval began was approved with the chain whole\. 1 version\(s\) before approval began/);
+
+  const all = await auditHistory(history, [alice.entry], "all");
+  assert.equal(all.rule, "all");
+  assert.equal(all.clean, false);
+  assert.equal(all.summary.beforeApproval, 0);
+  assert.ok(all.versions.every((v) => v.beforeApproval === undefined));
+  assert.deepEqual(all.findings.map((f) => [f.code, f.ref, f.beforeApproval]), [["lock-unapproved", "1", undefined]]);
+  assert.match(auditMarkdown(all, { generatedAt: "x", approversSource: "y" }), /NOT every change is accounted for/);
+});
+
+test("since the first approval still fails an unapproved change after approval began, an unapproved current lock, and a break after it", async () => {
+  const alice = await person("Alice");
+  const l1 = lockBytes(1);
+  const l2 = lockBytes(2, await sha256Hex(l1.bytes));
+  const l3 = lockBytes(3, await sha256Hex(l2.bytes));
+  const a2 = await approvalBytes(alice.privateKey, l2);
+  // the current lock is not approved
+  let r = await auditHistory([c(l1.bytes), c(l2.bytes, a2), c(l3.bytes, a2)], [alice.entry]);
+  assert.equal(r.clean, false);
+  assert.deepEqual(r.findings.map((f) => [f.code, f.ref, f.beforeApproval ?? false]), [["lock-unapproved", "1", true], ["lock-unapproved", "3", false]]);
+  // a version between two approved ones is not approved
+  const l4 = lockBytes(4, await sha256Hex(l3.bytes));
+  r = await auditHistory([c(l1.bytes), c(l2.bytes, a2), c(l3.bytes, a2), c(l4.bytes, await approvalBytes(alice.privateKey, l4))], [alice.entry]);
+  assert.equal(r.clean, false);
+  assert.deepEqual(r.findings.filter((f) => f.beforeApproval !== true).map((f) => [f.code, f.ref]), [["lock-unapproved", "3"]]);
+  // a broken link after the first approval counts
+  const stray = lockBytes(3, "d".repeat(64));
+  r = await auditHistory([c(l1.bytes), c(l2.bytes, a2), c(stray.bytes, await approvalBytes(alice.privateKey, stray))], [alice.entry]);
+  assert.equal(r.clean, false);
+  assert.deepEqual(r.findings.filter((f) => f.beforeApproval !== true).map((f) => [f.code, f.ref]), [["chain-broken", "3"]]);
+  // no version approved at all: nothing is "before approval", and the audit is not clean
+  r = await auditHistory([c(l1.bytes), c(l2.bytes)], [alice.entry]);
+  assert.equal(r.clean, false);
+  assert.equal(r.firstApproved, undefined);
+  assert.equal(r.summary.beforeApproval, 0);
+  assert.ok(r.findings.every((f) => f.beforeApproval === undefined));
+});
+
+test("a lock deleted and created again by init starts a new chain (start), not a break", async () => {
+  const alice = await person("Alice");
+  const l1 = lockBytes(1);
+  const a1 = await approvalBytes(alice.privateKey, l1);
+  const reinit = lockBytes(2); // init writes a first lock: it names no previous
+  const a2 = await approvalBytes(alice.privateKey, reinit);
+  for (const rule of ["since-first-approval", "all"] as const) {
+    const r = await auditHistory([c(l1.bytes, a1), c(), c(reinit.bytes, a2)], [alice.entry], rule);
+    assert.deepEqual(r.versions.map((v) => v.chain), ["start", "start"], rule);
+    assert.deepEqual(r.findings, [], rule);
+    assert.equal(r.clean, true, rule);
+  }
+  // restored after the deletion: names the last version before it, so the chain is ok
+  const l2 = lockBytes(2, await sha256Hex(l1.bytes));
+  let r = await auditHistory([c(l1.bytes, a1), c(), c(l2.bytes, await approvalBytes(alice.privateKey, l2))], [alice.entry]);
+  assert.deepEqual(r.versions.map((v) => v.chain), ["start", "ok"]);
+  // created after the deletion naming some other lock: broken, with its own sentence
+  const other = lockBytes(2, "d".repeat(64));
+  r = await auditHistory([c(l1.bytes, a1), c(), c(other.bytes, await approvalBytes(alice.privateKey, other))], [alice.entry]);
+  assert.deepEqual(r.versions.map((v) => v.chain), ["start", "broken"]);
+  assert.match(r.findings[0]!.summary, /created after the lock was deleted/);
+  // without a deletion between them, a lock that names no previous is still a break
+  r = await auditHistory([c(l1.bytes, a1), c(reinit.bytes, a2)], [alice.entry]);
+  assert.deepEqual(r.versions.map((v) => v.chain), ["start", "broken"]);
 });
 
 test("markdown escapes a pipe in a label", async () => {

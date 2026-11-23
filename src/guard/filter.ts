@@ -14,24 +14,37 @@
 //   the first, so it would mean two things), is a protocol error: not forwarded, counted, one stderr line.
 // - Stderr lines are counts and fixed phrases. A server's own words (tool names, descriptions) are never copied into
 //   them, nor into a locally made error. The server label is the caller's own (`--server`), made printable by the caller.
+// - The words follow the mode (`--require`): "the approved agent lock" only under `approved`, where the approval was
+//   verified at start; under `locked` (the default) the lock was matched by hash and never checked for approval, so it
+//   is "the agent lock".
 
 import { toolsDecision, toolsParts, toolsUnchanged, type ToolPart } from "../core/agent-tools.js";
 import { countDuplicateKeys } from "../core/json-keys.js";
+import type { GuardRequire } from "../core/types.js";
 
 /** JSON-RPC error code of a refused tools/call ("method not found": the tool is not one the host may call). */
 export const GUARD_REFUSED_CODE = -32601;
 /** JSON-RPC error code of a host request left unanswered when `--strict` stopped the server. */
 export const GUARD_STOPPED_CODE = -32000;
 
-/** The fixed message of a tools/call to a tool the approved lock does not pass. Never quotes the server. */
+/** The fixed message of a tools/call to a tool the approved lock does not pass (`--require approved`). Never quotes the server. */
 export const TOOL_REFUSED_MESSAGE =
   "Plumbline guard: this tool is not in the approved agent lock (it changed, is new, or the server's tool list was not seen yet); run `plumbline agent relock` and approve the new lock";
+/** The same under `--require locked`, where the lock's approval is not checked. */
+export const TOOL_REFUSED_MESSAGE_LOCKED =
+  "Plumbline guard: this tool is not in the agent lock (it changed, is new, or the server's tool list was not seen yet); run `plumbline agent relock` and approve the new lock";
 /** The fixed message of every tools/call while the guard refuses all tools. */
 export const ALL_REFUSED_MESSAGE =
   "Plumbline guard: every tool of this server is refused because the agent lock could not be used for it; the guard's stderr says why";
-/** The fixed message for host requests still open when `--strict` stopped the server. */
+/** The fixed message for host requests still open when `--strict` stopped the server (`--require approved`). */
 export const STOPPED_MESSAGE =
   "Plumbline guard: the server was stopped because its tools differ from the approved agent lock (--strict); run `plumbline agent relock` and approve the new lock";
+/** The same under `--require locked`. */
+export const STOPPED_MESSAGE_LOCKED =
+  "Plumbline guard: the server was stopped because its tools differ from the agent lock (--strict); run `plumbline agent relock` and approve the new lock";
+
+/** What the guard calls the lock it enforces, by mode: only `approved` verified an approval. */
+const lockWords = (require: GuardRequire): string => (require === "approved" ? "the approved agent lock" : "the agent lock");
 
 /** Why the guard refuses every tool. Each has one fixed sentence (REFUSAL_SENTENCES). */
 export const GUARD_REFUSALS = [
@@ -83,6 +96,8 @@ export interface GuardFilterOptions {
   strict?: boolean;
   /** Where the observation is written, for the drift line; omitted when none is written. */
   pendingPath?: string;
+  /** The `--require` mode, for the words only (the policy already holds what it decided). Default `locked`, the CLI's. */
+  require?: GuardRequire;
 }
 
 /** Counts a host or a test may read after a run. */
@@ -128,6 +143,7 @@ export class GuardFilter {
   private readonly label: string;
   private readonly strict: boolean;
   private readonly pendingPath: string | undefined;
+  private readonly require: GuardRequire;
   /** Host request ids still waiting for the server's answer, and which of them are tools/list. */
   private readonly open = new Map<string, { id: unknown; list: boolean; first: boolean }>();
   /** Every tool of the list being read, pages in order. */
@@ -141,6 +157,7 @@ export class GuardFilter {
     this.label = options.label;
     this.strict = options.strict === true;
     this.pendingPath = options.pendingPath;
+    this.require = options.require ?? "locked";
   }
 
   /** True once `--strict` stopped the connection: every later line is dropped. */
@@ -154,7 +171,7 @@ export class GuardFilter {
   }
 
   /** The answers to every host request still open (the connection is ending), with the fixed stopped message. */
-  answerOpen(message: string = STOPPED_MESSAGE): GuardAction[] {
+  answerOpen(message: string = this.require === "approved" ? STOPPED_MESSAGE : STOPPED_MESSAGE_LOCKED): GuardAction[] {
     const actions: GuardAction[] = [];
     for (const { id } of this.open.values()) actions.push({ kind: "to-host", line: JSON.stringify(errorResponse(id, GUARD_STOPPED_CODE, message)) });
     this.open.clear();
@@ -200,7 +217,8 @@ export class GuardFilter {
       if (!allowed) {
         this.counts.callsRefused++;
         if (!hasId) return null; // a call as a notification: never forwarded, nothing to answer
-        return errorResponse(item.id, GUARD_REFUSED_CODE, this.policy.mode === "refuse" ? ALL_REFUSED_MESSAGE : TOOL_REFUSED_MESSAGE);
+        const refused = this.require === "approved" ? TOOL_REFUSED_MESSAGE : TOOL_REFUSED_MESSAGE_LOCKED;
+        return errorResponse(item.id, GUARD_REFUSED_CODE, this.policy.mode === "refuse" ? ALL_REFUSED_MESSAGE : refused);
       }
     }
     if (hasId) {
@@ -292,7 +310,7 @@ export class GuardFilter {
     const where = this.pendingPath === undefined ? "" : `; what the server listed is in ${this.pendingPath}`;
     const next = this.strict ? "; --strict: the server is stopped" : "";
     return (
-      `plumbline guard: ${this.label}: the server's tools differ from the approved agent lock: ` +
+      `plumbline guard: ${this.label}: the server's tools differ from ${lockWords(this.require)}: ` +
       `${plural(hidden, "tool hidden", "tools hidden")} (${changed} changed, ${unpinned} not in the lock, ${problems} not a tool), ` +
       `${removed} in the lock no longer listed${where}${next}; run \`plumbline agent relock\`, review the change and approve the new lock`
     );

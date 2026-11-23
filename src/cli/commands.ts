@@ -83,9 +83,12 @@ export const USAGE = {
 export const ORIGIN_RULE =
   "--origin must be an https:// origin with no path and no trailing slash, like https://example.com (http only for localhost and 127.0.0.1)";
 
+/**
+ * What keygen says about the key it wrote. The CLI writes a key file, so only the file's custody is said here; the
+ * browser-memory warning belongs to the Desk, which holds a key in a page (site/strings.js keeps its own copy).
+ */
 export const KEY_CUSTODY_WARNINGS = [
   "Back up the private key file and never commit it: key loss is identity loss, and a leaked key lets anyone sign as you.",
-  "A key held in browser memory is exposed to every script running on that origin; keep signing keys out of the page.",
 ] as const;
 
 export function emit(args: ParsedArgs, out: Out, json: unknown, lines: string[]): void {

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { AGENT_ISSUE_TITLE, ISSUE_TITLE, agentIssueBody, agentOutputs, approvalLine, digestOf, inputProblem, issuePlan, readDigest } from "./report.mjs";
+import { AGENT_ISSUE_TITLE, AGENT_NOT_CHECKED_CODES, ISSUE_TITLE, agentIssueBody, agentOutputs, approvalLine, digestOf, inputProblem, issuePlan, notCheckedWords, readDigest } from "./report.mjs";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const script = join(here, "report.mjs");
@@ -27,6 +27,17 @@ const unapproved = {
   checkedAt: "2026-11-21T10:00:00.000Z",
 };
 const clean = { findings: [], approval: "verified", approvedBy: { kid: KID, label: "Alice | Ops" }, checkedAt: "2026-11-21T10:00:00.000Z" };
+/** A report whose only open finding says something was not checked (a remote server that answered 401): unavailable. */
+const notChecked = {
+  state: "unavailable",
+  findings: [
+    { severity: "warn", code: "server-unreachable", ref: "grinex", summary: "An MCP server over HTTP could not be read (it answered HTTP 401), so its tools were not checked." },
+    { severity: "info", code: "peer-unreachable", ref: "https://peer.example/", summary: "Not contacted (--offline)." },
+  ],
+  approval: "verified",
+  approvedBy: { kid: KID, label: "Alice" },
+  checkedAt: "2026-11-21T10:00:00.000Z",
+};
 
 test("agent inputs: accepted with root and issues; offline is true or false and goes with agent only; relock-pr, renew and signing-key refused", () => {
   const ok = { command: "agent", target: "", failOn: "fail", issues: "false", rootIsFolder: true };
@@ -38,6 +49,54 @@ test("agent inputs: accepted with root and issues; offline is true or false and 
   assert.match(inputProblem({ ...ok, relockPr: "true" }), /relock-pr does not go with command agent yet/);
   assert.match(inputProblem({ ...ok, renew: "true" }), /never renewed by CI/);
   assert.match(inputProblem({ ...ok, signingKey: true }), /CI never approves an agent lock/);
+});
+
+test("fail-on goes with gate and agent: fail or unavailable; with watch anything but the default is refused", () => {
+  const agent = { command: "agent", target: "", failOn: "fail", issues: "false", rootIsFolder: true };
+  assert.equal(inputProblem({ ...agent, failOn: "unavailable" }), null);
+  assert.match(inputProblem({ ...agent, failOn: "warn" }), /fail-on must be fail or unavailable/);
+  assert.match(inputProblem({ ...agent, failOn: undefined }), /fail-on must be fail or unavailable/);
+  const watch = { command: "watch", target: "", failOn: "fail", issues: "true", rootIsFolder: true };
+  assert.equal(inputProblem(watch), null);
+  assert.match(inputProblem({ ...watch, failOn: "unavailable" }), /fail-on goes with command gate or agent only/);
+  assert.equal(inputProblem({ command: "gate", target: "https://example.com/", failOn: "unavailable", issues: "false", rootIsFolder: false }), null);
+});
+
+test("the not-checked codes report.mjs knows are the wire's (src/core/types.ts AGENT_NOT_CHECKED_CODES), in order", () => {
+  const types = read("src/core/types.ts");
+  const start = types.indexOf("export const AGENT_NOT_CHECKED_CODES = [");
+  assert.ok(start >= 0, "the list is in types.ts");
+  const block = types.slice(start, types.indexOf("] as const", start));
+  assert.deepEqual([...block.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]), AGENT_NOT_CHECKED_CODES);
+});
+
+test("agent outputs: the report's state wins (unavailable stays unavailable on exit 0 and on exit 1); the summary says what was not checked", () => {
+  for (const exit of [0, 1]) {
+    const out = agentOutputs(notChecked, exit);
+    assert.equal(out.state, "unavailable", `exit ${exit}`);
+    assert.match(out.summary, /^### Plumbline agent check: unavailable\nApproval: approved by Alice \(`0123456789abcdef`\)\.\nNot checked: 1 MCP server\. Nothing that was checked failed; this fails the step only with `fail-on: unavailable`\.\n/);
+    assert.equal(out.findings, 1, "the scheduled run keeps its issue open for what was not checked");
+  }
+  assert.equal(agentOutputs(notChecked, 2).state, "unknown", "an error exit is never read from the report");
+  assert.equal(agentOutputs({ ...notChecked, state: "maybe" }, 0).state, "pass", "a state that is not one of the three falls back to the exit code");
+  const failing = { ...unapproved, state: "fail" };
+  assert.match(agentOutputs(failing, 1).summary, /^### Plumbline agent check: fail\nApproval: not approved[^\n]*\nNot checked: 1 MCP server\.\n/);
+  assert.equal(notCheckedWords(clean), null);
+  const several = { ...notChecked, findings: [...notChecked.findings, { severity: "warn", code: "peer-unreachable", ref: "p" }, { severity: "warn", code: "link-absent", ref: "l" }, { severity: "warn", code: "server-not-observed", ref: "s" }] };
+  assert.equal(notCheckedWords(several), "2 MCP servers, 1 A2A peer and 1 linked folder");
+});
+
+test("the agent issue for an unavailable check says what was not checked and what to do, never to relock or approve a change", () => {
+  const body = agentIssueBody(notChecked);
+  assert.match(body, /^Plumbline agent check could not check part of the agent \(not checked: 1 MCP server\)\. Nothing that was checked differs from the approved lock/);
+  assert.match(body, /\| warn \| server-unreachable \| grinex \|/);
+  assert.match(body, /answers HTTP 401 or 403 needs a key/);
+  assert.doesNotMatch(body, /Review each change/);
+  assert.deepEqual(readDigest(body), digestOf(notChecked));
+  // a failing check that also could not see something: both pieces of advice
+  const both = agentIssueBody({ ...unapproved, state: "fail" });
+  assert.match(both, /Review each change/);
+  assert.match(both, /For what was not checked/);
 });
 
 test("agent outputs: pass on exit 0, fail on exit 1, unknown otherwise; an unreadable report is unknown with no count and no body", () => {
@@ -149,8 +208,9 @@ test("action.yml: agent runs agent check in root with the approvers input as PLU
   assert.match(action, /\n {2}approvers:\n(?: {4}[^\n]*\n)* {4}default: ""\n/);
   assert.match(action, /PLUMBLINE_APPROVERS: \$\{\{ inputs\.approvers \}\}/);
   assert.equal([...action.matchAll(/PLUMBLINE_APPROVERS:/g)].length, 1, "the approvers reach the run step only");
-  assert.match(action, /node "\$cli" agent check \$offline --json/);
+  assert.match(action, /node "\$cli" agent check \$offline --fail-on "\$PLUMBLINE_FAIL_ON" --json/);
   assert.equal([...action.matchAll(/report\.mjs" agent /g)].length, 1);
+  assert.match(action, /\n {2}fail-on:\n(?: {4}[^\n]*\n)* {4}default: fail\n/);
   assert.equal([...action.matchAll(/PLUMBLINE_COMMAND: \$\{\{ inputs\.command \}\}/g)].length, 4, "inputs, run, and both issue steps");
 });
 
@@ -178,13 +238,17 @@ test("the run step for agent, by bash against a stub CLI: a pull request's check
     copyFileSync(script, join(actionPath, "report.mjs"));
     const workspace = join(dir, "ws");
     mkdirSync(workspace);
-    // the stub CLI records its arguments, its folder and the approvers it was given, prints a report and exits with $STUB_EXIT
+    // the stub CLI records its arguments, its folder and the approvers it was given, prints a report and exits with
+    // $STUB_EXIT; with STUB_EXIT=rule it exits as agent check does, by the report's state and the --fail-on it was given
     writeFileSync(
       join(dir, "dist", "cli", "index.js"),
       'import { appendFileSync } from "node:fs";\n' +
-        'appendFileSync(process.env.STUB_LOG, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), approvers: process.env.PLUMBLINE_APPROVERS }) + "\\n");\n' +
+        "const argv = process.argv.slice(2);\n" +
+        'appendFileSync(process.env.STUB_LOG, JSON.stringify({ argv, cwd: process.cwd(), approvers: process.env.PLUMBLINE_APPROVERS }) + "\\n");\n' +
         "process.stdout.write(process.env.STUB_REPORT);\n" +
-        "process.exitCode = Number(process.env.STUB_EXIT);\n",
+        'const failOn = argv[argv.indexOf("--fail-on") + 1];\n' +
+        "const state = JSON.parse(process.env.STUB_REPORT).state;\n" +
+        'process.exitCode = process.env.STUB_EXIT === "rule" ? (state === "fail" || (state === "unavailable" && failOn === "unavailable") ? 1 : 0) : Number(process.env.STUB_EXIT);\n',
     );
     writeFileSync(join(dir, "package.json"), '{"type":"module"}');
     const go = (exit, report, extra) => {
@@ -203,6 +267,7 @@ test("the run step for agent, by bash against a stub CLI: a pull request's check
           PLUMBLINE_ROOT: ".",
           PLUMBLINE_ISSUES: "false",
           PLUMBLINE_OFFLINE: "false",
+          PLUMBLINE_FAIL_ON: "fail",
           PLUMBLINE_APPROVERS: '{"type":"plumbline-approvers"}',
           STUB_LOG: log,
           STUB_REPORT: JSON.stringify(report),
@@ -216,14 +281,29 @@ test("the run step for agent, by bash against a stub CLI: a pull request's check
     const pr = go(1, unapproved, { PLUMBLINE_OFFLINE: "true" });
     assert.equal(pr.status, 1, "findings fail the pull request's check");
     assert.match(pr.output, /state=fail/);
-    assert.deepEqual(pr.calls[0].argv, ["agent", "check", "--offline", "--json"]);
+    assert.deepEqual(pr.calls[0].argv, ["agent", "check", "--offline", "--fail-on", "fail", "--json"]);
     assert.equal(pr.calls[0].approvers, '{"type":"plumbline-approvers"}');
     assert.equal(go(0, clean, {}).status, 0);
     const scheduled = go(1, unapproved, { PLUMBLINE_ISSUES: "true" });
     assert.equal(scheduled.status, 0, "the scheduled run keeps the issue and stays green");
     assert.match(scheduled.output, /findings=2/);
-    assert.deepEqual(scheduled.calls[0].argv, ["agent", "check", "--json"]);
+    assert.deepEqual(scheduled.calls[0].argv, ["agent", "check", "--fail-on", "fail", "--json"]);
     assert.equal(go(2, {}, { PLUMBLINE_ISSUES: "true" }).status, 2, "a usage or I/O error always fails");
+
+    // F9: a warn-only report (a 401 server, not checked) passes a pull request's check under the default fail-on, and
+    // fails it under fail-on: unavailable; the state output says unavailable either way
+    const lenient = go("rule", notChecked, { PLUMBLINE_OFFLINE: "true" });
+    assert.equal(lenient.status, 0, "unavailable is not fail");
+    assert.match(lenient.output, /^state=unavailable$/m);
+    assert.deepEqual(lenient.calls[0].argv, ["agent", "check", "--offline", "--fail-on", "fail", "--json"]);
+    const strict = go("rule", notChecked, { PLUMBLINE_OFFLINE: "true", PLUMBLINE_FAIL_ON: "unavailable" });
+    assert.equal(strict.status, 1, "fail-on: unavailable fails on it");
+    assert.match(strict.output, /^state=unavailable$/m);
+    assert.deepEqual(strict.calls[0].argv, ["agent", "check", "--offline", "--fail-on", "unavailable", "--json"]);
+    assert.equal(go("rule", { ...unapproved, state: "fail" }, {}).status, 1, "fail fails under the default");
+    const keep = go("rule", notChecked, { PLUMBLINE_ISSUES: "true", PLUMBLINE_FAIL_ON: "unavailable" });
+    assert.equal(keep.status, 0, "the scheduled run stays green and keeps the issue");
+    assert.match(keep.output, /findings=1/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -257,7 +337,7 @@ test("the agent template pins a commit of this repository whose Action has comma
   assert.equal(shown.status, 0, `the pinned commit ${sha} is in this repository's history`);
   const pinned = shown.stdout;
   assert.match(pinned, /\n {10}agent\)\n/, "the pinned Action runs command agent");
-  assert.match(pinned, /node "\$cli" agent check \$offline --json/);
+  assert.match(pinned, /node "\$cli" agent check \$offline (?:--fail-on "\$PLUMBLINE_FAIL_ON" )?--json/);
   const inputs = pinned.slice(pinned.indexOf("\ninputs:"), pinned.indexOf("\noutputs:"));
   for (const name of ["command", "root", "offline", "issues", "approvers"]) assert.match(inputs, new RegExp(`\n {2}${name}:\n`), `the pinned Action declares ${name}`);
   for (const name of ["state", "findings"]) assert.match(pinned.slice(pinned.indexOf("\noutputs:")), new RegExp(`\n {2}${name}:\n`));

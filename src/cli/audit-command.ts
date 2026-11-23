@@ -1,21 +1,24 @@
-// plumbline audit [--root <dir>] [--approvers <file>] [--out <dir>] [--json]
+// plumbline audit [--root <dir>] [--approvers <file>] [--all] [--out <dir>] [--json]
 // Walks the git history of plumbline.agent.lock.json: every distinct lock version in order, whether each names the one
 // before it (the chain), and who approved it, verified against the approvers file (src/cli/approvers-file.ts: the
 // --approvers file, PLUMBLINE_APPROVERS, or $PLUMBLINE_HOME/approvers.json; never a file inside the repository).
 // The decisions are pure (src/agent/audit.ts); this module is the git layer: git runs through execFile with an argument
-// list, never a shell. Exit 0 every version verified and the chain whole, 1 otherwise, 2 usage or I/O error (including
-// a folder that is not a git repository). The uncommitted working-tree lock is not part of the history.
+// list, never a shell. Exit 0: the current lock is verified and every version since the first approved one is verified
+// with the chain whole (versions before the first approval, such as init's first lock committed before anyone approved
+// it, are listed as before approval began and do not count); with --all, every version verified and the whole chain
+// intact. 1 otherwise (no lock in the history at all is 1). 2 usage or I/O error (including a folder that is not a git
+// repository). The uncommitted working-tree lock is not part of the history.
 
 import { execFile } from "node:child_process";
 import path from "node:path";
-import { auditHistory, auditMarkdown, type AuditCommit, type AuditResult } from "../agent/audit.js";
+import { auditHistory, auditMarkdown, cleanWords, type AuditCommit, type AuditResult } from "../agent/audit.js";
 import { AGENT_APPROVAL_FILE, AGENT_LOCK_FILE } from "../core/types.js";
 import { CliError, parseArgs } from "./args.js";
 import { resolveApprovers, type ApproversSource } from "./approvers-file.js";
 import type { Out } from "./commands.js";
 import { writeFileAtomic } from "./files.js";
 
-export const AUDIT_USAGE = "usage: plumbline audit [--root <dir>] [--approvers <file>] [--out <dir>] [--json]";
+export const AUDIT_USAGE = "usage: plumbline audit [--root <dir>] [--approvers <file>] [--all] [--out <dir>] [--json]";
 
 /**
  * The ceiling on one git command's output. A lock or approval is a few kilobytes (a lock of 2,000 pinned files at about
@@ -90,16 +93,17 @@ function lineOf(v: AuditResult["versions"][number]): string {
         : v.approval === "unverifiable"
           ? `approval UNVERIFIABLE: key ${v.kid ?? "?"} is in no approvers entry`
           : "NOT APPROVED";
-  const chain = v.chain === "broken" ? "chain BROKEN" : v.chain === "start" ? "first lock" : "chain ok";
-  return `  ${v.index}. ${v.date} ${v.commit.slice(0, 12)} lock ${v.lock.slice(0, 12)}: ${who}; ${chain}`;
+  const chain = v.chain === "broken" ? "chain BROKEN" : v.chain === "start" ? (v.index === 1 ? "first lock" : "a new chain starts") : "chain ok";
+  const before = v.beforeApproval === true ? " (before approval began)" : "";
+  return `  ${v.index}. ${v.date} ${v.commit.slice(0, 12)} lock ${v.lock.slice(0, 12)}: ${who}; ${chain}${before}`;
 }
 
 export async function audit(argv: string[], out: Out): Promise<number> {
-  const args = parseArgs(argv, ["root", "approvers", "out"]);
+  const args = parseArgs(argv, ["root", "approvers", "out"], ["all"]);
   const root = path.resolve(args.values.get("root") ?? ".");
   const commits = await historyOf(root);
   const source = await resolveApprovers(args.values.get("approvers"), process.env, root);
-  const result = await auditHistory(commits, source.ok ? source.approvers : []);
+  const result = await auditHistory(commits, source.ok ? source.approvers : [], args.flags.has("all") ? "all" : "since-first-approval");
   const generatedAt = new Date().toISOString();
   const approvers = approversWords(source);
 
@@ -119,7 +123,11 @@ export async function audit(argv: string[], out: Out): Promise<number> {
       ? "Next: give the approvers file (--approvers <file>, PLUMBLINE_APPROVERS, or plumbline approver add) so approvals can be verified, then rerun."
       : result.summary.versions === 0
         ? "Next: create and commit a lock (plumbline agent init), approve it (plumbline approve) and commit the approval."
-        : "Next: for each version not verified, have an approver in your approvers file review it; approve the current lock with plumbline approve and commit the approval.";
+        : result.firstApproved === undefined
+          ? "Next: no lock version is approved yet: a person reviews the current lock, approves it (plumbline approve) and commits the approval."
+          : result.rule === "all"
+            ? "Next: for each version not verified, have an approver in your approvers file review it; approve the current lock with plumbline approve and commit the approval."
+            : "Next: for each version since approval began that is not verified, have an approver in your approvers file review it; approve the current lock with plumbline approve and commit the approval.";
   if (args.json) {
     out(JSON.stringify({ generatedAt, approvers, ...result, ...(written.length > 0 ? { written } : {}), next }));
   } else {
@@ -129,6 +137,7 @@ export async function audit(argv: string[], out: Out): Promise<number> {
     out(
       `${s.versions} version(s): ${s.verified} verified, ${s.invalid} invalid, ${s.unverifiable} unverifiable, ${s.absent} not approved; ${s.chainBroken} chain break(s).`,
     );
+    if (result.versions.length > 0) out(cleanWords(result));
     if (result.versions.length === 0) out(`No commit in this history holds ${AGENT_LOCK_FILE}.`);
     for (const file of written) out(`wrote ${file}`);
     out(next);

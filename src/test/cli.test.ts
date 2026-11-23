@@ -64,7 +64,7 @@ test("keygen -> sign -> verify -> tamper -> verify, end to end", () => {
   assert.match(gen.out, new RegExp(record.kid));
   assert.match(gen.out, /back up/i);
   assert.match(gen.out, /never commit/i);
-  assert.match(gen.out, /browser memory/i);
+  assert.doesNotMatch(gen.out, /browser memory/i, "the browser-memory warning is the Desk's; the CLI holds no key in a page");
 
   const signed = run("sign", "--root", site, "--key", privatePath, "--origin", ORIGIN, "--days", "30");
   assert.equal(signed.code, 0, signed.err);

@@ -1,6 +1,6 @@
 // plumbline guard --lock <file> --server <name> [--require locked|approved] [--approvers <file>] [--strict]
 //   [--pending <dir>] -- <command> [args...]
-// Runs one stdio MCP server behind the approved agent lock (docs/agent-lock.md, "The guard"): the host's config runs
+// Runs one stdio MCP server behind the agent lock (docs/agent-lock.md, "The guard"): the host's config runs
 // the guard in place of the server. The guard's stdout is the MCP channel, so everything it says goes to stderr.
 //
 // The lock (and with --require approved, the approval and the approvers file) is read ONCE, before the server starts
@@ -116,7 +116,13 @@ export async function guardCommand(argv: string[], deps: GuardDeps): Promise<num
   const pendingDir = path.resolve(args.values.get("pending") ?? path.join(path.dirname(lockFile), ...AGENT_PENDING_DIR.split("/")));
   const fileName = pendingFileName(server);
   const pendingFile = isFileSafeName(fileName) ? path.join(pendingDir, fileName) : undefined;
-  const filter = new GuardFilter({ policy: decision.policy, label, strict: args.flags.has("strict"), ...(pendingFile === undefined ? {} : { pendingPath: pendingFile }) });
+  const filter = new GuardFilter({
+    policy: decision.policy,
+    label,
+    strict: args.flags.has("strict"),
+    require: requireMode,
+    ...(pendingFile === undefined ? {} : { pendingPath: pendingFile }),
+  });
 
   if (requireMode === "locked") deps.stderr(LOCKED_MODE_WARNING);
   for (const line of filter.startLines()) deps.stderr(line);

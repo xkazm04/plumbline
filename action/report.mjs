@@ -50,7 +50,11 @@ export function inputProblem({ command, target, failOn, issues, rootIsFolder, re
   if (renew !== "true" && renew !== "false") return "renew must be true or false";
   if (offline !== "true" && offline !== "false") return "offline must be true or false";
   if (command !== "agent" && offline === "true") return "offline goes with command agent only";
+  // fail-on is the gate's and the agent check's (each has an unavailable state); the watch's exit is its findings, so a
+  // fail-on other than the default there would be ignored in silence
+  if (command === "watch" && failOn !== undefined && failOn !== "fail") return "fail-on goes with command gate or agent only: the watch reports findings and has no unavailable state";
   if (command === "agent") {
+    if (failOn !== "fail" && failOn !== "unavailable") return "fail-on must be fail or unavailable";
     if (!rootIsFolder) return "root must name a folder in the workspace: the repository folder holding plumbline.agent.json";
     // the agent lock's relock pull request is not built yet, and CI never signs or approves anything (UAT-34)
     if (relockPr === "true") return "relock-pr does not go with command agent yet: relock the agent lock with plumbline agent relock, review it, approve it and commit both";
@@ -870,6 +874,29 @@ export function prPlan({ mode, wanted, body, signed, open, runUrl, refused = fal
 // ---- `command: agent`: plumbline agent check (docs/agent-lock.md, "CI") ----
 
 const APPROVAL_STATES = new Set(["verified", "invalid", "unverifiable", "absent"]);
+/** The agent check's states (AGENT_STATES in src/core/types.ts). */
+const AGENT_STATES = new Set(["pass", "fail", "unavailable"]);
+/**
+ * The codes that say something was not checked (AGENT_NOT_CHECKED_CODES in src/core/types.ts; agent.test.mjs reads the
+ * list there and fails when the two differ). A warn of one of them alone makes the report `unavailable`.
+ */
+export const AGENT_NOT_CHECKED_CODES = ["server-not-observed", "server-unreachable", "server-refused", "server-auth-missing", "peer-unreachable", "link-absent"];
+const NOT_CHECKED = new Set(AGENT_NOT_CHECKED_CODES);
+const notCheckedFindings = (report) => report.findings.filter((f) => f?.severity === "warn" && NOT_CHECKED.has(f?.code));
+
+/** What was not checked, as counts ("1 MCP server and 1 A2A peer"), or null when everything was. */
+export function notCheckedWords(report) {
+  const open = notCheckedFindings(report);
+  const distinct = (codes) => new Set(open.filter((f) => codes.includes(f.code)).map((f) => String(f.ref))).size;
+  const counts = [
+    [distinct(["server-not-observed", "server-unreachable", "server-refused", "server-auth-missing"]), "MCP server"],
+    [distinct(["peer-unreachable"]), "A2A peer"],
+    [distinct(["link-absent"]), "linked folder"],
+  ].filter(([n]) => n > 0);
+  if (counts.length === 0) return null;
+  const parts = counts.map(([n, one]) => `${n} ${one}${n === 1 ? "" : "s"}`);
+  return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
 const APPROVAL_WORDS = {
   verified: "approved",
   invalid: "the approval does not verify",
@@ -892,13 +919,21 @@ export function approvalLine(report) {
   return `Approval: ${words}${by}.`;
 }
 
+/** What to do about what was not checked: one sentence, for the issue and the summary. Never a relock or an approval. */
+const NOT_CHECKED_ADVICE =
+  "For what was not checked: a server that answers HTTP 401 or 403 needs a key (name its environment variable under `auth` in `plumbline.agent.json` and give the job that variable from a secret); a stdio server not yet observed needs one run of the agent with the guard in place, then `plumbline agent relock` and a person's approval; an address that could not be read, or a link that is absent from the checkout, needs looking at where it is. Nothing here is a change to approve.";
+
 /** The agent drift issue's body: warn and block findings by code and ref, what to do, and the digest marker. */
 export function agentIssueBody(report) {
   const findings = openFindings(report);
   const rows = findings.map((f) => `| ${cell(f.severity)} | ${cell(f.code)} | ${cell(f.ref)} | ${cell(f.summary)} |`);
+  const unseen = notCheckedWords(report);
+  const unavailable = report.state === "unavailable";
   return (
     [
-      "Plumbline agent check found that the agent differs from its approved lock (`plumbline.agent.lock.json`), or that the lock's approval does not stand.",
+      unavailable
+        ? `Plumbline agent check could not check part of the agent (not checked: ${unseen ?? "see the table"}). Nothing that was checked differs from the approved lock (\`plumbline.agent.lock.json\`), and its approval stands.`
+        : "Plumbline agent check found that the agent differs from its approved lock (`plumbline.agent.lock.json`), or that the lock's approval does not stand.",
       "",
       approvalLine(report),
       "",
@@ -906,8 +941,13 @@ export function agentIssueBody(report) {
       "| --- | --- | --- | --- |",
       ...rows,
       "",
-      "Review each change. For one you accept, in the repository run `plumbline agent relock`, look at what it lists, then `plumbline approve --key <your private key file>` (a person approves; CI never does) and commit `plumbline.agent.lock.json` and `plumbline.agent.approval.json` together. The next clean run closes this issue.",
-      "",
+      ...(unavailable
+        ? []
+        : [
+            "Review each change. For one you accept, in the repository run `plumbline agent relock`, look at what it lists, then `plumbline approve --key <your private key file>` (a person approves; CI never does) and commit `plumbline.agent.lock.json` and `plumbline.agent.approval.json` together. The next clean run closes this issue.",
+            "",
+          ]),
+      ...(unseen !== null ? [NOT_CHECKED_ADVICE, ""] : []),
       "A clean check does not mean the agent is safe: it means what was locked has not changed without an approval.",
       "",
       digestMarker(digestOf(report)),
@@ -916,17 +956,29 @@ export function agentIssueBody(report) {
 }
 
 /**
- * The agent check's outputs from its report and the CLI's exit code: `state` pass (exit 0), fail (exit 1, findings) or
- * unknown (any other exit, or a report that is not an agent report: never read as pass). With a readable report, the job
- * summary lists the findings by code and ref, and `findings` and `body` are the warn-or-block count and the issue body.
+ * The agent check's outputs from its report and the CLI's exit code. `state` is the report's own (pass, fail or
+ * unavailable: the CLI's rule, never folded); a report from an older CLI that carries no state is read from the exit
+ * code (0 pass, 1 fail). Any exit other than 0 or 1, or a report that is not an agent report, is unknown: never read as
+ * pass. With a readable report, the job summary states what was not checked and lists the findings by code and ref, and
+ * `findings` and `body` are the warn-or-block count and the issue body (unavailable findings keep the scheduled run's
+ * issue open, as before).
  */
 export function agentOutputs(report, code) {
   if (!isAgentReport(report)) {
     return { state: "unknown", summary: "### Plumbline agent check: unknown\nThe report could not be read, so nothing is known to be approved.\n" };
   }
-  const state = code === 0 ? "pass" : code === 1 ? "fail" : "unknown";
+  const state = code !== 0 && code !== 1 ? "unknown" : AGENT_STATES.has(report.state) ? report.state : code === 0 ? "pass" : "fail";
+  const unseen = notCheckedWords(report);
+  const notChecked =
+    unseen === null
+      ? []
+      : [
+          state === "unavailable"
+            ? `Not checked: ${unseen}. Nothing that was checked failed; this fails the step only with \`fail-on: unavailable\`.`
+            : `Not checked: ${unseen}.`,
+        ];
   const lines = report.findings.map((f) => `- **${cell(f?.severity)}** \`${cell(f?.code)}\` ${cell(f?.ref)}: ${cell(f?.summary)}`);
-  const summary = [`### Plumbline agent check: ${state}`, approvalLine(report), "", ...(lines.length > 0 ? lines : ["No findings."])].join("\n") + "\n";
+  const summary = [`### Plumbline agent check: ${state}`, approvalLine(report), ...notChecked, "", ...(lines.length > 0 ? lines : ["No findings."])].join("\n") + "\n";
   return { state, summary, findings: openFindings(report).length, body: agentIssueBody(report) };
 }
 

@@ -12,9 +12,9 @@ own key, and enforces the approved state in CI and at the moment a tool would ru
 |---|---|
 | **lock** | `plumbline agent init` declares the agent (`plumbline.agent.json`) and pins every component by hash in `plumbline.agent.lock.json`; `agent relock` accepts a reviewed change, and each lock names the one it replaces. |
 | **approve** | `plumbline approve` signs the lock's exact bytes with a person's own Ed25519 key (`plumbline.agent.approval.json`). Approvers are listed in a trust store held outside the repository (`plumbline approver add`), so a pull request cannot approve itself. |
-| **check** | `plumbline agent check` fails when anything differs from the approved lock, or when the lock's approval is absent, invalid or unverifiable. In CI it is a required check on every pull request. |
+| **check** | `plumbline agent check` fails when anything differs from the approved lock, or when the lock's approval is absent, invalid or unverifiable. What it could not check (a remote server that answers 401, a stdio server the guard has not run yet) is `unavailable`: never a pass, and a failure only with `--fail-on unavailable`. In CI it is a required check on every pull request. |
 | **guard** | `plumbline guard` sits between the agent host and each stdio MCP server: tools whose definition differs from the lock are hidden, and a call to one is refused. |
-| **audit** | `plumbline audit` walks the lock's git history: every version, who approved it, and where the chain breaks; `--out` writes a table to attach as change-management evidence. |
+| **audit** | `plumbline audit` walks the lock's git history: every version, who approved it, and where the chain breaks; it passes when the current lock is approved and every change since approval began was (`--all`: every version); `--out` writes a table to attach as change-management evidence. |
 
 A verified approval proves that a person you listed accepted exactly this agent. It does not prove the agent is safe.
 
@@ -34,17 +34,20 @@ plumbline agent check               # exit 0: the agent is what you approved
 
 `approver add` writes your trust store at `$PLUMBLINE_HOME/approvers.json` (by default `~/.config/plumbline/`), never
 inside a repository. Plumbline never starts an MCP server to read it: a stdio server's tools are pinned from what the
-guard saw when your host ran it, so until that first relock the guard passes none of its tools and `agent check` warns
-that the server was never observed. From then on your host starts each stdio server through `plumbline guard`, which
+guard saw when your host ran it, so until that first relock the guard passes none of its tools and `agent check`
+reports the server as never observed: not checked, which alone makes the state `unavailable` (exit 0; 1 with
+`--fail-on unavailable`). From then on your host starts each stdio server through `plumbline guard`, which
 lets through only the tools the lock pins. `--wrap` writes the guard in `locked` mode (the lock's hashes, not its
 approval); add `--require approved` to a wrapped entry to refuse every tool unless an approver in your trust store
 signed the lock. After a change you accept: `plumbline agent relock`, review what it lists, `plumbline approve`,
-commit both files. `plumbline audit --out evidence` shows every approved change since the first lock.
+commit both files. `plumbline audit --out evidence` shows every approved change since the first lock (the lock init
+wrote before anyone approved it is listed as before approval began).
 
 **In CI**, copy `action/templates/plumbline-agent.yml` into `.github/workflows/` and set the repository variable
 `PLUMBLINE_APPROVERS` to your approvers file's JSON text. Every pull request runs the offline check; make it a required
-status check and an approval becomes mandatory for any change to the agent. A daily run also checks remote MCP servers
-and peers and keeps one issue (`action/README.md`). The formats: `docs/agent-lock.md`.
+status check and an approval becomes mandatory for any change to the agent. Something the check could not see makes
+its state `unavailable`, which passes the step unless you set `fail-on: unavailable`. A daily run also checks remote
+MCP servers and peers and keeps one issue (`action/README.md`). The formats: `docs/agent-lock.md`.
 
 ## The same engine for agentic websites
 

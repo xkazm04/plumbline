@@ -5,8 +5,8 @@ Since 2026-11-21. The wire is `src/core/types.ts` (agent section), pinned by `sr
 
 A repository declares what its agent is made of, a lock pins every component by hash, a named person approves each
 lock with their own key, and each lock names the one it replaces. `plumbline audit` shows who approved every change;
-`plumbline agent check` fails a pull request whose agent changed without approval; `plumbline guard` hides any MCP tool
-whose definition differs from the approved lock.
+`plumbline agent check` fails a pull request whose agent changed without approval, and says `unavailable` for what it
+could not check; `plumbline guard` hides any MCP tool whose definition differs from the lock.
 
 ## The files
 
@@ -16,6 +16,7 @@ whose definition differs from the approved lock.
 | `plumbline.agent.lock.json` | repository | `agent init`, `agent relock` | by the approval |
 | `plumbline.agent.approval.json` | repository | `approve` | is the signature |
 | `approvers.json` | user-level (`$PLUMBLINE_HOME`), or CI variable `PLUMBLINE_APPROVERS` | `approver add` | no: it is the trust store, out of the repository's reach |
+| `plumbline.agent.tools/<server>.json` | repository (version 2) | `agent init`, `agent relock` | no: checked against the lock's hashes |
 | `.plumbline/pending/<server>.json` | repository, git-ignored | `guard` | never |
 
 ## Format version 2 (2026-11-23)
@@ -42,27 +43,286 @@ New finding codes, appended: `host-changed`, `link-absent`, `server-auth-missing
 
 ### Files, line endings and links
 
-(to be written)
+The declaration's `files` globs are expanded when the lock is written and again at every `agent check`; each file the
+globs match is recorded under its repository path with a SHA-256 hash.
+
+#### Line endings: text as git sees it
+
+A version 2 lock says `"hashing": "text-lf"`. Under that rule a file that holds no NUL byte is text: it is hashed with
+every CRLF pair read as LF, which is how git stores a text file (a lone CR is kept). A file that holds a NUL byte is
+binary to git and is hashed exactly, byte for byte.
+
+The reason: on Windows with `core.autocrlf` the working tree holds CRLF while git stores LF (`git ls-files --eol` shows
+`i/lf w/crlf`). Hashing exact working-tree bytes made a lock written on Windows read every file as `file-changed` on a
+Linux CI checkout of the same commit, so every pull request failed. Under the text rule both checkouts lock the same,
+byte for byte, and only a change git would also see is a change.
+
+- A version 1 lock (no `hashing`) is checked with exact bytes, as it was written. Nothing is re-read under a rule it
+  did not use.
+- The first `agent relock` of a version 1 lock writes version 2. A file whose exact bytes still match the version 1
+  record but whose hash moved only because of the new rule is reported as re-hashed under the text rule, contents
+  unchanged, never as `file changed`. Only a file whose contents changed is listed as changed. Files without a CRLF
+  keep the same hash and appear in neither list.
+- The rule covers declared files only. The lock's and the approval's own bytes are always hashed exactly: an approval
+  signs exact bytes, and the lock is written by Plumbline with LF.
+- A file that holds a NUL byte keeps its exact hash, CRLF included: that CRLF is content.
+
+#### Links: followed, locked under the link's path, recorded by path
+
+Skills are often installed as links (symbolic links, or junctions on Windows) into a shared folder outside the
+repository. That shared folder is exactly the supply chain worth locking, so a link under a declared glob is followed,
+to a file or to a folder:
+
+- The files a link leads to are recorded in `files` under the link's own path: a junction `.claude/skills/review` to a
+  registry folder locks `.claude/skills/review/SKILL.md`, not a path in the registry.
+- The lock's `links` lists the repository-relative path of every link the walk followed that leads to a locked file,
+  sorted; it is omitted when there is none. A link in a glob's leading folders (`.claude/skills` itself a junction) is
+  recorded too. Where a link points is never recorded: it is a path on the locker's machine (often with a user name in
+  it) and would mean nothing on another one.
+- `agent init` says how many: "N files through M links" (nothing extra when there is no link).
+- Following a link reads outside the repository: those files are hashed, and their contents go into no file and no
+  output. Model discovery (`model:` in `.claude/agents/*.md`) does not follow links for the same reason: a model id is
+  words copied into the declaration, not a hash; a linked agent file is still locked by its hash.
+- Links outside every glob's reach are never touched.
+- A link back into a folder the walk is in (to the repository, to `.claude`, to its own parent) would never end; it is
+  refused with a sentence naming the link (exit 2): remove the link or narrow the glob.
+- One walk reads at most 10,000 files. The bound is derived from the field trial: the largest declared tree seen was 85
+  files through 7 links; 100 times that, rounded, is 10,000. Over it the walk stops with a sentence naming the bound
+  (exit 2): narrow the globs, or remove a link that leads somewhere large.
+
+At `agent check`:
+
+- A recorded link that is not in the checkout (its path is absent, or it is a link whose target is gone) is one
+  `link-absent` finding (warn) with the link's path as `ref`: "A link the lock records is not in the checkout, so the
+  files under it were not checked." Its files are not reported `file-removed`: they were not checked, which is neither
+  clean nor removed. `link-absent` is a not-checked code, so alone it makes the report `unavailable`, not `fail`.
+  A CI checkout usually has no such link at all, because a junction into a shared folder is untracked; vendor the
+  skill (commit it as a real folder) if CI should check its files.
+- A link replaced by a real folder holding the same files is compared like any folder: clean. Changed contents there
+  are `file-changed`, as anywhere.
+- A new link under a glob brings new files: `file-added`, like any new file.
+- A link named by `links` inside another absent link is covered by the outer one: one finding, not two.
+
+A build that predates version 2 refuses a version 2 lock as `lock-unusable`; upgrade Plumbline where the lock is checked.
 
 ### Servers and host files
 
-(to be written)
+`agent init` declares every MCP server it finds in the three hosts' files (`.mcp.json`, `.cursor/mcp.json`,
+`.vscode/mcp.json`) with `from` set to that host (`claude`, `cursor`, `vscode`). From then on the host file wins for
+those servers: a version bump in `.mcp.json` is one reviewed relock, not a guard that refuses every tool because the
+command it runs is no longer the one the lock holds.
+
+What `agent relock` does before it builds the lock (`src/agent/host-sync.ts`):
+
+| In the declaration | In the host file now | relock |
+| --- | --- | --- |
+| a `from` server | the same entry, same command and args (or address and header names) | nothing |
+| a `from` server | the entry runs another command, names another address, or sends other headers | takes the host entry's command and args, or address; header names come from the host file, a variable the declaration already names for a header is kept |
+| a `from` server | gone (removed, renamed, or now an entry init does not declare) | removes it from the declaration |
+| nothing under that name | a new entry | adds it, with `from` |
+| a server declared by hand (no `from`) | anything | never touches it; a new host entry under the same name is not added, and relock says so |
+
+When that changes the declaration, relock rewrites `plumbline.agent.json` (two-space JSON and a newline, members in the
+order they were) and builds the lock from it, so the guard's pending file for the new command is taken: the pending
+file is matched by the command's target, and the target now comes from the re-synced declaration. When nothing
+changes, the declaration's bytes are left alone. The change list says it in the caller's own words:
+
+    Rewrote plumbline.agent.json from the host files (host config wins for servers declared from one).
+      declaration: 1 server re-synced from .mcp.json
+        playwright: command npx @playwright/mcp@0.0.80 -> npx @playwright/mcp@0.0.85
+      server playwright (from what the guard saw): tools 0 added, 0 removed, 0 changed
+
+A server's tool counts compare with the earlier lock's record under the same name even when its command changed, so
+a version bump reads as the tools it changed, not as every tool added. Tools are kept from the earlier lock only for
+the same command or address: another command is another program, and until the guard has run it the lock holds it
+without tools.
+
+`agent check` runs the same comparison, without writing anything, and reports each difference as `host-changed`
+(block, ref = the server's name): the host file runs a command, names an address or sends headers the declaration does
+not record, no longer declares a `from` server, or declares a server the declaration does not. The sentence is fixed;
+relock is the remedy. A host file that cannot be read (not JSON, a repeated key) is `host-changed` for every `from`
+server. A version 1 declaration has no `from`, so check compares nothing with the host files.
+
+**The first relock of a version 1 declaration** marks `from` only on a server identical to a current host entry (same
+name, and the same command and args, or the same address). Every other declared server stays declared by hand, because
+a version 1 declaration cannot say whether a difference was a person's edit or a host's bump, and a hand edit must never
+be overwritten. Relock says how many: "declaration: version 2; 2 servers now re-synced from their host file, 1 server
+stays declared by hand (not identical to a host entry)". To hand a server back to its host file, set its `from`.
+
+What init does not declare, and says why:
+
+| Host entry | Reason printed |
+| --- | --- |
+| an address on this machine or a private network (`localhost`, `*.localhost`, a loopback, private or link-local literal) | "it is a local address (your own server): not locked". Plumbline never contacts such an address, so there is nothing to compare. |
+| an `http:` address elsewhere | "its address is not https" |
+| an address with a user name or password | "its address carries credentials" |
+| an address with a query string | "its address has a query string, which may carry a token": a query string is copied into a committed file, and a token in it would be published. Move the key into the entry's `headers`; init then declares it as `auth` (below). |
+| a header Plumbline cannot send as auth (`Cookie`, a protocol or hop-by-hop header, not a header name), more than 8 headers, or one header named twice | said in those words |
 
 ### Remote servers that need a key
 
-(to be written)
+A remote server that answers 401 without a key is declared with `auth`: header name to the NAME of an environment
+variable that holds the value.
+
+    "grinex": { "transport": "http", "url": "https://grinex.example/mcp",
+                "auth": { "X-API-Key": "PLUMBLINE_GRINEX_X_API_KEY" }, "from": "claude" }
+
+- **init writes it from the header names alone.** Seeing `headers` on an http host entry, init declares one `auth`
+  entry per header with the suggested variable `PLUMBLINE_<SERVER>_<HEADER>` (upper-case, every character outside
+  A-Z and 0-9 becomes `_`) and prints the variables to set. It never reads a header's value, so the value in the host
+  file (or the host's own variable reference) reaches no Plumbline file and no output. Rename a variable in the
+  declaration if you like; relock keeps your name for that header.
+- **The value is read when the server is listed**, by `init`, `relock` and `check`, from their environment (locally,
+  your shell; in CI, a secret mapped to that variable). It is held in memory for that one listing, sent with its three
+  requests (`initialize`, `notifications/initialized`, `tools/list`) to that one server, and never stored, logged,
+  printed or put into an error. The POST follows no redirect, so the key never reaches a second address.
+- **A variable that is unset, empty, or not printable ASCII** (a CR or LF would split the request's headers) means the
+  server is not contacted at all: `server-auth-missing` (warn), whose sentence names the variable and never a value.
+  It is one of the codes that say something was not checked, so alone it makes the report `unavailable`, not `fail`.
+  relock keeps the earlier lock's tools for the server when its address did not change, and says so.
+- **A header Plumbline sets itself cannot be named**: `content-type`, `accept`, `accept-encoding`, `content-length`,
+  `host`, `user-agent`, `cookie`, the MCP session and protocol headers, and the hop-by-hop and proxy headers. The
+  declaration's parser refuses most of them; `safePost` refuses every one again before sending, and a value with a
+  control character, with a TypeError that names neither the value nor the header past its rule. Auth is placed
+  before the POST's own headers, so no entry can override one.
+
+This is the one named exception to "no credentials" (see "What is sent" under MCP over HTTP).
 
 ### States and exit codes
 
-(to be written)
+`agent check` ends in one of three states, the gate's three (`AgentReport.state`, set by `agentState` in
+`src/agent/check-state.ts`):
+
+| State | When | Exit, `--fail-on fail` (default) | Exit, `--fail-on unavailable` |
+| --- | --- | --- | --- |
+| `fail` | any `block` finding, or any `warn` whose code is not a not-checked code (the guard saw a stdio server's tools drift) | 1 | 1 |
+| `unavailable` | no such finding, but at least one `warn` with a not-checked code: `server-not-observed`, `server-unreachable`, `server-refused`, `server-auth-missing`, `peer-unreachable`, `link-absent` | 0 | 1 |
+| `pass` | neither; `info` findings (what `--offline` chose not to contact, `definitions-absent`) do not count | 0 | 0 |
+
+Usage errors and I/O errors exit 2, and so does a `--fail-on` other than `fail` or `unavailable`.
+
+The reason for the third state: a remote server that answers 401, or a stdio server the guard has never run, was not
+checked. That is neither clean nor a change. Before format version 2, any `warn` exited 1, so a pull request that
+could not reach a server failed every time on something no one could fix in that pull request, and "not checked" was
+folded into "failed" (repo law: the third state is never folded into either of the others). `unavailable` is never
+`pass` either: the text output says it on its own line, `--json` carries `state`, and the Action's `state` output and
+job summary say what was not checked.
+
+A check that looked at nothing at all still fails: an absent or unusable lock is a `block` (`lock-absent`,
+`lock-unusable`), so it is `fail` and exits 1 whatever `--fail-on` says, as the gate exits 1 when every adapter was
+unavailable. An unapproved, invalid or unverifiable approval is a `block` too: `unavailable` always means the approval
+verified and everything that was checked matches.
+
+The text output ends with the state on one line, then the next steps, each chosen by the state:
+
+```
+Approval: verified, by Alice (0123456789abcdef).
+State: unavailable: nothing that was checked differs from the approved lock, but 1 MCP server was not checked.
+Next: check that each MCP server that could not be read answers at its address; one that answers HTTP 401 or 403 needs a key: name the environment variable under auth in plumbline.agent.json and set it, then run this again.
+```
+
+- `pass`: no next step.
+- `unavailable`: one line per not-checked code present: set the variable `auth` names (`server-auth-missing`), run
+  the agent once with the guard in place and then relock (`server-not-observed`), check the address
+  (`server-unreachable`, `server-refused`, `peer-unreachable`; a 401 or 403 means the server needs a key), restore the
+  link (`link-absent`). Never "relock" for what was not checked, and never "approve": the approval verifies.
+- `fail`: when only the approval failed, the line for that (approve, approve again, or give check the approvers file);
+  when anything else failed, review the change, relock, and have a person approve the new lock; then the
+  not-checked lines, if any.
+
+Use `--fail-on unavailable` where every server must have been checked before a merge (and give the job each variable
+the servers' keys need); the default suits a pull request check that cannot reach every server.
 
 ### Reviewing a relock
 
-(to be written)
+The lock holds hashes only, so it can never show what a tool's description said before. A rug pull is exactly that: a
+server keeps a tool's name and changes its description. So `init` and `relock` also write the definitions the lock's
+hashes cover, one file per server, and the file is committed beside the lock:
+
+```
+plumbline.agent.tools/<server>.json      (a `:` in the server name is written `__`, as in the pending file name)
+{ "type": "plumbline-agent-tools", "version": 1, "server": "<server>", "tools": [ ... ] }
+```
+
+Each tool is restricted to the defining keys (`name`, `title`, `description`, `inputSchema`, `outputSchema`,
+`annotations`; `_meta` and every other key left out), sorted by name, then by occurrence, so a repeated name's later
+occurrence still hashes as the lock keys it. The file is two-space JSON with LF line endings and a trailing newline, so
+a pull request's diff shows a changed description as one changed line. A stdio server's file comes from the guard's
+pending file that relock takes; an http server's from the list read now. A server whose tools were kept from the earlier
+lock (nothing new observed) keeps its file as it is; a server the lock no longer holds, or holds without tools (its
+command changed), loses its file.
+
+The file is third-party text. Plumbline never prints it: control, C1, bidi and zero-width characters, the line and
+paragraph separators and the BOM are written as `\uXXXX` escapes, so a diff view shows the escape rather than letting
+the text reorder itself on screen. A coding agent that reads the repository can read the file too; it already receives
+the same text from the server through MCP.
+
+The lock's hashes stay the authority. `agent check` hashes each definition in the file exactly as the lock does and
+compares it with the lock's `mcp[server].tools`:
+
+| Code | Severity | When |
+| --- | --- | --- |
+| `definitions-mismatch` | block | the file does not hash to what the lock holds (edited by hand, a tool missing or added, another server's file), or it is not a definitions file at all. Restore it from version control: relock writes it again only when it observes the server's tools. |
+| `definitions-absent` | info | the lock holds the server's tools and there is no file (a version 1 lock, or tools kept from a lock written before these files). The next relock that observes the server's tools writes it. |
+
+Line endings in the file do not matter to the check (the hashes are of the parsed definitions). The folder is never
+matched by the declaration's globs, whatever they say: it is checked against the lock instead, as the declaration is.
+
+relock's change list says what to read in that diff. Per server it prints the tool counts; for a stdio server whose
+tools come from the guard's pending file it names the tools added and changed (the caller's own servers, in the
+caller's own terminal, control and bidi characters replaced), and for each changed tool which defining keys changed,
+never their text:
+
+```
+  server playwright (from what the guard saw): tools 0 added, 0 removed, 2 changed (changed browser_navigate [description; marked: open-world], browser_type [inputSchema])
+    1 of 2 changed tools is marked for a harder look.
+```
+
+The keys are found by comparing the new definitions with the committed file before relock replaces it; with no earlier
+file (a version 1 lock) a changed tool is named without keys. An http server's tool names are never printed: its lines
+are counts, `changed keys: description (2 tools)`, and the marked count.
+
+A tool is marked for a harder look when the server says it may destroy something (`annotations.destructiveHint` is
+`true`: `destructive`), when it reaches outside the host and does not say it only reads (`openWorldHint` is `true` and
+`readOnlyHint` is not `true`: `open-world`), or when its name matches `unsafe`, `exec`, `eval`, `shell`, `run_code`,
+`delete` or `drop`, in any case (`name`). Marks sit beside the added and changed names, with a count line ("4 of 7 added
+tools are marked for a harder look."). They are advice for the reviewer: they change no severity and no exit code.
+Annotations are the server's own claims and the name rule is coarse (it also marks `retrieval`, and misses a tool named
+`run`), so a tool without a mark is not thereby safe, and a missing mark proves nothing.
 
 ### Putting the guard in place
 
-(to be written)
+The guard only protects a stdio server whose host entry runs it. The wrapped entry:
+
+```json
+{"command":"plumbline","args":["guard","--lock","plumbline.agent.lock.json","--server","<name>","--","<command>","<args>..."]}
+```
+
+`env` and every other member of the entry stay as they were. `plumbline` must resolve on the PATH the host starts the
+server with, or every wrapped server fails to start. So `init --wrap` and `agent wrap` write `plumbline` only when it
+resolves on PATH (Windows: PATH with PATHEXT, as the guard resolves a command; POSIX: the first executable file of that
+name in a PATH folder, empty entries skipped), and otherwise the absolute form, which starts on this machine whatever
+PATH holds:
+
+```json
+{"command":"<this node, process.execPath>","args":["<this Plumbline's dist/cli/index.js>","guard","--lock","plumbline.agent.lock.json","--server","<name>","--","<command>","<args>..."]}
+```
+
+and say why: those are paths on this machine, which another machine (a teammate's, or CI) may not have. To get the
+short form, put `plumbline` on PATH (`npm link` in its checkout, or install it), then run `plumbline agent wrap`, which
+rewrites absolute-form entries to the short form. Both forms are read as wrapped (a node executable, a path ending in
+`dist/cli/index.js`, then `guard`), so an entry is never wrapped twice, and either way the server is declared with the
+command the guard runs, not the guard.
+
+`plumbline agent wrap [--root <dir>] [--json]` puts the guard in place after `init`, on an existing declaration and
+lock: it wraps each stdio host entry that does not run the guard yet, copying each host file it edits to
+`<file>.plumbline-backup` first, and refuses, before writing anything, when a backup exists, when there is no declaration
+("run plumbline agent init --wrap") or when the lock is absent or unusable. Then it relocks, so the new lock covers the
+edited host files and names the lock it replaces (`previous`); the approval of the old lock is removed, as by any relock.
+With nothing to wrap it writes nothing and does not relock. `--json` prints one object: the files edited, each wrapped
+entry as shown (command and args only; `env` is never printed), the entries shortened, the launcher (`plumbline` or
+`absolute`), and relock's own JSON under `relock`. `init` without `--wrap` prints each entry it would write and points at
+`plumbline agent wrap`; nothing has to be deleted first.
 
 ## Declaring an agent
 
@@ -75,18 +335,22 @@ the repository, and the first lock. It refuses (exit 2) when the declaration alr
   (`{transport: "stdio", command, args?}`, args omitted when empty); a `url` entry is an http server
   (`{transport: "http", url}`, https only). `sse` is declared as `http` (Streamable HTTP, which is what Plumbline reads),
   and init says so. A name two hosts use for different servers is declared once per host as `<host>:<name>`
-  (`claude`, `cursor`, `vscode`); the same server in two hosts is declared once. An entry that already runs the guard
-  (`plumbline guard ... -- <command> ...`) is declared with the command the guard runs. An entry that is neither, an
-  address that is not https, or a name outside `[A-Za-z0-9._-]` is not declared, and init names it. A host file that is
-  not JSON (VS Code's comments included) or repeats a key is refused.
-- **Secrets**: `env` and `headers` are never read into any Plumbline file or output.
+  (`claude`, `cursor`, `vscode`); the same server in two hosts is declared once. Each discovered server carries `from`
+  (version 2), so relock re-syncs it from its host file ("Servers and host files"). An entry that already runs the guard
+  (`plumbline guard ... -- <command> ...`, or the absolute form, "Putting the guard in place") is declared with the
+  command the guard runs. An entry that is neither, an address that is local, not https, carries credentials or a query
+  string, or a name outside `[A-Za-z0-9._-]` is not declared, and init names it with the reason. A host file that is not
+  JSON (VS Code's comments included) or repeats a key is refused.
+- **Secrets**: `env` and header values are never read into any Plumbline file or output. An http entry's header NAMES
+  become `auth` entries naming an environment variable to set ("Remote servers that need a key").
 - **Files**: by default, each that exists of `CLAUDE.md`, `AGENTS.md`, `.mcp.json`, `.cursor/mcp.json`,
   `.vscode/mcp.json`, `.claude/settings.json`, `.claude/agents/**`, `.claude/commands/**`, `.claude/skills/**`. A glob's
   `*` matches inside one segment, `**` any number of segments; nothing else is special. Never locked, whatever a glob
   says: anything under `.git` or `node_modules` (any depth), `.plumbline/`, `.claude/worktrees/`,
-  `.claude/settings.local.json`, and Plumbline's own three agent files. Symbolic links are not followed (a declared
-  file replaced by a link reads as removed). A matched file whose name is outside `[A-Za-z0-9._/-]` cannot be named by a
-  lock: init and relock refuse and name the glob; check reports `file-added` on the glob.
+  `.claude/settings.local.json`, Plumbline's own three agent files and `plumbline.agent.tools/`. A link (symbolic
+  link or junction) under a glob is followed and its files are locked under the link's path ("Files, line endings and
+  links"). A matched file whose name is outside `[A-Za-z0-9._/-]` cannot be named by a lock: init and relock refuse and
+  name the glob; check reports `file-added` on the glob.
 - **Models**: `.claude/settings.json` `model` as label `default`; each `.claude/agents/<name>.md` front matter `model:`
   as label `<name>`. Labels are `[A-Za-z0-9._-]`, ids printable without spaces (at most 256 characters).
 - **Peers**: none are discovered; add A2A card addresses (https) to `peers` by hand, then relock.
@@ -99,15 +363,17 @@ server:
 {"command":"plumbline","args":["guard","--lock","plumbline.agent.lock.json","--server","<name>","--","<command>", "<args>..."]}
 ```
 
-(`env` and every other member stay as they were). `--wrap` applies it to each host file that declares a stdio server,
-after copying the file to `<file>.plumbline-backup`; it refuses, before writing anything, when a backup exists. The
-lock then holds the wrapped host files. Next step: `plumbline approve --key <your key file>`, then commit what init
-lists.
+(`env` and every other member stay as they were; when `plumbline` is not on PATH, the absolute form, "Putting the
+guard in place"). `--wrap` applies it to each host file that declares a stdio server, after copying the file to
+`<file>.plumbline-backup`; it refuses, before writing anything, when a backup exists. The lock then holds the wrapped
+host files. Without `--wrap`, `plumbline agent wrap` does the same later, on the existing declaration, and relocks.
+Next step: `plumbline approve --key <your key file>`, then commit what init lists.
 
 ## The lock and its chain
 
 `plumbline.agent.lock.json` holds `declaration` (SHA-256 of the declaration's exact bytes), `files` (each matched file
-by the SHA-256 of its exact bytes, `/` separators, sorted), `models` (copied from the declaration), `mcp` (per server:
+by its SHA-256, `/` separators, sorted: version 2 under the `hashing: "text-lf"` rule, version 1 of exact bytes), `links`
+(version 2, when the walk followed any), `models` (copied from the declaration), `mcp` (per server:
 `transport`, `target`, and `tools` with `observedAt` once observed) and `peers` (per address, an `a2a-card` record as
 the site lock records an external card), and `lockedAt`. The first lock has no `previous`; every relock sets `previous`
 to the SHA-256 of the exact bytes of the lock it replaces, so the locks form a chain `plumbline audit` can follow.
@@ -130,14 +396,16 @@ as committed (`agent relock` sets it; the first lock of a chain omits it). An ap
 so the chain can be followed from the approvals alone. `plumbline audit` follows it through git: for each distinct
 lock version, oldest first, the link is
 
-- `start`: the oldest version in the history, naming no `previous`;
+- `start`: the oldest version in the history, naming no `previous`; or the first version after the lock was deleted
+  from the repository, naming none (a re-init starts a new chain);
 - `ok`: `previous` equals the SHA-256 of the version before it, byte for byte;
-- `broken` (`chain-broken`): anything else: a `previous` naming some other lock, none at all after the first, a first
-  lock in the history that names one the history does not hold, or bytes that are not a lock document.
+- `broken` (`chain-broken`): anything else: a `previous` naming some other lock, none at all after the first (with
+  no deletion between them), a first lock in the history that names one the history does not hold, or bytes that are
+  not a lock document. A lock restored after a deletion that names the last version before it reads `ok`.
 
 A broken link does not say what happened (a lock rewritten by hand, history squashed, a relock outside Plumbline); it
-says the history can no longer show that each change replaced the one approved before it. The lock's bytes are hashed
-exactly as committed: keep `* text=auto eol=lf` (or `-text` for the lock) in `.gitattributes`, or a checkout that
+says the history can no longer show that each change replaced the one approved before it. The lock's own bytes are
+hashed exactly as committed (the text rule is for declared files only): keep `* text=auto eol=lf` (or `-text` for the lock) in `.gitattributes`, or a checkout that
 rewrites line endings has a different lock from the one approved (`approve` warns when the lock holds CRLF and no
 `.gitattributes` pins LF).
 
@@ -150,9 +418,10 @@ by SHA-256 of its name; a repeated name's later occurrences are keyed by SHA-256
 
 ## check and relock
 
-`plumbline agent check [--root <dir>] [--approvers <file>] [--offline] [--json]` compares the repository with its lock.
-Exit 0 when nothing is `warn` or `block`; 1 otherwise (an absent or unusable lock is never clean); 2 on usage or I/O.
-`--json` prints one `AgentReport`.
+`plumbline agent check [--root <dir>] [--approvers <file>] [--offline] [--fail-on fail|unavailable] [--json]`
+compares the repository with its lock. Exit by the report's state ("States and exit codes"): 1 on `fail` (an absent or
+unusable lock is a `block`, so never clean), and on `unavailable` only with `--fail-on unavailable`; 0 otherwise; 2 on
+usage or I/O. `--json` prints one `AgentReport`, `state` included.
 
 | Code | Severity | When |
 | --- | --- | --- |
@@ -164,19 +433,30 @@ Exit 0 when nothing is `warn` or `block`; 1 otherwise (an absent or unusable loc
 | `server-added`, `server-removed`, `server-target-changed` | block | the declaration's servers against the lock's (`target`) |
 | `server-not-observed` | warn | a stdio server the lock holds no tools for |
 | `tool-changed`, `tool-added`, `tool-removed` | warn (stdio, from the guard's pending file) / block (http, listed now) | per kind of difference, each with the counts; never a tool's name |
-| `server-unreachable`, `server-refused` | warn | an http server that could not be read, or whose address Plumbline does not contact |
+| `server-unreachable`, `server-refused` | warn | an http server that could not be read (a 401 or 403 among them), or whose address Plumbline does not contact |
+| `server-auth-missing` | warn | a variable an http server's `auth` names is unset, empty or not printable ASCII: the server is not contacted |
+| `host-changed` | block | a `from` server's host file entry differs from the declaration, is gone, or a new host entry is not declared (relock re-syncs) |
+| `link-absent` | warn | a link the lock records is not in the checkout: its files were not checked (never `file-removed`) |
+| `definitions-mismatch` | block | a committed `plumbline.agent.tools/` file does not hash to what the lock holds |
+| `definitions-absent` | info | the lock holds a server's tools and no definitions file (a version 1 lock) |
 | `peer-changed` | block | a card that changed (skills counted), or a peer declared but not locked, or locked but no longer declared |
 | `peer-unreachable` | warn | a card that could not be read |
 | `lock-unapproved` | block | no approval, or the approval covers other lock bytes (the lock changed after it was approved) |
 | `approval-invalid` | block | the approval does not verify (malformed, bad signature, defective trust entry) |
 | `approval-unverifiable` | block | its kid is in no approvers entry, or no usable approvers file was found |
 
+The `warn` codes `server-not-observed`, `server-unreachable`, `server-refused`, `server-auth-missing`,
+`peer-unreachable` and `link-absent` say something was not checked: alone they make the report `unavailable`. Every
+other `warn` and every `block` makes it `fail`.
+
 `--offline` contacts nothing: each http server and peer gets one `info` finding (`server-unreachable` /
 `peer-unreachable`, "not contacted (--offline)"), and the text output says in one line what was not checked. `chain-broken`
 is `audit`'s: check reads one lock and its approval, not the history.
 
-`plumbline agent relock [--root <dir>] [--json]` rebuilds the lock from the declaration, the repository files, the
-guard's pending files, live http lists and peers (see the table above), chained to the lock it replaces. It deletes
+`plumbline agent relock [--root <dir>] [--json]` first re-syncs the servers declared `from` a host file ("Servers and
+host files"), then rebuilds the lock from the declaration, the repository files, the guard's pending files, live http
+lists and peers (see the table above), chained to the lock it replaces, and writes each server's definitions file
+("Reviewing a relock"). It deletes
 `plumbline.agent.approval.json` when there is one ("the approval covered the old lock; approve the new one") and prints
 the change list: files added, removed and changed by path; model labels; servers added and removed; per server, tool
 counts and where they came from, with the names of tools added or changed when they come from the guard's pending file
@@ -205,7 +485,8 @@ itself; no caller passes text, and a value outside the set is refused before any
 Headers: `content-type: application/json`, `accept: application/json, text/event-stream`, `accept-encoding:
 identity`, `user-agent: plumbline`; after `initialize`, `MCP-Protocol-Version` (the version the server answered,
 which must be a date) and `Mcp-Session-Id` when the server issued one (sent back only if it is 1 to 2,048 visible
-ASCII characters). No credentials, no cookies, no `tools/call`, no session `DELETE` afterwards.
+ASCII characters). No credentials except a declared server's `auth` headers, sent to that server only ("Remote
+servers that need a key"); no cookies, no `tools/call`, no session `DELETE` afterwards.
 
 ### What is refused
 
@@ -242,7 +523,8 @@ A server whose single `tools/list` page is larger than 512 KiB is refused with t
 ## The guard
 
 `plumbline guard` runs between an agent host and one stdio MCP server. It hides every tool whose definition differs
-from the agent lock. The host's config runs the guard in place of the server:
+from the agent lock (with `--require approved`, the approved agent lock). The host's config runs the guard in place of
+the server:
 
 ```json
 { "mcpServers": { "docs": { "command": "plumbline",
@@ -295,8 +577,9 @@ the reason. It still relays the protocol so the host does not hang: every `tools
 - **Calls.** A `tools/call` for a tool that is not passing gets a local answer. That covers a changed tool, an
   unpinned tool, a call made before the host has listed tools, and a name that has a hidden twin. The call is never
   forwarded. The answer is a JSON-RPC error with code `-32601` and a fixed message: *"Plumbline guard: this tool is
-  not in the approved agent lock (it changed, is new, or the server's tool list was not seen yet); run `plumbline
-  agent relock` and approve the new lock"*. While all tools are refused, the message says the lock could not be used.
+  not in the agent lock (it changed, is new, or the server's tool list was not seen yet); run `plumbline agent
+  relock` and approve the new lock"*; under `--require approved` it says "the approved agent lock". While all tools are
+  refused, the message says the lock could not be used.
 - **`notifications/tools/list_changed`** passes through. From then on no tool is callable until the host lists again,
   and the guard filters that list again.
 - **Everything else** passes through unchanged, in both directions: initialize, resources, prompts, server requests
@@ -314,7 +597,10 @@ never signed. If the server name cannot be a file name, no file is written and t
 
 If the list differs from the lock, the guard prints one stderr line with counts (hidden: changed, not in the lock, not
 a tool; in the lock but no longer listed), the pending file's path, and the next step (`plumbline agent relock`,
-review, approve). The guard never prints a tool name or description from the server to stderr or in an error it makes.
+review, approve). The line says the tools "differ from the agent lock" under `--require locked`, and "from the approved
+agent lock" only under `--require approved`, the one mode that verified an approval at start; the `--strict` answer
+follows the same rule. The guard never prints a tool name or description from the server to stderr or in an error it
+makes.
 
 ### `--strict`
 
@@ -421,7 +707,7 @@ check as surely as `invalid`, and none of them is ever shown as approved. `agent
 map them to findings: `absent` and `tampered` to `lock-unapproved`, other `invalid` to `approval-invalid`,
 `unverifiable` to `approval-unverifiable`.
 
-**The audit.** `plumbline audit [--root <dir>] [--approvers <file>] [--out <dir>] [--json]` reads the history of
+**The audit.** `plumbline audit [--root <dir>] [--approvers <file>] [--all] [--out <dir>] [--json]` reads the history of
 `plumbline.agent.lock.json` with git (`git log` and `git cat-file`, run with an argument list, never a shell; a folder
 that is not in a git repository is exit 2). It lists every commit that touched the lock or the approval, groups them
 into distinct lock versions (a new version wherever the lock's bytes change), and for each version reports the commit
@@ -429,23 +715,41 @@ and date, the chain link (above), and the approval: an approval file committed f
 next lock change whose `lock` is this version's hash, verified against the approvers. An approval committed one or
 more commits after its lock counts; one committed after the next lock change does not reach back. An approval file
 that is not JSON is `invalid malformed`, never `absent`. The summary counts versions, verified, invalid, unverifiable,
-absent and chain breaks. Exit 0 only when there is at least one version, every version is `verified` and the chain is
-whole; 1 otherwise (no lock in the history is `lock-absent`); 2 usage or I/O. The uncommitted working-tree lock is not
-part of the history. `--out <dir>` writes `audit.json` (the same document `--json` prints) and `audit.md`, a table of
-version, date, commit, lock hash, approver (label and kid when verified, the bare kid otherwise), verdict and chain,
-fit to attach to a change record. The audit prints labels from the approvers file and kids, never anything a server or
+absent, chain breaks, and versions before approval began.
+
+What the exit certifies, since approval began (the default): exit 0 when the current (newest) lock is `verified` and
+every version from the first `verified` one on is `verified` with each link after it intact. The versions before the
+first approval are listed, marked "before approval began", counted in the summary, and do not fail; their findings
+are still in the report, each marked `beforeApproval`. The reason: the natural order is to commit what `agent init`
+wrote and approve later, so the first lock in almost every history is unapproved, and the whole-history rule kept audit
+red forever. What an auditor needs is that nothing changed without an approval once approvals began, and that the lock
+in use now is approved. With no approved version at all, nothing is "before approval", and the audit fails.
+`--all` keeps the whole-history rule: exit 0 only when every version is `verified` and the whole chain is intact.
+Either way: 1 otherwise (no lock in the history is `lock-absent`); 2 usage or I/O. The uncommitted working-tree lock
+is not part of the history.
+
+`--json` (and `audit.json`) adds to each version and finding `beforeApproval: true` where it applies, and to the
+document `rule` (`since-first-approval` or `all`), `firstApproved` (the index of the first verified version, omitted
+when there is none) and `summary.beforeApproval`; it is Plumbline's own output, not part of the wire. `--out <dir>`
+writes `audit.json` (the same document `--json` prints) and `audit.md`, a table of version, date, commit, lock hash,
+approver (label and kid when verified, the bare kid otherwise), verdict (with "(before approval began)" where it
+applies) and chain, fit to attach to a change record. The audit prints labels from the approvers file and kids, never anything a server or
 the repository wrote.
 
 ## CI
 
-The Action's `command: agent` runs `plumbline agent check --json` in the repository folder at `root`, with the
-approvers from the `approvers` input passed as `PLUMBLINE_APPROVERS` (`action/README.md`). Its `state` output is
-`pass` (exit 0), `fail` (exit 1: findings) or `unknown` (a report that cannot be read: never a pass); the job summary
-lists the findings by code and ref and the approval in words. `offline: true` adds `--offline`. `issues: true` keeps
-one issue titled `Plumbline agent drift` with the watch's issue decisions (a digest keyed by severity, code and ref; a
-comment naming what is new; closed on the next clean run), and then findings leave the step green; without it,
-findings fail the step. CI never approves: `signing-key`, `renew` and `relock-pr` are refused with `command: agent`. A
-relock pull request for the agent lock is not built yet.
+The Action's `command: agent` runs `plumbline agent check --fail-on <fail-on> --json` in the repository folder at
+`root`, with the approvers from the `approvers` input passed as `PLUMBLINE_APPROVERS` (`action/README.md`). Its `state`
+output is the report's state, `pass`, `fail` or `unavailable` (a report from an older CLI with no `state` is read from
+the exit code), or `unknown` (a report that cannot be read, or an exit other than 0 or 1: never a pass); the job
+summary states what was not checked ("Not checked: 1 MCP server"), lists the findings by code and ref and the approval
+in words. `fail-on` (the input the gate uses too, default `fail`) decides what `unavailable` does: with `fail` the step
+passes, so a pull request is not blocked by a server it cannot reach; with `unavailable` the step fails. `offline: true`
+adds `--offline`. `issues: true` keeps one issue titled `Plumbline agent drift` with the watch's issue decisions (a
+digest keyed by severity, code and ref; a comment naming what is new; closed on the next clean run); warn findings that
+say something was not checked keep it open too, and the issue says what to do about them. With `issues: true` findings
+leave the step green; without it, the check's exit decides. CI never approves: `signing-key`, `renew` and `relock-pr`
+are refused with `command: agent`. A relock pull request for the agent lock is not built yet.
 
 `action/templates/plumbline-agent.yml` runs two jobs, the Action pinned by full commit SHA:
 
@@ -457,4 +761,6 @@ relock pull request for the agent lock is not built yet.
 
 What it does not cover: a pull request runs the workflow file from its own branch, so `.github/workflows/` needs a
 code owner's review (CODEOWNERS) or a pull request could remove the check; and stdio servers are only seen when the
-guard runs them, never in CI (Plumbline does not start a server to look at it).
+guard runs them, never in CI (Plumbline does not start a server to look at it): a stdio server the guard has not
+observed is `server-not-observed`, which is `unavailable`, not `fail`. A remote server that needs a key is checked in
+CI only when the job has the variable its `auth` names (from a secret); without it, `server-auth-missing`, `unavailable`.

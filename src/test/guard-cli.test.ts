@@ -105,6 +105,9 @@ test("guard in --require locked: says so once, hides drift, writes the pending f
   assert.equal(r.stderr[0], LOCKED_MODE_WARNING);
   assert.equal(r.stderr.filter((l) => l === LOCKED_MODE_WARNING).length, 1);
   assert.doesNotMatch(r.stderr.join("\n"), new RegExp(`${MARKER}|extra`));
+  // locked mode never checked an approval, so nothing it says calls the lock approved
+  assert.match(r.stderr.join("\n"), /the server's tools differ from the agent lock: 1 tool hidden/);
+  assert.doesNotMatch(r.stderr.join("\n") + JSON.stringify(r.out), /approved agent lock/);
   const pending = parsePending(readFileSync(path.join(dir, ".plumbline", "pending", "docs.json"), "utf8"));
   assert.equal(pending?.target, await serverTarget({ transport: "stdio", command: process.execPath, args }));
   assert.deepEqual(pending?.tools.map((t) => t.name), ["echo", "extra"]);
