@@ -1,7 +1,7 @@
 // The Desk's fetcher: the browser's own fetch, shaped like safeFetch's response so the gate, the locator and the drift
 // detector run unchanged. A browser needs no SSRF guard: same-origin and CORS rules decide what a page may read, and
 // the page cannot reach a private address for anyone but the visitor. What it keeps from safeFetch:
-//   - https only, with http allowed for localhost and 127.0.0.1 (local checks);
+//   - https only, with http allowed for localhost, *.localhost and 127.0.0.1 (local checks);
 //   - the same body ceiling (MAX_BODY_BYTES, from the pure net/fetch-types module) and one absolute timeout;
 //   - no cookies or credentials, no referrer.
 // Failures throw SafeFetchError with safeFetch's codes, so describeFetchError in the gate words them. A response the
@@ -12,9 +12,11 @@
 import { DEFAULT_TIMEOUT_MS, MAX_BODY_BYTES, MAX_RUNTIME_FILE_BYTES, SafeFetchError } from "./lib/plumbline/net/fetch-types.js";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"]);
+// a name under .localhost (RFC 6761: loopback; browsers resolve it to loopback themselves), so a rehearsal can name its sites
+const LOOPBACK_NAME = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.localhost$/;
 
 /**
- * The Desk's one address rule: what it may fetch is https, or plain http on localhost and 127.0.0.1 only (local
+ * The Desk's one address rule: what it may fetch is https, or plain http on localhost, *.localhost and 127.0.0.1 only (local
  * checks). desk.js's target check and its pattern for addresses shown to the model, and this fetcher, all ask here.
  *
  * :param value: An address, as text.
@@ -29,7 +31,7 @@ export function fetchableUrl(value) {
     return null;
   }
   if (url.protocol === "https:") return url;
-  return url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname) ? url : null;
+  return url.protocol === "http:" && (LOOPBACK_HOSTS.has(url.hostname) || LOOPBACK_NAME.test(url.hostname)) ? url : null;
 }
 
 async function readCapped(response, limit, controller) {

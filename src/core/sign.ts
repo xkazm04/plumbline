@@ -30,8 +30,10 @@ export interface SignOptions {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * An origin is `https://host[:port]` with no path, query or fragment. `http` is accepted only for the two loopback
- * hosts `localhost` and `127.0.0.1`, which exist for tests.
+ * An origin is `https://host[:port]` with no path, query or fragment. `http` is accepted only for loopback hosts, which
+ * exist for tests and rehearsals on one machine: `localhost`, a name under `.localhost` (RFC 6761 reserves it for
+ * loopback; since 2026-11-23, so a rehearsal can name its sites) and `127.0.0.1`. A fetch still checks where a name
+ * resolves: `.localhost` accepted here is never a reason to reach anything but loopback.
  */
 export function isAcceptableOrigin(origin: unknown): origin is string {
   if (typeof origin !== "string") return false;
@@ -43,7 +45,13 @@ export function isAcceptableOrigin(origin: unknown): origin is string {
   }
   if (url.origin !== origin) return false;
   if (url.protocol === "https:") return true;
-  return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  return url.protocol === "http:" && isLoopbackName(url.hostname);
+}
+
+/** `localhost`, a name under `.localhost`, or `127.0.0.1`: the hosts an http origin may name. */
+export function isLoopbackName(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || (h.endsWith(".localhost") && /^[a-z0-9-]+(\.[a-z0-9-]+)*\.localhost$/.test(h));
 }
 
 /**
@@ -71,7 +79,7 @@ function requiredPathsOf(files: SubjectFile[]): string[] {
 export async function signSubjects(options: SignOptions): Promise<PlumblineSignature> {
   const { privateKey, key, origin, files } = options;
   if (!isAcceptableOrigin(origin)) {
-    throw new Error("origin must be an https:// origin with no path (http only for localhost and 127.0.0.1)");
+    throw new Error("origin must be an https:// origin with no path (http only for localhost, *.localhost and 127.0.0.1)");
   }
   if (!Array.isArray(files) || files.length === 0) throw new Error("nothing to sign: no files given");
   // a verifier calls a longer subject list malformed (MAX_SUBJECTS): never make a signature that cannot verify

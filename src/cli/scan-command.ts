@@ -91,7 +91,7 @@ export async function runScanCommand(argv: string[], usage: string = USAGE): Pro
   const { addresses, problems } = parseList(text, { allowLocal });
   if (problems.length > 0) {
     // UAT-28 (PRI-L2-4): an http list names the flag that takes a site on this machine
-    const http = !allowLocal && problems.some((p) => /not an https address/.test(p)) ? "; for sites on this machine (localhost, 127.0.0.1), add --allow-local" : "";
+    const http = !allowLocal && problems.some((p) => /not an https address/.test(p)) ? "; for sites on this machine (localhost, *.localhost, 127.0.0.1), add --allow-local" : "";
     return fail(`the list was refused: ${problems.join("; ")}${http}`);
   }
   if (addresses.length === 0) return fail("the list names no address");

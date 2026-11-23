@@ -72,7 +72,7 @@ export const NOTHING_CHECKED = "nothing was checked: every adapter was unavailab
  */
 export function httpHint(addresses: readonly string[], allowLocal: boolean): string | undefined {
   if (allowLocal || !addresses.some((a) => /^http:\/\//i.test(a))) return undefined;
-  return "note: an http address is refused without --allow-local; for a site on this machine (localhost, 127.0.0.1), run it again with --allow-local (private ranges stay refused)";
+  return "note: an http address is refused without --allow-local; for a site on this machine (localhost, *.localhost, 127.0.0.1), run it again with --allow-local (private ranges stay refused)";
 }
 
 export const ALLOW_LOCAL_WARNING =

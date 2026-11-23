@@ -20,7 +20,8 @@
     - connect-src cannot be a short allow-list: the gate, drift and verify read ANY https site the visitor names
       (desk.js:69), and the model router is the visitor's choice (hosted Otari, Groq, OpenAI, Google, Anthropic or any
       OpenAI-compatible URL, runtime/ui.js:31-75 and runtime/llm.js:123), including Ollama on http://localhost. So: 'self',
-      https:, and http on localhost and 127.0.0.1 only. Plain http to other hosts is refused.
+      https:, and http on localhost, *.localhost (RFC 6761 loopback, for a rehearsal that names its sites) and 127.0.0.1
+      only. Plain http to other hosts is refused.
     - worker-src 'self': the coded-tool sandbox is a same-origin module worker loaded by URL (runtime/sandbox.js:35).
       Its blob: import happens inside the worker, under the worker's own policy (see site/_headers), not this one.
     - frame-src: when the assistant calls a partner, the runtime frames that partner's action bridge in a hidden frame
@@ -29,7 +30,7 @@
       runtime's user-opened popup (runtime/action-transport.js:153-154).
     - frame-ancestors does not work in a meta tag; site/_headers sends it on hosts that honour that file.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-hashes' 'sha256-w9bymhJ4S9BFR8jkOL9IzPIelA+8lILrhSALVNM7y5k=' 'sha256-Dh8E4+n+gtXPNPjrXtaww2ge8cPC+vOqjhX7MXHBbqw=' 'sha256-q3nqK4VzeI/SowYCYQ/tCfo056B/JMutuSpzbJbHczk=' 'sha256-i4PrIz85o9AfEDwwB+ARpsK/O/5ma+Q5EDKQLdXZ/1M=' 'sha256-LJVOt4FAE3nNOLZf7+FWk9PQifzUZwTAOUbh4kRjs/E=' 'sha256-aqNNdDLnnrDOnTNdkJpYlAxKVJtLt9CtFLklmInuUAE=' 'sha256-5QovU8lFNNr8yzeA3ON3wVRo1xAkOwVzhgpX8jFwsWE='; img-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; worker-src 'self'; frame-src https://agent-atlas-phi.vercel.app https://montbaga.github.io https://agent-customs-range.github.io; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-hashes' 'sha256-w9bymhJ4S9BFR8jkOL9IzPIelA+8lILrhSALVNM7y5k=' 'sha256-Dh8E4+n+gtXPNPjrXtaww2ge8cPC+vOqjhX7MXHBbqw=' 'sha256-q3nqK4VzeI/SowYCYQ/tCfo056B/JMutuSpzbJbHczk=' 'sha256-i4PrIz85o9AfEDwwB+ARpsK/O/5ma+Q5EDKQLdXZ/1M=' 'sha256-LJVOt4FAE3nNOLZf7+FWk9PQifzUZwTAOUbh4kRjs/E=' 'sha256-aqNNdDLnnrDOnTNdkJpYlAxKVJtLt9CtFLklmInuUAE=' 'sha256-5QovU8lFNNr8yzeA3ON3wVRo1xAkOwVzhgpX8jFwsWE='; img-src 'self'; connect-src 'self' https: http://localhost:* http://*.localhost:* http://127.0.0.1:*; worker-src 'self'; frame-src https://agent-atlas-phi.vercel.app https://montbaga.github.io https://agent-customs-range.github.io; base-uri 'none'; form-action 'none'; object-src 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Plumbline Desk</title>
   <link rel="stylesheet" href="fix.css">

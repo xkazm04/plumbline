@@ -77,7 +77,7 @@ test("the policy denies by default and closes base, form, object and plugin rout
 });
 
 test("connect-src allows https, the page's origin and local model servers, and no other plain http", () => {
-  assert.deepEqual(policy.get("connect-src"), ["'self'", "https:", "http://localhost:*", "http://127.0.0.1:*"]);
+  assert.deepEqual(policy.get("connect-src"), ["'self'", "https:", "http://localhost:*", "http://*.localhost:*", "http://127.0.0.1:*"]);
 });
 
 test("style-src allows exactly the vendored runtime's inline styles, by hash", async () => {

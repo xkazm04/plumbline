@@ -81,7 +81,7 @@ export const USAGE = {
 } as const;
 
 export const ORIGIN_RULE =
-  "--origin must be an https:// origin with no path and no trailing slash, like https://example.com (http only for localhost and 127.0.0.1)";
+  "--origin must be an https:// origin with no path and no trailing slash, like https://example.com (http only for localhost, *.localhost and 127.0.0.1)";
 
 /**
  * What keygen says about the key it wrote. The CLI writes a key file, so only the file's custody is said here; the

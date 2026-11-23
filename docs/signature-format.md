@@ -93,7 +93,7 @@ pending peer and external definition the lock holds, with its pin, recorded sign
 | `version` | always `1` |
 | `alg` | always `Ed25519` |
 | `kid` | key id: the first 16 hex characters of the SHA-256 of the raw 32-byte public key. Derived from the key, never claimed. Exactly `^[0-9a-f]{16}$` |
-| `origin` | the origin the files are published from: `https://host[:port]`, no path, no trailing slash. `http` is accepted only for `localhost` and `127.0.0.1`, for tests |
+| `origin` | the origin the files are published from: `https://host[:port]`, no path, no trailing slash. `http` is accepted only for loopback hosts, for tests and rehearsals on one machine: `localhost`, a name under `.localhost` (since 2026-11-23; RFC 6761 reserves it for loopback, and a fetch still checks that it resolves there) and `127.0.0.1` |
 | `signedAt` | when it was signed, UTC, `Date.toISOString()` form |
 | `expiresAt` | when it stops being valid, same form. The default lifetime is 90 days; the publisher chooses |
 | `subjects` | the signed files, sorted by `path`. `path` is relative to the site base with `/` separators, uses only `[A-Za-z0-9._/-]`, and has no empty, `.` or `..` segment (anything else is `invalid malformed`); `sha256` is the lowercase hex SHA-256 of the file's **exact bytes** (below) |
@@ -196,7 +196,7 @@ one by first contact (`plumbline trust --file <it> --url <site>`), never an I/O 
 `adopt` still needs one (it adopts from a key it already holds).
 
 An entry's `origin` is held to the same rule as a signature's (`https://host[:port]`, no path, no trailing slash; `http`
-only for `localhost` and `127.0.0.1`): an entry with `https://example.com/` would never equal any signature's origin and
+only for `localhost`, `*.localhost` and `127.0.0.1`): an entry with `https://example.com/` would never equal any signature's origin and
 would silently trust nothing, so the CLI refuses the whole file instead (since 2026-11-18).
 
 An entry means: "for files published from `origin`, I accept signatures by this key", unless it carries `revokedAt`. The entry's `kid` must equal the

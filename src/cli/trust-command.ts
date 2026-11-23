@@ -77,7 +77,7 @@ function siteOf(args: ParsedArgs, local: "root" | "key"): { site?: SiteSource; b
   }
   if (args.values.has("origin")) throw new UsageError("--url binds the origin to the URL's own; leave out --origin");
   const base = siteBaseOf(url, allowLocal);
-  if (!isAcceptableOrigin(base.origin)) throw new UsageError("--url must name an https origin (http only for localhost and 127.0.0.1)");
+  if (!isAcceptableOrigin(base.origin)) throw new UsageError("--url must name an https origin (http only for localhost, *.localhost and 127.0.0.1)");
   if (allowLocal) process.stderr.write("WARNING: --allow-local: http and loopback addresses are allowed for this run (private ranges stay refused)\n");
   return { site: remoteSite(base, allowLocal), base, origin: base.origin };
 }

@@ -401,3 +401,11 @@ test("unsignedBytesOf: canonical JSON without sig, the bytes signatures, rotatio
   }
   assert.throws(() => unsignedBytesOf({ sig: "x", n: Infinity }), /non-finite/);
 });
+
+test("an http origin only on loopback names: localhost, a .localhost name (since 2026-11-23) and 127.0.0.1", async () => {
+  const { isAcceptableOrigin } = await import("../core/sign.js");
+  for (const ok of ["https://a.example", "http://localhost:4300", "http://127.0.0.1:4300", "http://northgate-clinic.localhost:4300", "http://a.b.localhost"]) assert.equal(isAcceptableOrigin(ok), true, ok);
+  for (const no of ["http://a.example", "http://localhost.a.example", "http://a.localhost.example", "http://xlocalhost", "http://127.0.0.2", "http://northgate-clinic.localhost:4300/", "http://[::1]"]) {
+    assert.equal(isAcceptableOrigin(no), false, no);
+  }
+});

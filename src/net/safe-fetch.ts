@@ -163,7 +163,9 @@ async function hop(target: URL, guard: Guard, send: Send): Promise<Hop> {
   if (target.protocol === "http:" && !addresses.every((a) => isBlockedAddress(a.address, false))) {
     throw new SafeFetchError("insecure-scheme", "refused http to a public address");
   }
-  const pinned = addresses[0] as ResolvedAddress;
+  // every address was checked above; connect to an IPv4 one when there is one, as Node did before v17 (localhost and
+  // the .localhost names resolve to ::1 first on some systems, and a local server often listens on 127.0.0.1 only)
+  const pinned = (addresses.find((a) => a.family === 4) ?? addresses[0]) as ResolvedAddress;
 
   return await new Promise<Hop>((resolve, reject) => {
     const lib = target.protocol === "https:" ? https : http;

@@ -2,7 +2,7 @@
 // The UAT world driver: materialise a fixture world into a throwaway folder, serve it, play its events, take it down.
 // Plain Node ESM, no dependency. The contract is uat/env.md; uat/fixtures/README.md lists each world's sites and acts.
 //
-//   node uat/driver/world.mjs up <world> [--port-base <n>] [--no-start]
+//   node uat/driver/world.mjs up <world> [--port-base <n>] [--no-start] [--names]
 //   node uat/driver/world.mjs act <world> <act>
 //   node uat/driver/world.mjs status <world>
 //   node uat/driver/world.mjs down <world>
@@ -759,8 +759,9 @@ async function up(world, options) {
         role: s.role,
         ...(s.state ? { state: s.state } : {}),
         port,
-        origin: `http://127.0.0.1:${port}`,
-        address: `http://127.0.0.1:${port}/`,
+        // --names (the demo film): each site answers at <name>.localhost (RFC 6761 loopback), so an address reads as a name
+        origin: options.names ? `http://${s.name}.localhost:${port}` : `http://127.0.0.1:${port}`,
+        address: options.names ? `http://${s.name}.localhost:${port}/` : `http://127.0.0.1:${port}/`,
         folder: s.repo ? path.join(top, "site") : top,
         ...(s.repo ? { repo: top } : {}),
         runtime: s.runtime,
@@ -880,7 +881,7 @@ function list() {
 }
 
 const USAGE = `usage:
-  node uat/driver/world.mjs up <world> [--port-base <n>] [--no-start]
+  node uat/driver/world.mjs up <world> [--port-base <n>] [--no-start] [--names]
   node uat/driver/world.mjs act <world> <act>
   node uat/driver/world.mjs status <world>
   node uat/driver/world.mjs down <world>
@@ -896,6 +897,7 @@ async function main(argv) {
       if (!Number.isInteger(n) || n < 1024 || n > 65000) throw new UsageError("--port-base takes a port number from 1024 to 65000");
       options.portBase = n;
     } else if (rest[i] === "--no-start") options.noStart = true;
+    else if (rest[i] === "--names") options.names = true;
     else if (rest[i].startsWith("--")) throw new UsageError(`unknown option ${rest[i]}`);
     else positional.push(rest[i]);
   }

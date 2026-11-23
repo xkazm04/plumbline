@@ -119,7 +119,7 @@ test("UAT-28 (PRI-L2-4): a clean watch says no drift even when info notes follow
   const url = await runAsync("watch", "--url", `${server.url}/`);
   assert.equal(url.code, 1);
   assert.match(url.out, /the address is not https/);
-  assert.match(url.err, /note: an http address is refused without --allow-local; for a site on this machine \(localhost, 127\.0\.0\.1\), run it again with --allow-local/);
+  assert.match(url.err, /note: an http address is refused without --allow-local; for a site on this machine \(localhost, \*\.localhost, 127\.0\.0\.1\), run it again with --allow-local/);
   const gate = await runAsync("gate", `${server.url}/`, "--adapters", "validator");
   assert.match(gate.err, /run it again with --allow-local/);
   const withFlag = await runAsync("watch", "--url", `${server.url}/`, "--allow-local");
@@ -128,7 +128,7 @@ test("UAT-28 (PRI-L2-4): a clean watch says no drift even when info notes follow
   writeFileSync(listFile, `${server.url}/\n`);
   const scan = await runAsync("scan", listFile, "--out", path.join(tmp, "http-scan"));
   assert.equal(scan.code, 2);
-  assert.match(scan.err, /for sites on this machine \(localhost, 127\.0\.0\.1\), add --allow-local/);
+  assert.match(scan.err, /for sites on this machine \(localhost, \*\.localhost, 127\.0\.0\.1\), add --allow-local/);
 });
 
 test("UAT-28 (DEV-L2-2): GitHub's rate-limit reset is said as a UTC time, never as an epoch", () => {

@@ -29,9 +29,9 @@ async function refusal(promise) {
   assert.fail("the fetch was not refused");
 }
 
-test("the address rule: https anywhere, http only on localhost and 127.0.0.1, nothing else", async () => {
-  for (const ok of ["https://a.example/", "https://a.example:8443/x?y", "http://localhost:8080/", "http://127.0.0.1/"]) assert.ok(fetchableUrl(ok), ok);
-  for (const no of ["http://a.example/", "http://127.0.0.2/", "http://[::1]/", "ftp://a.example/", "file:///etc/passwd", "data:text/plain,x", "javascript:alert(1)", "", "a.example", null, 42]) {
+test("the address rule: https anywhere, http only on localhost, *.localhost and 127.0.0.1, nothing else", async () => {
+  for (const ok of ["https://a.example/", "https://a.example:8443/x?y", "http://localhost:8080/", "http://127.0.0.1/", "http://northgate-clinic.localhost:4300/", "http://a.b.localhost/"]) assert.ok(fetchableUrl(ok), ok);
+  for (const no of ["http://a.example/", "http://localhost.a.example/", "http://a.localhost.example/", "http://xlocalhost/", "http://127.0.0.2/", "http://[::1]/", "ftp://a.example/", "file:///etc/passwd", "data:text/plain,x", "javascript:alert(1)", "", "a.example", null, 42]) {
     assert.equal(fetchableUrl(no), null, String(no));
   }
   let called = 0;

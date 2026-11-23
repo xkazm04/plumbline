@@ -488,3 +488,19 @@ test("safePost's early stop ends an event stream the server keeps open, once the
     await server.close();
   }
 });
+
+test("a name that resolves to ::1 first and 127.0.0.1 too connects over IPv4 (localhost and .localhost names on some systems)", async () => {
+  const server = await loopbackServer((_req, res) => res.end("v4"));
+  try {
+    const result = await safeFetch(`http://northgate-clinic.localhost:${server.port}/`, {
+      allowLocal: true,
+      resolver: async () => [
+        { address: "::1", family: 6 },
+        { address: "127.0.0.1", family: 4 },
+      ],
+    });
+    assert.equal(result.text(), "v4");
+  } finally {
+    await server.close();
+  }
+});

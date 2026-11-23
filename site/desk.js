@@ -152,7 +152,7 @@ function refuse(reason, field) {
   return field === undefined ? { ok: false, reason } : { ok: false, reason, field };
 }
 
-/** A target address the Desk will fetch: https, or http on localhost and 127.0.0.1 only. */
+/** A target address the Desk will fetch: https, or http on localhost, *.localhost and 127.0.0.1 only. */
 export function checkTarget(target) {
   if (typeof target !== "string" || target.trim() === "") return null;
   const url = fetchableUrl(target.trim());

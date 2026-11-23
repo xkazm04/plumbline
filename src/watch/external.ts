@@ -156,8 +156,8 @@ export function externalFinding(url: string, record: ExternalRecord, seen: Exter
   };
 }
 
-/** A loopback host as `--allow-local` lets safeFetch reach it: `localhost`, 127.0.0.0/8 or `[::1]`. */
-const isLoopbackHost = (host: string): boolean => host === "localhost" || host === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(host);
+/** A loopback host as `--allow-local` lets safeFetch reach it: `localhost`, a `.localhost` name, 127.0.0.0/8 or `[::1]`. */
+const isLoopbackHost = (host: string): boolean => host === "localhost" || host.endsWith(".localhost") || host === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(host);
 
 /**
  * The `--external` argument: `<kind>=<https url>`, or the reason it is refused. With `allowLocal` (UAT-21, `--allow-local`
