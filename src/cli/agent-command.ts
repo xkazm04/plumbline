@@ -1,7 +1,7 @@
-// plumbline agent init [--root <dir>] [--wrap] [--json]
+// plumbline agent init [--root <dir>] [--wrap [--require approved]] [--json]
 // plumbline agent check [--root <dir>] [--approvers <file>] [--offline] [--fail-on fail|unavailable] [--json]
 // plumbline agent relock [--root <dir>] [--json]
-// plumbline agent wrap [--root <dir>] [--json]
+// plumbline agent wrap [--root <dir>] [--require approved] [--json]
 // The agent lock (docs/agent-lock.md): `init` declares what the repository's agent is made of (plumbline.agent.json) from
 // the agent hosts' files and writes the first lock; `check` reports what changed since the lock and whether the lock is
 // approved; `relock` rebuilds the lock after a person reviewed the change, chained to the one it replaces.
@@ -28,20 +28,27 @@ import { printReport } from "./agent-check-cmd.js";
 import { init } from "./agent-init.js";
 import { relock } from "./agent-relock.js";
 import { rootOf } from "./agent-shared.js";
-import { wrap } from "./agent-wrap.js";
+import { wrap, type WrapRequire } from "./agent-wrap.js";
 
 export { BACKUP_SUFFIX, ensureGitignore, GITIGNORE_LINE } from "./agent-shared.js";
 export { wrappedEntry } from "./agent-wrap.js";
 
 export const AGENT_USAGE =
-  "usage: plumbline agent init [--root <dir>] [--wrap] [--json]\n" +
+  "usage: plumbline agent init [--root <dir>] [--wrap [--require approved]] [--json]\n" +
   "       plumbline agent check [--root <dir>] [--approvers <file>] [--offline] [--json]\n" +
   "       plumbline agent relock [--root <dir>] [--json]\n" +
-  "       plumbline agent wrap [--root <dir>] [--json]";
+  "       plumbline agent wrap [--root <dir>] [--require approved] [--json]";
 
 /** The production dependencies: the guarded MCP lister and fetch, the clock and the environment. */
 export function defaultDeps(): AgentDeps {
   return { lister: (url, auth) => listMcpTools(url, auth !== undefined ? { auth } : {}), fetcher: safeFetch, now: new Date(), env: process.env };
+}
+
+/** --require for init --wrap and wrap: approved, or absent (the guard's default, locked). */
+function wrapRequire(value: string | undefined): WrapRequire {
+  if (value === undefined) return "locked";
+  if (value !== "approved") throw new UsageError("--require takes approved (the guard requires the lock by default)");
+  return "approved";
 }
 
 export async function runAgentCommand(argv: string[], out: Out): Promise<number> {
@@ -52,8 +59,10 @@ export async function runAgentCommand(argv: string[], out: Out): Promise<number>
 export async function runAgent(argv: string[], out: Out, deps: AgentDeps): Promise<number> {
   const [sub, ...rest] = argv;
   if (sub === "init") {
-    const args = parseArgs(rest, ["root"], ["wrap"]);
-    return init(rootOf(args.values.get("root")), args.flags.has("wrap"), args.json, out, deps);
+    const args = parseArgs(rest, ["root", "require"], ["wrap"]);
+    const require = wrapRequire(args.values.get("require"));
+    if (args.values.has("require") && !args.flags.has("wrap")) throw new UsageError("--require goes with --wrap");
+    return init(rootOf(args.values.get("root")), args.flags.has("wrap"), args.json, out, deps, require);
   }
   if (sub === "check") {
     const args = parseArgs(rest, ["root", "approvers", "fail-on"], ["offline"]);
@@ -70,8 +79,8 @@ export async function runAgent(argv: string[], out: Out, deps: AgentDeps): Promi
     return relock(rootOf(args.values.get("root")), args.json, out, deps);
   }
   if (sub === "wrap") {
-    const args = parseArgs(rest, ["root"]);
-    return wrap(rootOf(args.values.get("root")), args.json, out, deps);
+    const args = parseArgs(rest, ["root", "require"]);
+    return wrap(rootOf(args.values.get("root")), args.json, out, deps, wrapRequire(args.values.get("require")));
   }
   throw new UsageError("agent takes init, check, relock or wrap");
 }

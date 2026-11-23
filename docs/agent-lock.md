@@ -556,7 +556,8 @@ while it runs (registry rule `agent-runtime-assembly/guard-input-custody`).
 - `--require locked` (the default) compares hashes only. At start it prints one stderr line: the lock is not checked
   for approval, and anything that can write the repository can change it.
 - `--require approved` also requires an approval that verifies against your approvers file, which sits outside the
-  repository.
+  repository. `agent init --wrap --require approved` writes it into each wrapped entry, and `agent wrap --require approved`
+  adds it to entries already wrapped (any earlier `--require` replaced, every other guard flag kept), then relocks.
 
 ### When it refuses every tool
 

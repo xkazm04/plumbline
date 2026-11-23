@@ -38,8 +38,8 @@ guard saw when your host ran it, so until that first relock the guard passes non
 reports the server as never observed: not checked, which alone makes the state `unavailable` (exit 0; 1 with
 `--fail-on unavailable`). From then on your host starts each stdio server through `plumbline guard`, which
 lets through only the tools the lock pins. `--wrap` writes the guard in `locked` mode (the lock's hashes, not its
-approval); add `--require approved` to a wrapped entry to refuse every tool unless an approver in your trust store
-signed the lock. After a change you accept: `plumbline agent relock`, review what it lists, `plumbline approve`,
+approval); `--wrap --require approved` (or `plumbline agent wrap --require approved` later) refuses every tool unless
+an approver in your trust store signed the lock. After a change you accept: `plumbline agent relock`, review what it lists, `plumbline approve`,
 commit both files. `plumbline audit --out evidence` shows every approved change since the first lock (the lock init
 wrote before anyone approved it is listed as before approval began).
 

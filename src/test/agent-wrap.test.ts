@@ -167,3 +167,37 @@ test("init's hint points at agent wrap, never at deleting its files; off PATH it
   assert.ok(out.includes(JSON.stringify(process.execPath).slice(1, -1)), "the absolute form is shown");
   assert.match(out, /plumbline is not on PATH/);
 });
+
+test("--require approved: init --wrap and wrap write it before --; wrap adds it to a wrapped entry, keeping its other flags", async () => {
+  const approved = ["guard", "--lock", "plumbline.agent.lock.json", "--server", "files", "--require", "approved", "--", "npx", "-y", "files"];
+  const fresh = repo({ ".mcp.json": json(HOST) });
+  assert.equal((await agent(spy(plumblineOnPath()).deps, "init", "--root", fresh, "--wrap", "--require", "approved")).code, 0);
+  assert.deepEqual(hostOf(fresh).mcpServers.files, { command: "plumbline", args: approved, env: { T: SECRET } });
+  assert.deepEqual(unwrapGuard("plumbline", approved), { command: "npx", args: ["-y", "files"] });
+
+  // a wrapped entry with a flag of its own and the locked mode: the flag stays, locked becomes approved, the lock follows
+  const dir = await initialised();
+  await agent(spy(plumblineOnPath()).deps, "wrap", "--root", dir);
+  rmSync(path.join(dir, ".mcp.json.plumbline-backup"));
+  const host = hostOf(dir);
+  host.mcpServers.files!.args = ["guard", "--lock", "plumbline.agent.lock.json", "--server", "files", "--strict", "--require", "locked", "--", "npx", "-y", "files"];
+  write(dir, { ".mcp.json": json(host) });
+  const before = read(dir, AGENT_LOCK_FILE);
+  const { code, out } = await agent(spy(plumblineOnPath()).deps, "wrap", "--root", dir, "--require", "approved", "--json");
+  assert.equal(code, 0);
+  assert.deepEqual(hostOf(dir).mcpServers.files!.args, ["guard", "--lock", "plumbline.agent.lock.json", "--server", "files", "--strict", "--require", "approved", "--", "npx", "-y", "files"]);
+  const result = JSON.parse(out) as { required: { file: string; server: string }[]; relocked: boolean; relock: { previous: string } };
+  assert.deepEqual(result.required, [{ file: ".mcp.json", server: "files" }]);
+  assert.equal(result.relock.previous, await sha256Hex(before));
+  // a second run has nothing to do
+  rmSync(path.join(dir, ".mcp.json.plumbline-backup"));
+  const again = await agent(spy(plumblineOnPath()).deps, "wrap", "--root", dir, "--require", "approved");
+  assert.match(again.out, /already runs the guard and requires approval/);
+});
+
+test("--require: only approved, and with init only beside --wrap", async () => {
+  const dir = repo({ ".mcp.json": json(HOST) });
+  await assert.rejects(agent(spy().deps, "init", "--root", dir, "--require", "approved"), /--require goes with --wrap/);
+  await assert.rejects(agent(spy().deps, "init", "--root", dir, "--wrap", "--require", "locked"), /--require takes approved/);
+  assert.equal(existsSync(path.join(dir, AGENT_FILE)), false, "nothing was written");
+});

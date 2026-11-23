@@ -57,25 +57,77 @@ export function launcherSentence(launcher: GuardLauncher): string | undefined {
   );
 }
 
-const guardArgs = (name: string, decl: StdioDecl): string[] => ["guard", "--lock", AGENT_LOCK_FILE, "--server", name, "--", decl.command, ...(decl.args ?? [])];
+/** What the guard requires of the lock: `locked` (its default, nothing written) or `approved` (a person's approval). */
+export type WrapRequire = "locked" | "approved";
+
+const guardArgs = (name: string, decl: StdioDecl, require: WrapRequire): string[] => [
+  "guard",
+  "--lock",
+  AGENT_LOCK_FILE,
+  "--server",
+  name,
+  ...(require === "approved" ? ["--require", "approved"] : []),
+  "--",
+  decl.command,
+  ...(decl.args ?? []),
+];
 
 /** The host entry that runs the guard in front of a stdio server (env and every other member kept as they were). */
-export function wrappedEntry(entry: Record<string, unknown>, name: string, decl: StdioDecl, launcher: GuardLauncher): Record<string, unknown> {
-  return { ...entry, command: launcher.command, args: [...launcher.prefix, ...guardArgs(name, decl)] };
+export function wrappedEntry(entry: Record<string, unknown>, name: string, decl: StdioDecl, launcher: GuardLauncher, require: WrapRequire = "locked"): Record<string, unknown> {
+  return { ...entry, command: launcher.command, args: [...launcher.prefix, ...guardArgs(name, decl, require)] };
 }
 
 /** The member of a host file that --wrap replaces, as shown: command and args only (env is never printed). */
-export const wrapShown = (name: string, decl: StdioDecl, launcher: GuardLauncher): string => JSON.stringify({ command: launcher.command, args: [...launcher.prefix, ...guardArgs(name, decl)] });
+export const wrapShown = (name: string, decl: StdioDecl, launcher: GuardLauncher, require: WrapRequire = "locked"): string =>
+  JSON.stringify({ command: launcher.command, args: [...launcher.prefix, ...guardArgs(name, decl, require)] });
 
-/** Writes a backup of each host file, then the file with each of `toWrap`'s entries wrapped. */
-export async function applyWrap(root: string, hosts: HostDiscovery, toWrap: readonly Wrappable[], launcher: GuardLauncher): Promise<void> {
+/** True when a wrapped entry's guard arguments (before `--`) already say `--require approved`. */
+export function requiresApproval(args: readonly unknown[]): boolean {
+  const dash = args.indexOf("--");
+  const head = dash < 0 ? args : args.slice(0, dash);
+  return head.some((a, i) => a === "--require" && head[i + 1] === "approved");
+}
+
+/** A wrapped entry's arguments with `--require approved` set: an earlier --require is replaced, every other flag kept. */
+export function withApprovalRequired(args: readonly string[]): string[] {
+  const dash = args.indexOf("--");
+  const head = dash < 0 ? [...args] : args.slice(0, dash);
+  const tail = dash < 0 ? [] : args.slice(dash);
+  const kept: string[] = [];
+  for (let i = 0; i < head.length; i++) {
+    if (head[i] === "--require") {
+      i++;
+      continue;
+    }
+    kept.push(head[i] as string);
+  }
+  return [...kept, "--require", "approved", ...tail];
+}
+
+/**
+ * Writes a backup of each host file, then the file with each of `toWrap`'s entries wrapped and each of `toRequire`'s
+ * already-wrapped entries changed to require approval (its other guard flags kept).
+ */
+export async function applyWrap(
+  root: string,
+  hosts: HostDiscovery,
+  toWrap: readonly Wrappable[],
+  launcher: GuardLauncher,
+  require: WrapRequire = "locked",
+  toRequire: readonly HostServer[] = [],
+): Promise<void> {
   for (const config of hosts.configs) {
     const mine = toWrap.filter((e) => e.file === config.file);
-    if (mine.length === 0) continue;
+    const upgrade = toRequire.filter((e) => e.file === config.file && !mine.some((m) => m.key === e.key));
+    if (mine.length === 0 && upgrade.length === 0) continue;
     const full = repoPath(root, config.file);
     await copyFile(full, full + BACKUP_SUFFIX);
     const servers = config.json[config.member] as Record<string, Record<string, unknown>>;
-    for (const e of mine) servers[e.key] = wrappedEntry(servers[e.key] as Record<string, unknown>, e.name, e.decl, launcher);
+    for (const e of mine) servers[e.key] = wrappedEntry(servers[e.key] as Record<string, unknown>, e.name, e.decl, launcher, require);
+    for (const e of upgrade) {
+      const entry = servers[e.key] as Record<string, unknown>;
+      servers[e.key] = { ...entry, args: withApprovalRequired(entry.args as string[]) };
+    }
     await writeFile(full, jsonText(config.json));
   }
 }
@@ -88,12 +140,13 @@ function rawEntry(hosts: HostDiscovery, e: HostServer): Record<string, unknown> 
 }
 
 /**
- * `plumbline agent wrap [--root <dir>] [--json]`: on an existing declaration, puts the guard in front of each stdio host
- * entry that does not run it yet (and rewrites absolute-form entries to the short form when `plumbline` is on PATH),
+ * `plumbline agent wrap [--root <dir>] [--require approved] [--json]`: on an existing declaration, puts the guard in front
+ * of each stdio host entry that does not run it yet (and rewrites absolute-form entries to the short form when
+ * `plumbline` is on PATH; with --require approved, every wrapped entry also requires a person's approval of the lock),
  * keeping a backup of each host file it edits (refused when a backup exists, as init refuses), then relocks so the new
  * lock covers the edited host files, chained to the one it replaces. Nothing to wrap: nothing is written, no relock.
  */
-export async function wrap(root: string, json: boolean, out: Out, deps: AgentDeps): Promise<number> {
+export async function wrap(root: string, json: boolean, out: Out, deps: AgentDeps, require: WrapRequire = "locked"): Promise<number> {
   // refuse before anything is written: relock must be able to run after the host files change
   const declarationBytes = await readBytesIfPresent(root, AGENT_FILE);
   if (declarationBytes === undefined) throw new CliError(`there is no ${AGENT_FILE}: run plumbline agent init --wrap`);
@@ -114,29 +167,41 @@ export async function wrap(root: string, json: boolean, out: Out, deps: AgentDep
         return e.wrapped && raw !== undefined && typeof raw.command === "string" && Array.isArray(raw.args) && guardForm(raw.command, raw.args as string[]) === "absolute";
       })
     : [];
-  const edits = [...toWrap, ...toShorten];
+  const toRequire =
+    require === "approved"
+      ? stdio.filter((e) => {
+          const raw = rawEntry(hosts, e);
+          return e.wrapped && !toShorten.includes(e) && raw !== undefined && Array.isArray(raw.args) && !requiresApproval(raw.args);
+        })
+      : [];
+  const edits = [...toWrap, ...toShorten, ...toRequire];
   const files = [...new Set(edits.map((e) => e.file))].sort(byPath);
   if (edits.length === 0) {
-    if (json) out(JSON.stringify({ wrapped: [], wrap: [], shortened: [], launcher: launcher.short ? "plumbline" : "absolute", relocked: false }));
-    else out(`Every stdio server in the host files already runs the guard (${plural(stdio.length, "entry", "entries")}); nothing was written and the lock is unchanged.`);
+    if (json) out(JSON.stringify({ wrapped: [], wrap: [], shortened: [], required: [], launcher: launcher.short ? "plumbline" : "absolute", relocked: false }));
+    else
+      out(
+        `Every stdio server in the host files already runs the guard${require === "approved" ? " and requires approval" : ""} (${plural(stdio.length, "entry", "entries")}); nothing was written and the lock is unchanged.`,
+      );
     return 0;
   }
   for (const file of files) {
     if (existsSync(repoPath(root, file + BACKUP_SUFFIX))) throw new CliError(`${file}${BACKUP_SUFFIX} exists: move it away first, so the earlier copy is not lost`);
   }
-  await applyWrap(root, hosts, edits, launcher);
+  await applyWrap(root, hosts, [...toWrap, ...toShorten], launcher, require, toRequire);
 
-  const shown = toWrap.map((e) => ({ file: e.file, server: printable(e.key), entry: JSON.parse(wrapShown(e.name, e.decl, launcher)) as unknown }));
+  const shown = toWrap.map((e) => ({ file: e.file, server: printable(e.key), entry: JSON.parse(wrapShown(e.name, e.decl, launcher, require)) as unknown }));
   const shortened = toShorten.map((e) => ({ file: e.file, server: printable(e.key) }));
+  const required = toRequire.map((e) => ({ file: e.file, server: printable(e.key) }));
   if (json) {
     const lines: string[] = [];
     await relock(root, true, (line) => lines.push(line), deps);
-    out(JSON.stringify({ wrapped: files, wrap: shown, shortened, launcher: launcher.short ? "plumbline" : "absolute", relocked: true, relock: JSON.parse(lines.join("\n")) as unknown }));
+    out(JSON.stringify({ wrapped: files, wrap: shown, shortened, required, launcher: launcher.short ? "plumbline" : "absolute", relocked: true, relock: JSON.parse(lines.join("\n")) as unknown }));
     return 0;
   }
   if (toWrap.length > 0) out(`Put the guard in front of ${plural(toWrap.length, "stdio server")}; the earlier ${plural(files.length, "file")} kept as ${files.map((f) => f + BACKUP_SUFFIX).join(", ")}:`);
   else out(`The earlier ${plural(files.length, "file")} kept as ${files.map((f) => f + BACKUP_SUFFIX).join(", ")}.`);
-  for (const e of toWrap) out(`  ${e.file} ${printable(e.key)}: ${printable(wrapShown(e.name, e.decl, launcher))}`);
+  for (const e of toWrap) out(`  ${e.file} ${printable(e.key)}: ${printable(wrapShown(e.name, e.decl, launcher, require))}`);
+  for (const e of toRequire) out(`  ${e.file} ${printable(e.key)}: the guard now requires a person's approval of the lock (--require approved)`);
   for (const e of toShorten) out(`  ${e.file} ${printable(e.key)}: now runs plumbline guard (the short form)`);
   const why = launcherSentence(launcher);
   if (why !== undefined) out(why);
