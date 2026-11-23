@@ -75,11 +75,13 @@ jobs:
         uses: ./action
         with:
           command: nope
+      # UAT-22: a gate with no target checks the site's files at root, so it is refused only when root is no folder
       - id: gate-no-target
         continue-on-error: true
         uses: ./action
         with:
           command: gate
+          root: package.json
       - id: bad-fail-on
         continue-on-error: true
         uses: ./action
