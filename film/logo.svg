@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 64" width="48" height="64" role="img" aria-label="Plumbline">
+  <!-- the Desk's brand mark (site/fix.css .brandmark): a ring with a plumb line and its bob -->
+  <circle cx="24" cy="24" r="20.5" fill="#f7fbfc" stroke="#12294a" stroke-width="4.5"/>
+  <rect x="22.25" y="0" width="3.5" height="50" fill="#b5136b"/>
+  <circle cx="24" cy="54" r="7" fill="#b5136b"/>
+</svg>

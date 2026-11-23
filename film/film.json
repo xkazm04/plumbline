@@ -16,6 +16,28 @@
   },
   "breathMs": 350,
   "maxMs": 179000,
+  "style": {
+    "palette": {
+      "bg": "#f7fbfc",
+      "fg": "#12294a",
+      "accent": "#b5136b",
+      "accent2": "#136b5c",
+      "muted": "#3a536f"
+    },
+    "fonts": {
+      "display": "Iowan Old Style, Palatino Linotype, Georgia, serif",
+      "body": "Segoe UI, system-ui, Helvetica Neue, Arial, sans-serif",
+      "mono": "Cascadia Mono, Consolas, monospace"
+    },
+    "logo": "logo.svg",
+    "radius": 10,
+    "easing": [
+      0.22,
+      0.8,
+      0.24,
+      1
+    ]
+  },
   "beats": [
     {
       "id": "cold",
