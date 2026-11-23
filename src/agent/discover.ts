@@ -154,7 +154,7 @@ export interface HostServer {
   /** The name it is declared under: `key`, or `<host>:<key>` when two hosts use the key for different targets. */
   name: string;
   decl: McpServerDecl;
-  /** The host entry already runs the guard (`plumbline guard ... -- <command>`); `decl` is the command it guards. */
+  /** The host entry already runs the guard (`plumbline guard ... -- <command>`, or the absolute form); `decl` is the command it guards. */
   wrapped: boolean;
   /** The host said `sse`: declared as `http` (Streamable HTTP), which is what Plumbline reads. */
   sse: boolean;
@@ -185,9 +185,25 @@ export interface HostDiscovery {
   skipped: SkippedServer[];
 }
 
-/** The command a guard-wrapped entry guards, or undefined when the entry is not wrapped. */
+/** A node executable as process.execPath names it (`node`, `nodejs`, `node.exe`), in any folder. */
+const NODE_EXECUTABLE = /^node(?:js)?(?:\.exe)?$/i;
+/** The CLI entry the absolute form runs (src/cli/agent-wrap.ts, cliEntry): `.../dist/cli/index.js`, either separator. */
+const CLI_ENTRY = /(?:^|[\\/])dist[\\/]cli[\\/]index\.js$/;
+
+/**
+ * How a host entry runs the guard: `short` (`plumbline guard ...`), `absolute` (`<node> <.../dist/cli/index.js> guard
+ * ...`, what --wrap writes when `plumbline` is not on PATH), or undefined when it does not run the guard.
+ */
+export function guardForm(command: string, args: readonly string[]): "short" | "absolute" | undefined {
+  if (command === "plumbline" && args[0] === "guard") return "short";
+  const base = command.split(/[\\/]/).pop() ?? "";
+  if (NODE_EXECUTABLE.test(base) && typeof args[0] === "string" && CLI_ENTRY.test(args[0]) && args[1] === "guard") return "absolute";
+  return undefined;
+}
+
+/** The command a guard-wrapped entry (either form) guards, or undefined when the entry is not wrapped. */
 export function unwrapGuard(command: string, args: readonly string[]): { command: string; args: string[] } | undefined {
-  if (command !== "plumbline" || args[0] !== "guard") return undefined;
+  if (guardForm(command, args) === undefined) return undefined;
   const dash = args.indexOf("--");
   if (dash < 0 || dash + 1 >= args.length) return undefined;
   return { command: args[dash + 1] as string, args: args.slice(dash + 2) };
