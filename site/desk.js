@@ -374,6 +374,30 @@ export async function readTrustFile(text) {
   return { ok: true, entries, rejected };
 }
 
+/** This tab's sessionStorage, or null (tests, a browser that refuses storage). */
+function tabStorage() {
+  try {
+    return typeof sessionStorage === "undefined" ? null : sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+// The origins the visitor chose in the page's own fields, kept for this tab across a reload (2026-11-23): the
+// assistant's "Save and start" reloads the page, and a visitor who read a site's drift, then gave a key and asked about
+// it, was told to type the address first. Only the page's fields write it; a tool call never does. At most 50.
+const VISITOR_ORIGINS_ITEM = "plumbline-desk.visitor-origins";
+const VISITOR_ORIGINS_MAX = 50;
+
+function loadVisitorOrigins(store) {
+  try {
+    const list = JSON.parse(store?.getItem(VISITOR_ORIGINS_ITEM) ?? "[]");
+    return Array.isArray(list) ? list.filter((o) => typeof o === "string" && checkTarget(o) !== null).slice(-VISITOR_ORIGINS_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+
 function defaultStorage() {
   try {
     return typeof localStorage === "undefined" ? null : localStorage;
@@ -461,8 +485,10 @@ export class DeskPage {
     this.ownOrigin = deps.ownOrigin || (typeof location !== "undefined" && location.origin ? location.origin : null);
     // This Desk's own lock, beside this module: the pins the partner check compares with (as site.js's consent check).
     this.ownLockUrl = deps.ownLockUrl || new URL(LOCK_FILE, new URL("./", import.meta.url)).href;
-    // Origins the visitor typed or picked in the page's own address fields this session (D1).
-    this.visitorOrigins = new Set();
+    // Origins the visitor typed or picked in the page's own address fields this session (D1), kept for this tab across
+    // the reload "Save and start" makes (tabStorage; deps.tabStorage null in tests that want none)
+    this.tabStore = deps.tabStorage === undefined ? tabStorage() : deps.tabStorage;
+    this.visitorOrigins = new Set(loadVisitorOrigins(this.tabStore));
     this.trust = new TrustBook(deps.storage === undefined ? defaultStorage() : deps.storage);
     this.gate = null;
     this.drift = null;
@@ -563,7 +589,13 @@ export class DeskPage {
   /** The visitor typed or picked an address in one of the page's own fields. */
   noteVisitorTarget(value) {
     const target = checkTarget(value);
-    if (target !== null) this.visitorOrigins.add(new URL(target).origin);
+    if (target === null) return;
+    this.visitorOrigins.add(new URL(target).origin);
+    try {
+      this.tabStore?.setItem(VISITOR_ORIGINS_ITEM, JSON.stringify([...this.visitorOrigins].slice(-VISITOR_ORIGINS_MAX)));
+    } catch {
+      // no storage: the choice lasts until the page reloads, as before
+    }
   }
 
   /** True when the assistant may fetch this target: typed or picked on the page, a partner, an example, or this Desk. */

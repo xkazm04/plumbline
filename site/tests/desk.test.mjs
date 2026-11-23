@@ -31,7 +31,7 @@ globalThis.document = StubDocument.fromHtml(await readFile(new URL("../index.htm
 globalThis.Option = StubOption;
 const { registerActions } = await import("../site-actions.js");
 const { AssistantMount } = await import("../site.js");
-const { App, PARTNERS, TrustBook } = await import("../desk.js");
+const { App, DeskPage, PARTNERS, TrustBook } = await import("../desk.js");
 const { STRINGS } = await import("../strings.js");
 
 // ---- a scripted fetcher: routes by exact URL, anything else is a network failure (as a CORS refusal would be) ----
@@ -3017,4 +3017,24 @@ test("UAT-32 (INE-L2-3): an import that only records revocations says so, with t
   assert.equal(desk.importConfirmWords([change("adds")]), "Add this one to my trust list");
   assert.equal(desk.importConfirmWords([change("adds"), change("revokes")]), "Apply these 2 changes to my trust list");
   assert.equal(desk.importConfirmWords([change("replaces")]), "Add this one to my trust list");
+});
+
+test("D1 across a reload: the origins the visitor chose are kept for the tab, read back, and only from the page's fields", () => {
+  const store = new Map();
+  const tab = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+  const first = new DeskPage({ fetch: async () => ({ ok: false }), storage: null, tabStorage: tab, ownOrigin: "https://desk.example" });
+  first.noteVisitorTarget("http://larch-house.localhost:4100/");
+  first.noteVisitorTarget("not an address");
+  // "Save and start" reloads the page: a new page object in the same tab
+  const second = new DeskPage({ fetch: async () => ({ ok: false }), storage: null, tabStorage: tab, ownOrigin: "https://desk.example" });
+  assert.equal(second.assistantMayFetch("http://larch-house.localhost:4100/rooms.html"), true);
+  assert.equal(second.assistantMayFetch("https://stranger.example/"), false);
+  // a value written by anything else that is not an address the Desk fetches is dropped on load
+  store.set("plumbline-desk.visitor-origins", JSON.stringify(["http://10.0.0.1", 42, "https://ok.example"]));
+  const third = new DeskPage({ fetch: async () => ({ ok: false }), storage: null, tabStorage: tab, ownOrigin: "https://desk.example" });
+  assert.deepEqual([...third.visitorOrigins], ["https://ok.example"]);
+  // no tab storage: nothing kept, nothing thrown
+  const bare = new DeskPage({ fetch: async () => ({ ok: false }), storage: null, tabStorage: null, ownOrigin: "https://desk.example" });
+  bare.noteVisitorTarget("https://a.example/");
+  assert.equal(bare.assistantMayFetch("https://a.example/"), true);
 });
