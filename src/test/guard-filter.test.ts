@@ -11,7 +11,9 @@ import {
   GuardFilter,
   REFUSAL_SENTENCES,
   STOPPED_MESSAGE,
+  STOPPED_MESSAGE_LOCKED,
   TOOL_REFUSED_MESSAGE,
+  TOOL_REFUSED_MESSAGE_LOCKED,
   type GuardAction,
   type GuardPolicy,
 } from "../guard/filter.js";
@@ -81,7 +83,7 @@ test("pages accumulate: each page is filtered, the observation and drift line co
 });
 
 test("a call to a hidden tool, or before any list, is answered locally with the fixed error and not forwarded", async () => {
-  const filter = new GuardFilter({ policy: { mode: "enforce", tools: await lockOf([tool("a")]) }, label: "s" });
+  const filter = new GuardFilter({ policy: { mode: "enforce", tools: await lockOf([tool("a")]) }, label: "s", require: "approved" });
   const early = filter.fromHost(call(1, "a"));
   assert.equal(of(early, "to-server").length, 0);
   assert.deepEqual(hostJson(early)[0], { jsonrpc: "2.0", id: 1, error: { code: GUARD_REFUSED_CODE, message: TOOL_REFUSED_MESSAGE } });
@@ -153,7 +155,7 @@ test("refuse-all: each reason has its own fixed stderr line, lists are empty, ca
 });
 
 test("--strict: drift in a completed list answers every open host request with an error and stops", async () => {
-  const filter = new GuardFilter({ policy: { mode: "enforce", tools: await lockOf([tool("a")]) }, label: "s", strict: true });
+  const filter = new GuardFilter({ policy: { mode: "enforce", tools: await lockOf([tool("a")]) }, label: "s", strict: true, require: "approved" });
   filter.fromHost(req(7, "resources/list"));
   const actions = await list(filter, 1, [tool("a", MARKER)]);
   const answers = hostJson(actions);
@@ -163,6 +165,25 @@ test("--strict: drift in a completed list answers every open host request with a
   assert.match(stderr(actions), /--strict: the server is stopped/);
   assert.equal(filter.isStopped, true);
   assert.deepEqual(filter.fromHost(req(8, "ping")), []);
+});
+
+test("the words follow --require: 'the agent lock' under locked (the default), 'the approved agent lock' only under approved", async () => {
+  for (const require of [undefined, "locked", "approved"] as const) {
+    const approved = require === "approved";
+    const filter = new GuardFilter({ policy: { mode: "enforce", tools: await lockOf([tool("a")]) }, label: "s", ...(require === undefined ? {} : { require }) });
+    const refused = hostJson(filter.fromHost(call(1, "a")))[0]?.error as { message: string };
+    assert.equal(refused.message, approved ? TOOL_REFUSED_MESSAGE : TOOL_REFUSED_MESSAGE_LOCKED, String(require));
+    const line = stderr(await list(filter, 2, [tool("a", MARKER)]));
+    if (approved) assert.match(line, /the server's tools differ from the approved agent lock: /);
+    else {
+      assert.match(line, /the server's tools differ from the agent lock: /, String(require));
+      assert.doesNotMatch(line, /approved agent lock/);
+    }
+    filter.fromHost(req(3, "resources/list"));
+    const open = hostJson(filter.answerOpen())[0]?.error as { message: string };
+    assert.equal(open.message, approved ? STOPPED_MESSAGE : STOPPED_MESSAGE_LOCKED);
+  }
+  for (const m of [TOOL_REFUSED_MESSAGE_LOCKED, STOPPED_MESSAGE_LOCKED]) assert.doesNotMatch(m, /approved agent lock/);
 });
 
 test("--strict without drift does not stop", async () => {
