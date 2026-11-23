@@ -69,7 +69,7 @@ test("not JSON, not an object and a repeated key are refused", () => {
 
 test("a wrong type or version is refused", () => {
   assert.match(refused(parseDeclaration(decl({ type: "plumbline-agent-lock" }))), /type is not plumbline-agent/);
-  assert.match(refused(parseDeclaration(decl({ version: 2 }))), /unknown version/);
+  assert.match(refused(parseDeclaration(decl({ version: 3 }))), /unknown version/);
   assert.match(refused(parseAgentLock(lk({ type: "plumbline-agent" }))), /type is not plumbline-agent-lock/);
   assert.match(refused(parseAgentLock(lk({ version: "1" }))), /unknown version/);
   // a site lock is not an agent lock
@@ -138,4 +138,35 @@ test("server names, model labels and model ids keep to their patterns", () => {
   refused(parseDeclaration(decl({ models: { default: "has space" } })), "has space");
   refused(parseDeclaration(decl({ models: { default: 5 } })));
   refused(parseAgentLock(lk({ models: { default: "" } })));
+});
+
+test("version 2: a server's from and auth, the lock's hashing and links; version 1 refuses them", () => {
+  const v2mcp = {
+    files: { transport: "stdio", command: "npx", args: ["-y", "server"], from: "claude" },
+    docs: { transport: "http", url: "https://mcp.example/mcp", from: "cursor", auth: { "X-API-Key": "PLUMBLINE_DOCS_X_API_KEY", "X-Tenant": "TENANT" } },
+  };
+  assert.equal(parseDeclaration(decl({ version: 2, mcp: v2mcp })).ok, true);
+  // version 1 knows neither key
+  assert.match(refused(parseDeclaration(decl({ version: 1, mcp: { s: { transport: "stdio", command: "x", from: "claude" } } }))), /key the format does not define/);
+  assert.match(refused(parseDeclaration(decl({ version: 1, mcp: { s: { transport: "http", url: "https://a.example/", auth: { A: "B" } } } }))), /key the format does not define/);
+  // from is one of the three hosts; auth only on http
+  assert.match(refused(parseDeclaration(decl({ version: 2, mcp: { s: { transport: "stdio", command: "x", from: "zed" } } }))), /from is not claude, cursor or vscode/);
+  assert.match(refused(parseDeclaration(decl({ version: 2, mcp: { s: { transport: "stdio", command: "x", auth: { A: "B" } } } }))), /key the format does not define/);
+  // auth: header tokens Plumbline does not set itself, env names, no repeats, a bound
+  const http = (auth: unknown) => decl({ version: 2, mcp: { s: { transport: "http", url: "https://a.example/", auth } } });
+  assert.match(refused(parseDeclaration(http({ "Content-Type": "X" }))), /one Plumbline sets itself/);
+  assert.match(refused(parseDeclaration(http({ "mcp-session-id": "X" }))), /one Plumbline sets itself/);
+  assert.match(refused(parseDeclaration(http({ "Bad Header": "X" }))), /not a header token/);
+  assert.match(refused(parseDeclaration(http({ "X-Key": "1BAD" }))), /environment variable name/);
+  assert.match(refused(parseDeclaration(http({ "X-Key": "A", "x-key": "B" }))), /names one auth header twice/);
+  assert.match(refused(parseDeclaration(http({}))), /no header or more than/);
+  assert.match(refused(parseDeclaration(http(Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`X-H${i}`, `E${i}`]))))), /no header or more than/);
+  // the lock: version 2 requires hashing; links are safe paths, unique
+  assert.equal(parseAgentLock(lk({ version: 2, hashing: "text-lf", links: [".claude/skills/a"] })).ok, true);
+  assert.match(refused(parseAgentLock(lk({ version: 2 }))), /hashing is not a rule/);
+  assert.match(refused(parseAgentLock(lk({ version: 2, hashing: "exact" }))), /hashing is not a rule/);
+  assert.match(refused(parseAgentLock(lk({ version: 1, hashing: "text-lf" }))), /top-level key/);
+  assert.match(refused(parseAgentLock(lk({ version: 2, hashing: "text-lf", links: ["../out"] }))), /links is not/);
+  assert.match(refused(parseAgentLock(lk({ version: 2, hashing: "text-lf", links: [] }))), /links is not/);
+  assert.match(refused(parseAgentLock(lk({ version: 2, hashing: "text-lf", links: ["a", "a"] }))), /repeats a link/);
 });

@@ -11,64 +11,32 @@
 // other reason -> approval-invalid; unverifiable (kid in no approvers entry, or no usable approvers file) ->
 // approval-unverifiable; verified -> no finding, approvedBy.
 
-import { readFile } from "node:fs/promises";
-import { serverTarget, toolsDecision, toolsParts, toolsUnchanged, type ToolsDecision } from "../core/agent-tools.js";
+
 import { verifyApproval } from "../core/approve.js";
 import { sha256Hex } from "../core/canonical.js";
 import {
   AGENT_APPROVAL_FILE,
   AGENT_FILE,
   AGENT_LOCK_FILE,
-  type AgentCounts,
   type AgentDeclaration,
   type AgentFinding,
-  type AgentLock,
   type AgentReport,
   type ApprovalState,
-  type Severity,
 } from "../core/types.js";
-import { CliError } from "../cli/args.js";
 import { resolveApprovers } from "../cli/approvers-file.js";
-import { externalFinding, observeExternal } from "../watch/external.js";
-import { listFailure, readPending, repoPath, type AgentDeps } from "./build.js";
-import { matchFiles } from "./discover.js";
+import { fileFindings, readBytesIfPresent } from "./check-files.js";
+import { definitionsFindings } from "./definitions.js";
+import { peerFindings, serverFindings, type CheckOptions } from "./check-servers.js";
+import { agentState } from "./check-state.js";
+import { type AgentDeps } from "./build.js";
 import { byPath } from "./glob.js";
 import { parseAgentLock, parseDeclaration } from "./lock.js";
 
-/** A repository file's exact bytes, or undefined when it is absent. Any other read failure: exit 2. */
-export async function readBytesIfPresent(root: string, rel: string): Promise<Uint8Array | undefined> {
-  try {
-    return new Uint8Array(await readFile(repoPath(root, rel)));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw new CliError(`${rel} could not be read`);
-  }
-}
+export { readBytesIfPresent } from "./check-files.js";
+export { decisionCounts, type CheckOptions } from "./check-servers.js";
+export { agentState, reportExit } from "./check-state.js";
 
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
-const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
-
-export interface CheckOptions {
-  offline: boolean;
-  /** `--approvers <file>`; else PLUMBLINE_APPROVERS; else the default path (src/cli/approvers-file.ts). */
-  approvers?: string;
-}
-
-/** The counts of a tool decision. */
-export function decisionCounts(d: ToolsDecision): AgentCounts {
-  return { toolsAdded: d.unpinned.length, toolsRemoved: d.removed, toolsChanged: d.changed.length };
-}
-
-/** One finding per kind of tool difference (added, removed, changed), each carrying the full counts. */
-function toolFindings(server: string, d: ToolsDecision, severity: Severity, where: string): AgentFinding[] {
-  const counts = decisionCounts(d);
-  const out: AgentFinding[] = [];
-  const say = (n: number, what: string) => `${where} ${plural(n, "tool")} ${what} since the lock (${counts.toolsAdded} added, ${counts.toolsRemoved} removed, ${counts.toolsChanged} changed).`;
-  if (d.changed.length > 0) out.push({ severity, code: "tool-changed", ref: server, summary: say(d.changed.length, "whose definition changed"), counts });
-  if (d.unpinned.length > 0) out.push({ severity, code: "tool-added", ref: server, summary: say(d.unpinned.length, "the lock does not hold"), counts });
-  if (d.removed > 0) out.push({ severity, code: "tool-removed", ref: server, summary: say(d.removed, "the lock holds no longer listed"), counts });
-  return out;
-}
 
 /** The approval's state for these lock bytes, with its finding (none when verified). */
 export async function approvalOf(
@@ -114,7 +82,7 @@ export async function checkAgent(root: string, options: CheckOptions, deps: Agen
   const lockBytes = await readBytesIfPresent(root, AGENT_LOCK_FILE);
   if (lockBytes === undefined) {
     findings.push({ severity: "block", code: "lock-absent", ref: AGENT_LOCK_FILE, summary: "There is no agent lock, so nothing about the agent was checked (plumbline agent init)." });
-    return { findings, approval: "absent", checkedAt };
+    return { state: agentState(findings), findings, approval: "absent", checkedAt };
   }
   const approval = await approvalOf(root, lockBytes, options, deps.env);
   const parsedLock = parseAgentLock(text(lockBytes));
@@ -160,118 +128,13 @@ export async function checkAgent(root: string, options: CheckOptions, deps: Agen
   if (declaration !== undefined) findings.push(...(await serverFindings(root, lock, declaration, options, deps)));
   // peers
   if (declaration !== undefined) findings.push(...(await peerFindings(lock, declaration, options, deps)));
+  // the committed tool definitions (format version 2)
+  findings.push(...(await definitionsFindings(root, lock)));
 
   if (approval.finding) findings.push(approval.finding);
   return report(findings, approval, checkedAt);
 }
 
 function report(findings: AgentFinding[], approval: { state: ApprovalState; approvedBy?: { kid: string; label: string } }, checkedAt: string): AgentReport {
-  return { findings, approval: approval.state, ...(approval.approvedBy !== undefined ? { approvedBy: approval.approvedBy } : {}), checkedAt };
+  return { state: agentState(findings), findings, approval: approval.state, ...(approval.approvedBy !== undefined ? { approvedBy: approval.approvedBy } : {}), checkedAt };
 }
-
-async function fileFindings(root: string, lock: AgentLock, declaration: AgentDeclaration | undefined): Promise<AgentFinding[]> {
-  const out: AgentFinding[] = [];
-  const now = new Map<string, Uint8Array>();
-  if (declaration !== undefined) {
-    const matched = await matchFiles(root, declaration.files);
-    for (const rel of matched.paths) {
-      const bytes = await readBytesIfPresent(root, rel);
-      if (bytes !== undefined) now.set(rel, bytes);
-    }
-    for (const glob of matched.unsafeGlobs) {
-      out.push({ severity: "block", code: "file-added", ref: glob, summary: "A file whose name a lock cannot hold (outside [A-Za-z0-9._/-]) matches this glob; rename it or narrow the glob." });
-    }
-  } else {
-    for (const rel of Object.keys(lock.files)) {
-      const bytes = await readBytesIfPresent(root, rel);
-      if (bytes !== undefined) now.set(rel, bytes);
-    }
-  }
-  for (const rel of [...new Set([...Object.keys(lock.files), ...now.keys()])].sort(byPath)) {
-    const held = lock.files[rel];
-    const bytes = now.get(rel);
-    if (held === undefined) out.push({ severity: "block", code: "file-added", ref: rel, summary: "A file the declaration matches is not in the lock." });
-    else if (bytes === undefined) out.push({ severity: "block", code: "file-removed", ref: rel, summary: "A file the lock holds is no longer in the repository (or no longer matched)." });
-    else if ((await sha256Hex(bytes)) !== held) out.push({ severity: "block", code: "file-changed", ref: rel, summary: "A file the lock holds changed since the lock was written." });
-  }
-  return out;
-}
-
-async function serverFindings(root: string, lock: AgentLock, declaration: AgentDeclaration, options: CheckOptions, deps: AgentDeps): Promise<AgentFinding[]> {
-  const out: AgentFinding[] = [];
-  const declared = declaration.mcp ?? {};
-  const held = lock.mcp ?? {};
-  for (const name of [...new Set([...Object.keys(declared), ...Object.keys(held)])].sort(byPath)) {
-    const decl = declared[name];
-    const record = held[name];
-    if (record === undefined) {
-      out.push({ severity: "block", code: "server-added", ref: name, summary: "An MCP server the declaration names is not in the lock." });
-      continue;
-    }
-    if (decl === undefined) {
-      out.push({ severity: "block", code: "server-removed", ref: name, summary: "An MCP server the lock holds is no longer declared." });
-      continue;
-    }
-    const target = await serverTarget(decl);
-    if (target !== record.target || decl.transport !== record.transport) {
-      out.push({ severity: "block", code: "server-target-changed", ref: name, summary: decl.transport === "stdio" ? "The command this MCP server runs differs from the lock." : "The address of this MCP server differs from the lock." });
-      continue;
-    }
-    if (decl.transport === "stdio") {
-      if (record.tools === undefined) {
-        out.push({ severity: "warn", code: "server-not-observed", ref: name, summary: "This stdio MCP server's tools are not in the lock yet: run the agent with the guard, then plumbline agent relock." });
-      }
-      const pending = await readPending(root, name);
-      if (pending !== undefined && pending.target === target) {
-        const d = toolsDecision(record.tools, (await toolsParts(pending.tools)).parts);
-        if (!toolsUnchanged(d)) out.push(...toolFindings(name, d, "warn", "The guard saw locally"));
-      }
-      continue;
-    }
-    if (options.offline) {
-      out.push({ severity: "info", code: "server-unreachable", ref: name, summary: "Not contacted (--offline): this MCP server's tools were not checked." });
-      continue;
-    }
-    const listed = await deps.lister(decl.url);
-    if (!listed.ok) {
-      const failure = listFailure(listed);
-      out.push(
-        failure.refused
-          ? { severity: "warn", code: "server-refused", ref: name, summary: `An MCP server over HTTP was not contacted: ${failure.why}, an address Plumbline does not contact, so its tools were not checked.` }
-          : { severity: "warn", code: "server-unreachable", ref: name, summary: `An MCP server over HTTP could not be read (${failure.why}), so its tools were not checked.` },
-      );
-      continue;
-    }
-    const d = toolsDecision(record.tools, (await toolsParts(listed.tools)).parts);
-    if (!toolsUnchanged(d)) out.push(...toolFindings(name, d, "block", "The server lists"));
-  }
-  return out;
-}
-
-async function peerFindings(lock: AgentLock, declaration: AgentDeclaration, options: CheckOptions, deps: AgentDeps): Promise<AgentFinding[]> {
-  const out: AgentFinding[] = [];
-  const declared = new Set(declaration.peers ?? []);
-  const held = lock.peers ?? {};
-  for (const url of [...new Set([...declared, ...Object.keys(held)])].sort(byPath)) {
-    const record = held[url];
-    if (record === undefined) {
-      out.push({ severity: "block", code: "peer-changed", ref: url, summary: "An A2A peer the declaration names is not in the lock." });
-      continue;
-    }
-    if (!declared.has(url)) {
-      out.push({ severity: "block", code: "peer-changed", ref: url, summary: "An A2A peer the lock holds is no longer declared." });
-      continue;
-    }
-    if (options.offline) {
-      out.push({ severity: "info", code: "peer-unreachable", ref: url, summary: "Not contacted (--offline): this A2A peer's card was not checked." });
-      continue;
-    }
-    const finding = externalFinding(url, record, await observeExternal(url, "a2a-card", deps.fetcher));
-    if (finding === null) continue;
-    out.push(finding.code === "external-changed" ? { severity: "block", code: "peer-changed", ref: url, summary: finding.summary } : { severity: "warn", code: "peer-unreachable", ref: url, summary: finding.summary });
-  }
-  return out;
-}
-
-/** Exit code for a report: 0 when nothing is warn or block. */
-export const reportExit = (r: AgentReport): number => (r.findings.some((f) => f.severity !== "info") ? 1 : 0);

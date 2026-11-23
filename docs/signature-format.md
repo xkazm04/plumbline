@@ -614,3 +614,5 @@ Since 2026-11-21 the same keys and canonical bytes also sign agent locks: `plumb
 `plumbline.agent.lock.json`, `plumbline.agent.approval.json`, the user-level approvers file and the guard's pending
 files. They are separate documents from the site's signature and lock above, and nothing here changes. Every file,
 field and code is in `docs/agent-lock.md`; the strings are pinned by `src/test/wire-agent.test.ts` (`npm run check:wire`).
+Since 2026-11-23 the agent declaration and lock have a version 2 (a server's `from` and `auth`, the lock's `hashing` and
+`links`, the committed tool definitions); `docs/agent-lock.md`, "Format version 2", lists them.

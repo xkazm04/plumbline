@@ -14,9 +14,12 @@
 import { countDuplicateKeys } from "../core/json-keys.js";
 import { isSafeSubjectPath } from "../core/signed-paths.js";
 import {
-  AGENT_FORMAT_VERSION,
+  AGENT_DECLARATION_VERSIONS,
+  AGENT_HASHING_RULES,
   AGENT_LOCK_TYPE,
+  AGENT_LOCK_VERSIONS,
   AGENT_TYPE,
+  MCP_HOSTS,
   SHA256_PATTERN,
   type AgentDeclaration,
   type AgentLock,
@@ -46,6 +49,33 @@ const RESERVED_NAMES = new Set(["__proto__", "constructor", "prototype"]);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isHex = (v: unknown): v is string => typeof v === "string" && SHA256_PATTERN.test(v);
 const onlyKeys = (v: Record<string, unknown>, allowed: readonly string[]): boolean => Object.keys(v).every((k) => allowed.includes(k));
+
+/** An HTTP header name (RFC 9110 token). */
+const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/;
+/** An environment variable name: what every shell and CI secret store accepts; 128 characters is far past any in use. */
+export const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+/** At most this many auth headers per server (servers in practice want one key, sometimes a tenant beside it). */
+export const MAX_AUTH_HEADERS = 8;
+/**
+ * Headers an `auth` entry may not set, compared lower-case: the ones the guarded POST sets itself (content-type, accept,
+ * content-length, host, the MCP session and protocol headers), cookies, and the hop-by-hop and proxy headers.
+ */
+export const RESERVED_AUTH_HEADERS: ReadonlySet<string> = new Set([
+  "content-type", "accept", "accept-encoding", "content-length", "host", "cookie", "mcp-session-id", "mcp-protocol-version",
+  "connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authorization", "proxy-connection",
+]);
+
+/** True for an auth header name a declaration may name. */
+export function isAuthHeaderName(name: unknown): name is string {
+  return typeof name === "string" && HEADER_NAME_PATTERN.test(name) && !RESERVED_AUTH_HEADERS.has(name.toLowerCase()) && !RESERVED_NAMES.has(name);
+}
+
+/** True for an environment variable name an auth entry may name. */
+export function isEnvName(name: unknown): name is string {
+  return typeof name === "string" && ENV_NAME_PATTERN.test(name) && !RESERVED_NAMES.has(name);
+}
+
+const isVersion = (v: unknown, versions: readonly number[]): v is 1 | 2 => typeof v === "number" && versions.includes(v);
 
 /** True for a server name the declaration and the lock accept. */
 export function isServerName(name: unknown): name is string {
@@ -97,10 +127,26 @@ function modelsProblem(models: unknown, what: string): string | null {
   return null;
 }
 
-function serverDeclProblem(server: unknown): string | null {
+function authProblem(auth: unknown): string | null {
+  if (!isObject(auth)) return "the agent declaration has an http server whose auth is not an object";
+  const entries = Object.entries(auth);
+  if (entries.length === 0 || entries.length > MAX_AUTH_HEADERS) return `the agent declaration has an http server whose auth names no header or more than ${MAX_AUTH_HEADERS}`;
+  for (const [header, env] of entries) {
+    if (!isAuthHeaderName(header)) return "the agent declaration has an auth header name that is not a header token, or one Plumbline sets itself";
+    if (!isEnvName(env)) return "the agent declaration has an auth entry whose environment variable name is outside [A-Za-z_][A-Za-z0-9_]*";
+  }
+  if (new Set(entries.map(([h]) => h.toLowerCase())).size !== entries.length) return "the agent declaration names one auth header twice";
+  return null;
+}
+
+function serverDeclProblem(server: unknown, version: 1 | 2): string | null {
   if (!isObject(server)) return "the agent declaration has an mcp server that is not an object";
+  const v2 = version === 2 ? ["from"] : [];
+  if (server.from !== undefined && !(version === 2 && typeof server.from === "string" && (MCP_HOSTS as readonly string[]).includes(server.from))) {
+    return version === 2 ? "the agent declaration has an mcp server whose from is not claude, cursor or vscode" : "the agent declaration has an mcp server with a key the format does not define";
+  }
   if (server.transport === "stdio") {
-    if (!onlyKeys(server, ["transport", "command", "args"])) return "the agent declaration has a stdio server with a key the format does not define";
+    if (!onlyKeys(server, ["transport", "command", "args", ...v2])) return "the agent declaration has a stdio server with a key the format does not define";
     if (typeof server.command !== "string" || server.command === "") return "the agent declaration has a stdio server without a command";
     if (server.args !== undefined && !(Array.isArray(server.args) && server.args.every((a) => typeof a === "string"))) {
       return "the agent declaration has a stdio server whose args are not a list of strings";
@@ -108,8 +154,9 @@ function serverDeclProblem(server: unknown): string | null {
     return null;
   }
   if (server.transport === "http") {
-    if (!onlyKeys(server, ["transport", "url"])) return "the agent declaration has an http server with a key the format does not define";
+    if (!onlyKeys(server, ["transport", "url", ...(version === 2 ? ["from", "auth"] : [])])) return "the agent declaration has an http server with a key the format does not define";
     if (!isHttpsAddress(server.url)) return "the agent declaration has an http server whose url is not an https address without credentials";
+    if (server.auth !== undefined) return authProblem(server.auth);
     return null;
   }
   return "the agent declaration has an mcp server whose transport is not stdio or http";
@@ -121,7 +168,8 @@ export function parseDeclaration(text: string): Parsed<AgentDeclaration> {
   if (!read.ok) return read;
   const v = read.value;
   if (v.type !== AGENT_TYPE) return { ok: false, problem: `the agent declaration's type is not ${AGENT_TYPE}` };
-  if (v.version !== AGENT_FORMAT_VERSION) return { ok: false, problem: "the agent declaration has an unknown version" };
+  if (!isVersion(v.version, AGENT_DECLARATION_VERSIONS)) return { ok: false, problem: "the agent declaration has an unknown version" };
+  const version = v.version;
   if (!onlyKeys(v, ["type", "version", "files", "models", "mcp", "peers"])) return { ok: false, problem: "the agent declaration has a top-level key the format does not define" };
   if (!Array.isArray(v.files)) return { ok: false, problem: "the agent declaration's files is not a list" };
   if (!v.files.every(isSafeGlob)) return { ok: false, problem: "the agent declaration has a files entry that is not a safe repository path or glob" };
@@ -134,7 +182,7 @@ export function parseDeclaration(text: string): Parsed<AgentDeclaration> {
     if (!isObject(v.mcp)) return { ok: false, problem: "the agent declaration's mcp is not an object" };
     for (const [name, server] of Object.entries(v.mcp)) {
       if (!isServerName(name)) return { ok: false, problem: "the agent declaration has an mcp server name outside [A-Za-z0-9._-] (and one host prefix)" };
-      const problem = serverDeclProblem(server);
+      const problem = serverDeclProblem(server, version);
       if (problem !== null) return { ok: false, problem };
     }
   }
@@ -183,9 +231,17 @@ export function parseAgentLock(text: string): Parsed<AgentLock> {
   if (!read.ok) return read;
   const v = read.value;
   if (v.type !== AGENT_LOCK_TYPE) return { ok: false, problem: `the agent lock's type is not ${AGENT_LOCK_TYPE}` };
-  if (v.version !== AGENT_FORMAT_VERSION) return { ok: false, problem: "the agent lock has an unknown version" };
-  if (!onlyKeys(v, ["type", "version", "previous", "declaration", "files", "models", "mcp", "peers", "lockedAt"])) {
+  if (!isVersion(v.version, AGENT_LOCK_VERSIONS)) return { ok: false, problem: "the agent lock has an unknown version" };
+  const v2 = v.version === 2;
+  if (!onlyKeys(v, ["type", "version", "previous", "declaration", "files", "models", "mcp", "peers", "lockedAt", ...(v2 ? ["hashing", "links"] : [])])) {
     return { ok: false, problem: "the agent lock has a top-level key the format does not define" };
+  }
+  if (v2 && !(typeof v.hashing === "string" && (AGENT_HASHING_RULES as readonly string[]).includes(v.hashing))) {
+    return { ok: false, problem: "the agent lock's hashing is not a rule this build knows (text-lf)" };
+  }
+  if (v.links !== undefined) {
+    if (!Array.isArray(v.links) || v.links.length === 0 || !v.links.every(isSafeSubjectPath)) return { ok: false, problem: "the agent lock's links is not a non-empty list of safe repository paths" };
+    if (new Set(v.links).size !== v.links.length) return { ok: false, problem: "the agent lock repeats a link" };
   }
   if (v.previous !== undefined && !isHex(v.previous)) return { ok: false, problem: "the agent lock's previous is not a SHA-256 hash" };
   if (!isHex(v.declaration)) return { ok: false, problem: "the agent lock's declaration is not a SHA-256 hash" };

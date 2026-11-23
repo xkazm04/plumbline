@@ -564,7 +564,16 @@ export interface DriftReport {
 // lock above (plumbline.lock.json) is a different document and is unchanged. Absent optional fields are OMITTED.
 // ---------------------------------------------------------------------------------------------------------------------
 
+/** The version of the approval, approvers and pending documents (they did not change in version 2). */
 export const AGENT_FORMAT_VERSION = 1 as const;
+/**
+ * The declaration and the lock: version 1 (2026-11-21) and version 2 (2026-11-23: a server's `from` and `auth`, the
+ * lock's `hashing` and `links`). Readers accept both; init and relock write AGENT_CURRENT_VERSION.
+ */
+export const AGENT_DECLARATION_VERSIONS = [1, 2] as const;
+export const AGENT_LOCK_VERSIONS = [1, 2] as const;
+export const AGENT_CURRENT_VERSION = 2 as const;
+export type AgentDocumentVersion = (typeof AGENT_LOCK_VERSIONS)[number];
 export const AGENT_TYPE = "plumbline-agent" as const;
 export const AGENT_LOCK_TYPE = "plumbline-agent-lock" as const;
 export const AGENT_APPROVAL_TYPE = "plumbline-agent-approval" as const;
@@ -579,27 +588,48 @@ export const AGENT_APPROVAL_FILE = "plumbline.agent.approval.json" as const;
 export const AGENT_PENDING_DIR = ".plumbline/pending" as const;
 /** The approvers file name under $PLUMBLINE_HOME (default: the user's config folder, plumbline). */
 export const APPROVERS_FILE = "approvers.json" as const;
+/**
+ * Version 2: the folder of the accepted tool definitions, one `<pendingFileName(server)>.json` per server with tools,
+ * written by `agent relock` and committed, so a review sees how a definition changed. The lock's hashes stay the
+ * authority; `agent check` reports a file that disagrees with them.
+ */
+export const AGENT_TOOLS_DIR = "plumbline.agent.tools" as const;
+export const AGENT_TOOLS_TYPE = "plumbline-agent-tools" as const;
 
 export const MCP_TRANSPORTS = ["stdio", "http"] as const;
 export type McpTransport = (typeof MCP_TRANSPORTS)[number];
+
+/** Version 2: the agent host whose file a discovered server came from; `agent relock` re-syncs it from that file. */
+export const MCP_HOSTS = ["claude", "cursor", "vscode"] as const;
+export type McpHost = (typeof MCP_HOSTS)[number];
 
 /** A stdio server: the command the host runs. The guard wraps it; Plumbline never starts one just to capture it. */
 export interface McpStdioServer {
   transport: "stdio";
   command: string;
   args?: string[];
+  /** Version 2: the host file it was discovered in. Omitted for a server declared by hand. */
+  from?: McpHost;
 }
 /** A Streamable HTTP server: read with initialize and tools/list through the guarded POST (src/net/mcp-http.ts). */
 export interface McpHttpServer {
   transport: "http";
   url: string;
+  /** Version 2: the host file it was discovered in. Omitted for a server declared by hand. */
+  from?: McpHost;
+  /**
+   * Version 2: request header name to the NAME of the environment variable holding its value, e.g.
+   * { "X-API-Key": "PLUMBLINE_GRINEX_X_API_KEY" }. The value is read when the server is listed, sent to that server
+   * only, and never written or printed. Omitted when the server needs no key.
+   */
+  auth?: Record<string, string>;
 }
 export type McpServerDecl = McpStdioServer | McpHttpServer;
 
 /** `plumbline.agent.json`: the repository's declaration of what its agent is made of. The source of truth. */
 export interface AgentDeclaration {
   type: typeof AGENT_TYPE;
-  version: typeof AGENT_FORMAT_VERSION;
+  version: AgentDocumentVersion;
   /** Repository-relative globs (`*`, `**`) of the files the agent reads or is configured by: prompts, settings, hooks. */
   files: string[];
   /** A label of the declarer's choosing (an agent's name) to a model id, e.g. { "default": "claude-opus-5-5" }. */
@@ -631,16 +661,33 @@ export interface AgentMcpRecord {
   observedAt?: string;
 }
 
+/**
+ * Version 2: how a declared file's hash is taken. `text-lf`: a file holding no NUL byte is hashed with every CRLF
+ * replaced by LF (as git stores text), so a Windows working tree and a Linux checkout of one commit lock the same; a
+ * file holding a NUL byte is hashed exactly. A version 1 lock hashes every file exactly. The lock's and the approval's
+ * own bytes are always hashed exactly.
+ */
+export const AGENT_HASHING_RULES = ["text-lf"] as const;
+export type AgentHashingRule = (typeof AGENT_HASHING_RULES)[number];
+
 /** `plumbline.agent.lock.json`. */
 export interface AgentLock {
   type: typeof AGENT_LOCK_TYPE;
-  version: typeof AGENT_FORMAT_VERSION;
+  version: AgentDocumentVersion;
   /** SHA-256 of the exact bytes of the lock this one replaces. Omitted on the first lock of a chain. */
   previous?: string;
   /** SHA-256 of the exact bytes of plumbline.agent.json when locked. */
   declaration: string;
-  /** Every file the declaration's globs matched, repository-relative with `/`, to SHA-256 of its exact bytes. */
+  /** Version 2, required there: the rule `files` was hashed by. Absent in version 1 (exact bytes). */
+  hashing?: AgentHashingRule;
+  /** Every file the declaration's globs matched, repository-relative with `/`, to SHA-256 (by `hashing`). */
   files: Record<string, string>;
+  /**
+   * Version 2: repository-relative paths of the links (symbolic links, Windows junctions) the walk followed; the files
+   * under each sit in `files` under the link's path. A link's target is never recorded (it is a path on the locker's
+   * machine). Omitted when no link was followed.
+   */
+  links?: string[];
   models?: Record<string, string>;
   mcp?: Record<string, AgentMcpRecord>;
   /** A2A peers, recorded as the site lock records an external card (kind `a2a-card`). */
@@ -691,6 +738,18 @@ export interface AgentPending {
   tools: Record<string, unknown>[];
 }
 
+/**
+ * `plumbline.agent.tools/<pendingFileName(server)>.json` (version 2 locks): the definitions the lock's `mcp[server].tools`
+ * hashes, each restricted to MCP_TOOL_DEFINITION_KEYS, sorted by name then occurrence. Written by `agent relock`,
+ * committed; third-party text, kept JSON-escaped and never printed by Plumbline.
+ */
+export interface AgentToolsFile {
+  type: typeof AGENT_TOOLS_TYPE;
+  version: typeof AGENT_FORMAT_VERSION;
+  server: string;
+  tools: Record<string, unknown>[];
+}
+
 /** The closed list of agent finding codes (`agent check`, `agent relock`, `guard`, `audit`). */
 export const AGENT_CODES = [
   "declaration-changed",
@@ -715,8 +774,32 @@ export const AGENT_CODES = [
   "approval-invalid",
   "approval-unverifiable",
   "chain-broken",
+  // version 2 (2026-11-23), appended in this order
+  "host-changed",
+  "link-absent",
+  "server-auth-missing",
+  "definitions-mismatch",
+  "definitions-absent",
 ] as const;
 export type AgentCode = (typeof AGENT_CODES)[number];
+
+/**
+ * The codes that say something was NOT CHECKED (a server unreachable, refused, never observed or missing its key, a
+ * peer unreachable, a recorded link absent from the checkout). Alone they make a report `unavailable`, never `pass` or
+ * `fail` (CLAUDE.md: the third state is never folded into either of the others).
+ */
+export const AGENT_NOT_CHECKED_CODES = [
+  "server-not-observed",
+  "server-unreachable",
+  "server-refused",
+  "server-auth-missing",
+  "peer-unreachable",
+  "link-absent",
+] as const satisfies readonly AgentCode[];
+
+/** A check's overall state, as the gate's: pass, fail, or unavailable (nothing failed, something was not checked). */
+export const AGENT_STATES = ["pass", "fail", "unavailable"] as const;
+export type AgentState = (typeof AGENT_STATES)[number];
 
 /** Counts for a server whose tools differ from the lock. Never a tool's name (a server's own words). */
 export interface AgentCounts {
@@ -739,6 +822,8 @@ export const APPROVAL_STATES = ["verified", "invalid", "unverifiable", "absent"]
 export type ApprovalState = (typeof APPROVAL_STATES)[number];
 
 export interface AgentReport {
+  /** fail: any block, or any warn not in AGENT_NOT_CHECKED_CODES; unavailable: else any warn; pass: else. */
+  state: AgentState;
   findings: AgentFinding[];
   approval: ApprovalState;
   /** The approver's kid and the trust store's label for it, when `approval` is `verified`. */

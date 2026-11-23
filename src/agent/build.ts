@@ -11,7 +11,7 @@
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { serverTarget, toolsParts, toolsRecord, type ToolPart } from "../core/agent-tools.js";
+import { toolDefinition, serverTarget, toolsParts, toolsRecord, type ToolPart } from "../core/agent-tools.js";
 import { sha256Hex } from "../core/canonical.js";
 import {
   AGENT_FORMAT_VERSION,
@@ -107,6 +107,12 @@ export interface ServerChange {
 
 export interface Built {
   lock: AgentLock;
+  /**
+   * The tool objects (restricted to MCP_TOOL_DEFINITION_KEYS, in the order received) behind each server whose tools
+   * this build observed now (a pending file taken, or a list read); a server kept from the earlier lock is absent.
+   * Written by relock and init as the committed definitions files (src/agent/definitions.ts).
+   */
+  definitions: Record<string, Record<string, unknown>[]>;
   /** warn findings: a server or peer that could not be read now (what the lock holds for it is said). */
   findings: AgentFinding[];
   servers: ServerChange[];
@@ -150,6 +156,7 @@ export async function buildLock(
 ): Promise<Built> {
   const findings: AgentFinding[] = [];
   const servers: ServerChange[] = [];
+  const definitions: Record<string, Record<string, unknown>[]> = {};
   const files = await hashDeclaredFiles(root, declaration.files);
   const mcp: Record<string, AgentMcpRecord> = {};
   for (const name of Object.keys(declaration.mcp ?? {}).sort(byPath)) {
@@ -164,6 +171,7 @@ export async function buildLock(
         const { parts } = await toolsParts(pending.tools);
         const tools = toolsRecord(parts);
         mcp[name] = { transport: "stdio", target, tools, observedAt: pending.observedAt };
+        definitions[name] = pending.tools.map((t) => toolDefinition(t));
         servers.push({ ...counted(name, "pending", same?.tools, tools), ...pendingNames(pending, parts, same?.tools) });
       } else {
         mcp[name] = keep();
@@ -176,6 +184,7 @@ export async function buildLock(
       const { parts } = await toolsParts(listed.tools);
       const tools = toolsRecord(parts);
       mcp[name] = { transport: "http", target, tools, observedAt: deps.now.toISOString() };
+      definitions[name] = listed.tools.filter((t): t is Record<string, unknown> => typeof t === "object" && t !== null && !Array.isArray(t)).map((t) => toolDefinition(t));
       servers.push(counted(name, "listed", same?.tools, tools));
       continue;
     }
@@ -219,7 +228,7 @@ export async function buildLock(
     ...(Object.keys(peers).length > 0 ? { peers } : {}),
     lockedAt: deps.now.toISOString(),
   };
-  return { lock, findings, servers };
+  return { lock, findings, servers, definitions };
 }
 
 /** The bytes a lock is written as: two-space JSON and a newline. */

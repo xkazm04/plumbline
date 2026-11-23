@@ -6,17 +6,26 @@ import {
   AGENT_APPROVAL_FILE,
   AGENT_APPROVAL_TYPE,
   AGENT_CODES,
+  AGENT_CURRENT_VERSION,
+  AGENT_DECLARATION_VERSIONS,
   AGENT_FILE,
   AGENT_FORMAT_VERSION,
+  AGENT_HASHING_RULES,
   AGENT_LOCK_FILE,
   AGENT_LOCK_TYPE,
+  AGENT_LOCK_VERSIONS,
+  AGENT_NOT_CHECKED_CODES,
   AGENT_PENDING_DIR,
   AGENT_PENDING_TYPE,
+  AGENT_STATES,
+  AGENT_TOOLS_DIR,
+  AGENT_TOOLS_TYPE,
   AGENT_TYPE,
   APPROVAL_STATES,
   APPROVERS_FILE,
   APPROVERS_TYPE,
   GUARD_REQUIRE,
+  MCP_HOSTS,
   MCP_TOOL_DEFINITION_KEYS,
   MCP_TRANSPORTS,
 } from "../core/types.js";
@@ -37,6 +46,18 @@ test("agent document types, version and file names", () => {
   assert.equal(APPROVERS_FILE, "approvers.json");
 });
 
+test("agent format version 2 (2026-11-23): versions, the tools folder, hashing rule, hosts, states", () => {
+  assert.deepEqual([...AGENT_DECLARATION_VERSIONS], [1, 2]);
+  assert.deepEqual([...AGENT_LOCK_VERSIONS], [1, 2]);
+  assert.equal(AGENT_CURRENT_VERSION, 2);
+  assert.equal(AGENT_TOOLS_DIR, "plumbline.agent.tools");
+  assert.equal(AGENT_TOOLS_TYPE, "plumbline-agent-tools");
+  assert.deepEqual([...AGENT_HASHING_RULES], ["text-lf"]);
+  assert.deepEqual([...MCP_HOSTS], ["claude", "cursor", "vscode"]);
+  assert.deepEqual([...AGENT_STATES], ["pass", "fail", "unavailable"]);
+  assert.deepEqual([...AGENT_NOT_CHECKED_CODES], ["server-not-observed", "server-unreachable", "server-refused", "server-auth-missing", "peer-unreachable", "link-absent"]);
+});
+
 test("agent enums: transports, tool definition keys, approval states, guard modes, finding codes", () => {
   assert.deepEqual([...MCP_TRANSPORTS], ["stdio", "http"]);
   assert.deepEqual([...MCP_TOOL_DEFINITION_KEYS], ["name", "title", "description", "inputSchema", "outputSchema", "annotations"]);
@@ -47,6 +68,7 @@ test("agent enums: transports, tool definition keys, approval states, guard mode
     "server-added", "server-removed", "server-target-changed", "server-not-observed", "server-unreachable", "server-refused",
     "tool-changed", "tool-added", "tool-removed", "peer-changed", "peer-unreachable",
     "lock-absent", "lock-unusable", "lock-unapproved", "approval-invalid", "approval-unverifiable", "chain-broken",
+    "host-changed", "link-absent", "server-auth-missing", "definitions-mismatch", "definitions-absent",
   ]);
 });
 

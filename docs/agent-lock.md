@@ -18,6 +18,52 @@ whose definition differs from the approved lock.
 | `approvers.json` | user-level (`$PLUMBLINE_HOME`), or CI variable `PLUMBLINE_APPROVERS` | `approver add` | no: it is the trust store, out of the repository's reach |
 | `.plumbline/pending/<server>.json` | repository, git-ignored | `guard` | never |
 
+## Format version 2 (2026-11-23)
+
+Found by running agent change control on three real repositories (a version bump that silently emptied the guard, a
+Windows working tree that would fail every pull request in CI, skills installed as links left out of the lock, a
+remote server that needs a key never locked). The declaration and the lock move to version 2; the approval, the
+approvers file and the pending file stay at 1. Every reader accepts versions 1 and 2; `init` and `relock` write 2, so the
+first relock after upgrading moves a repository to version 2. A Plumbline older than 2026-11-23 refuses a version 2
+lock (`lock-unusable`; the guard refuses every tool).
+
+| Where | Field | Version 2 |
+| --- | --- | --- |
+| declaration, each MCP server | `from` | `claude`, `cursor` or `vscode`: the host file a discovered server came from; `relock` re-syncs it from that file. Omitted for a server declared by hand. |
+| declaration, http server | `auth` | header name to the NAME of an environment variable holding its value (at most 8). The value is read when the server is listed, sent to that server only, never written or printed. A header Plumbline sets itself (content-type, accept, the MCP session and protocol headers, cookies, hop-by-hop) cannot be named. |
+| lock | `hashing` | required: `text-lf`. A declared file with no NUL byte is hashed with every CRLF replaced by LF; one with a NUL byte exactly. A version 1 lock hashed every file exactly. |
+| lock | `links` | the repository-relative paths of the links (symbolic links, Windows junctions) the walk followed; never their targets. |
+| report | `state` | `pass`, `fail` or `unavailable` (see "States and exit codes"). |
+| `plumbline.agent.tools/<server>.json` | new file | the accepted tool definitions the lock's hashes cover, written by `relock` and committed (see "Reviewing a relock"). |
+
+New finding codes, appended: `host-changed`, `link-absent`, `server-auth-missing`, `definitions-mismatch`,
+`definitions-absent`. The codes that say something was not checked (`AGENT_NOT_CHECKED_CODES`): `server-not-observed`,
+`server-unreachable`, `server-refused`, `server-auth-missing`, `peer-unreachable`, `link-absent`.
+
+### Files, line endings and links
+
+(to be written)
+
+### Servers and host files
+
+(to be written)
+
+### Remote servers that need a key
+
+(to be written)
+
+### States and exit codes
+
+(to be written)
+
+### Reviewing a relock
+
+(to be written)
+
+### Putting the guard in place
+
+(to be written)
+
 ## Declaring an agent
 
 `plumbline agent init [--root <dir>] [--wrap] [--json]` writes `plumbline.agent.json` from what the agent hosts keep in
