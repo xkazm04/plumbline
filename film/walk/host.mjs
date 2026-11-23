@@ -7,7 +7,10 @@ import path from "node:path";
 
 const [repo, server, call] = process.argv.slice(2);
 const entry = JSON.parse(readFileSync(path.join(repo, ".mcp.json"), "utf8")).mcpServers[server];
-const child = spawn(entry.command, entry.args ?? [], { cwd: repo, stdio: ["pipe", "pipe", "pipe"] });
+// a bare command name on Windows (plumbline on PATH is a .cmd) needs the shell, as agent hosts start it; the walk's
+// arguments carry no spaces or shell characters
+const bare = process.platform === "win32" && !/[\\/]/.test(entry.command);
+const child = spawn(entry.command, entry.args ?? [], { cwd: repo, stdio: ["pipe", "pipe", "pipe"], shell: bare });
 let buf = "";
 const waiting = new Map();
 child.stdout.setEncoding("utf8");

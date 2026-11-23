@@ -90,7 +90,22 @@ const until = async (sel, re, label, secs = 90) => {
   }
   throw new Error('timed out: ' + label);
 };
-const shot = async (id) => { await page.waitForTimeout(900); await page.screenshot({ path: process.env.SHOT_DIR + '/' + id + '.png' }); note(id + '|still', id + '.png'); };
+// a still is taken once the view is still (backlog item 11): no finite animation running, for at most 4 s; the endless
+// ones (a pulse, a spinner) are left out, or a page with one would never be still
+const settled = async () => {
+  for (let i = 0; i < 40; i++) {
+    const running = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getTiming?.().iterations !== Infinity).length).catch(() => 0);
+    if (running === 0) return true;
+    await page.waitForTimeout(100);
+  }
+  return false;
+};
+const shot = async (id) => {
+  await page.waitForTimeout(300);
+  if (!(await settled())) note(id + '|unsettled', 'a finite animation was still running after 4 s');
+  await page.screenshot({ path: process.env.SHOT_DIR + '/' + id + '.png' });
+  note(id + '|still', id + '.png');
+};
 `;
 
 // A terminal still: the commands as typed and what the product printed, drawn at film size, no editing of the words
@@ -135,9 +150,11 @@ note('open-gate|status', s);
   larch() {
     log("larch: the guesthouse world");
     world("down", "larch-house");
-    const w = world("up", "larch-house");
+    const w = world("up", "larch-house", "--names");
     const site = w.sites.find((s) => s.name === "larch-house");
     subs.push([w.dir, "~/larch-house-world"], [site.repo, "~/larch-house"]);
+    // the film's guesthouse links no partner (backlog item 3): a reading before the change is clean
+    world("act", "larch-house", "solo");
     // the one command, as the owner runs it, on a copy of the repository before anything was locked
     const fresh = mkdtempSync(path.join(os.tmpdir(), "plumbline-film-larch-"));
     cpSync(site.repo, fresh, { recursive: true });
@@ -146,6 +163,12 @@ note('open-gate|status', s);
     const init = cli(["init", "--root", "site", "--source", "rooms.html", "--workflow"], { cwd: fresh });
     rmSync(fresh, { recursive: true, force: true });
     const j1 = desk(w.desk.address, `${POLL}
+await goto(BASE_URL + '#/drift?target=${site.address}');
+await waitFor('#drift-run');
+await click('#drift-run');
+const before = await until('#drift-status', /^Drift (read|not read)/, 'drift before');
+await shot('larch-drift-before');
+expectMatch('larch-drift-before: nothing differs before the change', before, /^Drift read: nothing differs from the lock/);
 await goto('${site.address}rooms.html');
 await shot('larch-rooms-before');
 expectMatch('larch-rooms-before: the page states the double room at 89', await page.locator('table').innerText(), /Double room[^\\n]*€89/);
@@ -162,8 +185,56 @@ await click('#drift-run');
 const s = await until('#drift-status', /^Drift (read|not read)/, 'drift');
 await shot('larch-drift');
 const r = await page.locator('#drift-result').innerText();
-expectMatch('larch-drift: the headline says the assistant may quote an old price', r, /old price/);
 expectMatch('larch-drift: the grounding finding names the page', r, /rooms\\.html/);
+expectMatch('larch-drift: one finding, the story one', s, /^Drift read: 1 finding, Warning/);
+expectMatch('larch-drift: the headline names both prices', r, /telling visitors €89 where the page now says €95/);
+
+// the Desk's own assistant (backlog item 2): the owner asks, the page's vendored runtime calls read_drift, and the
+// answer comes from a SCRIPTED model the recorder serves at the router's address (no key, no live LLM). The recorder
+// covers the runtime's model badge with its own label, so nothing on screen claims a real model.
+const scripted = [];
+await context.route(/\\/chat\\/completions/, async (route) => {
+  const body = route.request().postDataJSON() ?? {};
+  const messages = body.messages ?? [];
+  const lastUser = messages.map((m) => m.role).lastIndexOf('user');
+  const toolResult = messages.slice(lastUser + 1).find((m) => m.role === 'tool');
+  const sse = (delta, finish) => 'data: ' + JSON.stringify({ model: 'scripted-film-walk', choices: [{ index: 0, delta, finish_reason: finish }] }) + '\\n\\ndata: [DONE]\\n\\n';
+  if (toolResult === undefined) {
+    const tool = (body.tools ?? []).map((t) => t.function?.name).find((n) => /read_drift$/.test(n ?? ''));
+    scripted.push('tool ' + tool);
+    await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: sse({ tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: tool, arguments: JSON.stringify({ target: '${site.address}' }) } }] }, 'tool_calls') });
+    return;
+  }
+  // the answer is written from the tool's own result: the values come from the finding, not from this script
+  const m = /"was":"([^"]+)","now":"([^"]+)"/.exec(String(toolResult.content));
+  const text = m
+    ? 'Not quite. Your rooms page now says ' + m[2] + ' for the double room, but your assistant still tells guests ' + m[1] + '. Forward this to whoever looks after your website, so they update what the assistant says.'
+    : 'I could not tell which price changed from the reading.';
+  scripted.push('answer ' + (m ? m[1] + '->' + m[2] : 'none'));
+  await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: sse({ content: text }, 'stop') });
+});
+await click('#dock-tab');
+await waitFor('#ns-key');
+await fill('#ns-key', 'scripted-film-walk');
+await click('#ns-apply');
+await waitFor('#ns-input');
+await fill('#ns-input', 'Is my assistant still telling guests the right prices?');
+await click('#ns-send');
+const answer = await until('#assistant', /still tells guests €89/, 'the assistant answers', 60);
+await page.evaluate(() => {
+  const badge = document.querySelector('.ns-llmbadge');
+  if (!badge) return;
+  const r = badge.getBoundingClientRect();
+  const label = document.createElement('div');
+  label.textContent = 'SCRIPTED MODEL · not a live LLM';
+  label.setAttribute('data-recorder', 'overlay');
+  Object.assign(label.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', minWidth: r.width + 'px', height: r.height + 'px', display: 'flex', alignItems: 'center', padding: '0 8px', background: '#7c2d12', color: '#fff', font: '600 12px system-ui', borderRadius: '6px', zIndex: 2147483647 });
+  document.body.append(label);
+});
+await shot('larch-assistant');
+expectMatch('larch-assistant: the answer names both values from the tool result', answer, /now says €95 for the double room, but your assistant still tells guests €89/);
+expect('larch-assistant: the runtime called read_drift, then answered', scripted.length === 2 && /^tool .*read_drift$/.test(scripted[0]), scripted.join(' | '));
+note('larch-assistant|scripted', scripted.join(' | '));
 note('larch-drift|status', s);
 `);
     fold(j2, "larch-2");
@@ -179,10 +250,15 @@ note('larch-drift|status', s);
   clinic() {
     log("clinic: the clinic world");
     world("down", "northgate-clinic");
-    const w = world("up", "northgate-clinic");
+    const w = world("up", "northgate-clinic", "--names");
     const clinic = w.sites.find((s) => s.name === "northgate-clinic");
     const mirror = w.sites.find((s) => s.name === "northgate-mirror");
     world("act", "northgate-clinic", "forgery");
+    // what the copy changed (backlog item 4): the clinic's network against the copy's, sentence by sentence
+    subs.push([clinic.folder, "northgate-clinic"], [mirror.folder, "northgate-mirror"]);
+    const copyDiff = cli(["diff", path.join(clinic.folder, "northgate_clinic.network.json"), path.join(mirror.folder, "northgate_clinic.network.json")]);
+    term("clinic-copy-diff", "What the copy changed", [{ cmd: "plumbline diff northgate-clinic/northgate_clinic.network.json northgate-mirror/northgate_clinic.network.json", out: shorten(copyDiff.out) }]);
+    cap("clinic-copy-diff").checks.push({ label: "the added sentence asks for the NHS number", ok: /^ {2}\+ .*NHS number/m.test(copyDiff.out), matched: (copyDiff.out.match(/^ {2}\+ .*NHS number.*$/m) ?? [""])[0] });
     const files = ["agent-manifest.json", "links.json", "northgate_clinic.network.json"].map((f) => path.join(clinic.folder, f));
     const key = w.keyFiles["clinic-a"].private;
     const worldJs = path.join(REPO, "uat", "driver", "world.mjs");
@@ -232,8 +308,6 @@ expectMatch('clinic-tampered: the verdict names the changed file', await page.lo
 note('clinic-tampered|status', s);
 `);
     fold(j, "clinic");
-    const mirrorNet = readFileSync(path.join(mirror.folder, "northgate_clinic.network.json"), "utf8");
-    cap("clinic-mirror").notes.push(`the copy's network asks for the NHS number: ${/NHS number/i.test(mirrorNet)} (shown nowhere on the Desk)`);
     if (!keep) world("down", "northgate-clinic");
   },
 
@@ -245,14 +319,24 @@ note('clinic-tampered|status', s);
     mkdirSync(home);
     cpSync(path.join(REPO, "film", "stage", "agent-repo"), repo, { recursive: true });
     subs.push([repo, "~/harbour-notes"], [home, "~/.config/plumbline"], [`"${process.execPath.replace(/\\/g, "\\\\")}"`, '"node"'], [CLI.replace(/\\/g, "\\\\"), "plumbline"], [CLI, "plumbline"], [process.execPath, "node"]);
-    const env = { PLUMBLINE_HOME: home, GIT_AUTHOR_NAME: "Ana Ruiz", GIT_AUTHOR_EMAIL: "ana@example.invalid", GIT_COMMITTER_NAME: "Ana Ruiz", GIT_COMMITTER_EMAIL: "ana@example.invalid" };
+    // plumbline on PATH, as an installed user has it (backlog item 6): the wrapped entry is the short `plumbline guard`
+    const bin = path.join(dir, "bin");
+    mkdirSync(bin);
+    if (process.platform === "win32") writeFileSync(path.join(bin, "plumbline.cmd"), `@"${process.execPath}" "${CLI}" %*\r\n`);
+    else {
+      writeFileSync(path.join(bin, "plumbline"), `#!/bin/sh\nexec "${process.execPath}" "${CLI}" "$@"\n`);
+      run("chmod", ["+x", path.join(bin, "plumbline")]);
+    }
+    const PATH = `${bin}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ""}`;
+    const env = { PATH, Path: PATH, PLUMBLINE_HOME: home, GIT_AUTHOR_NAME: "Ana Ruiz", GIT_AUTHOR_EMAIL: "ana@example.invalid", GIT_COMMITTER_NAME: "Ana Ruiz", GIT_COMMITTER_EMAIL: "ana@example.invalid" };
     const git = (...a) => run("git", ["-c", "core.autocrlf=false", ...a], { cwd: repo, env });
     const p = (...a) => cli(a, { cwd: repo, env });
-    const host = (call) => run(process.execPath, [path.join(REPO, "film", "walk", "host.mjs"), ".", "notes", ...(call ? [call] : [])], { cwd: repo, env, timeout: 30000 });
+    const host = (call) => run(process.execPath, ["--no-deprecation", path.join(REPO, "film", "walk", "host.mjs"), ".", "notes", ...(call ? [call] : [])], { cwd: repo, env, timeout: 30000 });
     git("init", "-q");
     git("add", "-A");
     git("commit", "-qm", "the notes agent");
-    const init = p("agent", "init", "--wrap");
+    // the guard requires a person's approval of the lock (backlog item 9), as the film's line says
+    const init = p("agent", "init", "--wrap", "--require", "approved");
     p("keygen", "--out", path.join(home, "ana"));
     p("approver", "add", "--key", path.join(home, "ana", ".well-known", "plumbline-key.json"), "--label", "Ana Ruiz");
     const first = host();
@@ -261,8 +345,9 @@ note('clinic-tampered|status', s);
     const check = p("agent", "check");
     git("add", "-A");
     git("commit", "-qm", "plumbline: lock and approve the agent");
+    cap("agent-locked").notes.push(`plumbline agent init --wrap --require approved (exit ${init.status}):\n${shorten(init.out)}`);
+    cap("agent-locked").checks.push({ label: "the wrapped entry is the short form and requires approval", ok: /"command":"plumbline","args":\["guard",[^\]]*"--require","approved"/.test(init.out) && !/not on PATH/.test(init.out) });
     term("agent-locked", "Harbour Notes: the agent, locked and approved", [
-      { cmd: "plumbline agent init --wrap", out: shorten(init.out) },
       { cmd: "plumbline agent relock      # after the agent ran once behind the guard", out: shorten(relock.out) },
       { cmd: "plumbline approve --key ../ana/plumbline.private.json", out: shorten(approve.out) },
       { cmd: "plumbline agent check", out: shorten(check.out) },
@@ -280,6 +365,7 @@ note('clinic-tampered|status', s);
     term("agent-guarded", "The agent host starts the server through the guard", [{ cmd: "(agent host) list tools, then call search_notes", out: shorten(guarded.out) }]);
     cap("agent-guarded").checks.push({ label: "the host sees only the unchanged tool", ok: /host sees 1 tool/.test(guarded.out) && !/^\s+search_notes/m.test(guarded.out) });
     cap("agent-guarded").checks.push({ label: "the call to the changed tool is refused", ok: /call search_notes: refused/.test(guarded.out) });
+    cap("agent-guarded").checks.push({ label: "no locked-mode notice: the guard requires approval", ok: !/--require locked/.test(guarded.out) });
     const failing = p("agent", "check");
     const relock2 = p("agent", "relock");
     const review = git("diff", "--", "plumbline.agent.tools");
@@ -308,8 +394,8 @@ for (const name of only) {
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 function tone(line) {
-  if (/^\+(?!\+)/.test(line)) return "add";
-  if (/^-(?!-)/.test(line)) return "del";
+  if (/^\s*\+(?!\+)/.test(line)) return "add";
+  if (/^\s*-(?!-)/.test(line)) return "del";
   if (/refused|State: fail|\bfail\b|BROKEN|hidden/i.test(line)) return "bad";
   if (/^\[?warn|warning/i.test(line)) return "warn";
   if (/State: pass|^Approval: verified|^approved /.test(line)) return "good";
