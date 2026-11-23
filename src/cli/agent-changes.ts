@@ -42,13 +42,17 @@ export async function reviewServers(root: string, old: AgentLock, built: Built):
     const prev = old.mcp?.[server];
     const now = built.lock.mcp?.[server];
     const held = prev !== undefined && now !== undefined && prev.transport === now.transport ? (prev.tools ?? {}) : {};
-    const keys = changedKeys(await readDefinitions(root, server), after);
+    const accepted = await readDefinitions(root, server);
+    const keys = changedKeys(accepted, after);
+    // the accepted definition of a changed tool, by name (a repeated name: its first occurrence), for `escalated`
+    const acceptedByName = new Map<string, Record<string, unknown>>();
+    for (const t of accepted ?? []) if (typeof t.name === "string" && !acceptedByName.has(t.name)) acceptedByName.set(t.name, t);
     const review: ServerReview = { added: [], changed: [] };
     for (const part of (await toolsParts(after)).parts) {
       const tool = after[part.index]!;
       const name = tool.name as string;
       if (!Object.hasOwn(held, part.key)) review.added.push({ name, marks: toolMarks(tool) });
-      else if (held[part.key] !== part.definition) review.changed.push({ name, marks: toolMarks(tool), ...(keys[name] !== undefined ? { keys: keys[name] } : {}) });
+      else if (held[part.key] !== part.definition) review.changed.push({ name, marks: toolMarks(tool, acceptedByName.get(name)), ...(keys[name] !== undefined ? { keys: keys[name] } : {}) });
     }
     reviews[server] = review;
   }

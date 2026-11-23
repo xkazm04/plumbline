@@ -274,7 +274,7 @@ caller's own terminal, control and bidi characters replaced), and for each chang
 never their text:
 
 ```
-  server playwright (from what the guard saw): tools 0 added, 0 removed, 2 changed (changed browser_navigate [description; marked: open-world], browser_type [inputSchema])
+  server playwright (from what the guard saw): tools 0 added, 0 removed, 2 changed (changed browser_navigate [description, annotations; marked: escalated], browser_type [inputSchema])
     1 of 2 changed tools is marked for a harder look.
 ```
 
@@ -282,13 +282,17 @@ The keys are found by comparing the new definitions with the committed file befo
 file (a version 1 lock) a changed tool is named without keys. An http server's tool names are never printed: its lines
 are counts, `changed keys: description (2 tools)`, and the marked count.
 
-A tool is marked for a harder look when the server says it may destroy something (`annotations.destructiveHint` is
-`true`: `destructive`), when it reaches outside the host and does not say it only reads (`openWorldHint` is `true` and
-`readOnlyHint` is not `true`: `open-world`), or when its name matches `unsafe`, `exec`, `eval`, `shell`, `run_code`,
-`delete` or `drop`, in any case (`name`). Marks sit beside the added and changed names, with a count line ("4 of 7 added
-tools are marked for a harder look."). They are advice for the reviewer: they change no severity and no exit code.
-Annotations are the server's own claims and the name rule is coarse (it also marks `retrieval`, and misses a tool named
-`run`), so a tool without a mark is not thereby safe, and a missing mark proves nothing.
+A tool is marked for a harder look when its name matches `unsafe`, `exec`, `eval`, `shell`, `run_code`, `delete` or
+`drop`, in any case (`name`), or when it CHANGED and its annotations now claim more power than the definition the last
+lock accepted (`escalated`): it was read-only and is not, or it was not destructive or not open-world and now is. The
+claims are read with the MCP specification's defaults (`readOnlyHint` false, `destructiveHint` true, `openWorldHint`
+true; `destructiveHint` means nothing on a read-only tool), so dropping a `readOnlyHint: true` escalates as surely as
+saying `false`. An added tool's annotations alone are never a mark: by those defaults most tools are "destructive,
+open-world" (a real playwright server: 17 of 24), and a mark on most tools says nothing. Marks sit beside the added and
+changed names, with a count line ("1 of 2 changed tools is marked for a harder look."). They are advice for the
+reviewer: they change no severity and no exit code. Annotations are the server's own claims and the name rule is
+coarse (it also marks `retrieval`, and misses a tool named `run`), so a tool without a mark is not thereby safe, and a
+missing mark proves nothing.
 
 ### Putting the guard in place
 

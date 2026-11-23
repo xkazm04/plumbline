@@ -29,7 +29,7 @@ import { byPath } from "./glob.js";
 import { pendingFileName } from "./pending.js";
 
 /** Why a tool deserves a harder look: an annotation the server sent, or its name. Advisory; never a severity. */
-export const TOOL_MARKS = ["destructive", "open-world", "name"] as const;
+export const TOOL_MARKS = ["name", "escalated"] as const;
 export type ToolMark = (typeof TOOL_MARKS)[number];
 
 /** D-9: a name that says the tool runs code, a shell or deletes. Coarse on purpose (it also marks `retrieval`). */
@@ -214,15 +214,29 @@ export function changedKeys(before: readonly Record<string, unknown>[] | undefin
 }
 
 /**
- * The marks of one tool definition (D-9): `destructive` when annotations.destructiveHint is true; `open-world` when
- * openWorldHint is true and readOnlyHint is not; `name` when the name matches MARKED_NAME. Annotations are the server's
- * own claims: a tool without a mark is not thereby safe.
+ * What a tool's annotations claim, with the MCP specification's defaults (ToolAnnotations: readOnlyHint false,
+ * destructiveHint true, openWorldHint true; destructiveHint means something only when the tool is not read-only).
  */
-export function toolMarks(tool: Record<string, unknown>): ToolMark[] {
+function claims(tool: Record<string, unknown>): { readOnly: boolean; destructive: boolean; openWorld: boolean } {
   const notes = isObject(tool.annotations) ? tool.annotations : {};
+  const readOnly = notes.readOnlyHint === true;
+  return { readOnly, destructive: !readOnly && notes.destructiveHint !== false, openWorld: notes.openWorldHint !== false };
+}
+
+/**
+ * The marks of one tool definition (D-9, tuned 2026-11-23): `name` when the name matches MARKED_NAME; `escalated` when
+ * `accepted` (the definition the last approved lock holds for it) is given and the annotations now claim more power:
+ * read-only lost, destructive or open-world gained. An added tool's annotations alone are never a mark: the defaults
+ * make most tools "destructive, open-world" (playwright: 17 of 24), so such a mark said nothing. Annotations are the
+ * server's own claims: a tool without a mark is not thereby safe.
+ */
+export function toolMarks(tool: Record<string, unknown>, accepted?: Record<string, unknown>): ToolMark[] {
   const marks: ToolMark[] = [];
-  if (notes.destructiveHint === true) marks.push("destructive");
-  if (notes.openWorldHint === true && notes.readOnlyHint !== true) marks.push("open-world");
   if (typeof tool.name === "string" && MARKED_NAME.test(tool.name)) marks.push("name");
+  if (accepted !== undefined) {
+    const before = claims(accepted);
+    const now = claims(tool);
+    if ((before.readOnly && !now.readOnly) || (!before.destructive && now.destructive) || (!before.openWorld && now.openWorld)) marks.push("escalated");
+  }
   return marks;
 }

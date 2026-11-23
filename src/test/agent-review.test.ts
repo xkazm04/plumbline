@@ -34,19 +34,37 @@ async function initialised(): Promise<{ dir: string; s: ReturnType<typeof spy> }
 const lockOf = (dir: string): AgentLock => JSON.parse(read(dir, AGENT_LOCK_FILE)) as AgentLock;
 const codes = (r: AgentReport): string[] => r.findings.map((f) => `${f.severity} ${f.code} ${f.ref}`);
 
-test("marks (D-9) on the playwright-like list: by name, by destructiveHint, by openWorldHint without readOnlyHint; a readOnly open-world tool is not marked", () => {
+test("marks (D-9, tuned): an added tool is marked by its name only; its annotations alone are never a mark", () => {
   const marks = Object.fromEntries(PLAYWRIGHT_TOOLS().map((t) => [t.name as string, toolMarks(t)]));
   assert.deepEqual(marks, {
     browser_snapshot: [],
-    browser_navigate: ["open-world"],
+    browser_navigate: [],
     browser_run_code_unsafe: ["name"],
     browser_close: [],
-    browser_file_upload: ["destructive"],
-    browser_evaluate: ["destructive", "open-world", "name"],
+    browser_file_upload: [],
+    browser_evaluate: ["name"],
     browser_type: [],
   });
   assert.deepEqual(toolMarks({ name: "x", annotations: "not an object" }), []);
-  assert.deepEqual(toolMarks({ name: "drop_table", annotations: { destructiveHint: "true" } }), ["name"], "only a boolean true is a hint");
+});
+
+test("marks (D-9, tuned): a changed tool is escalated when its annotations claim more than the accepted ones, by the spec's defaults", () => {
+  const tool = (annotations?: Record<string, unknown>) => ({ name: "t", ...(annotations !== undefined ? { annotations } : {}) });
+  // read-only lost: explicitly, or by dropping the claim (readOnlyHint defaults to false)
+  assert.deepEqual(toolMarks(tool({ readOnlyHint: false }), tool({ readOnlyHint: true })), ["escalated"]);
+  assert.deepEqual(toolMarks(tool(), tool({ readOnlyHint: true })), ["escalated"]);
+  // destructive gained: false -> true, or false -> unsaid (destructiveHint defaults to true)
+  assert.deepEqual(toolMarks(tool({ destructiveHint: true }), tool({ destructiveHint: false })), ["escalated"]);
+  assert.deepEqual(toolMarks(tool({}), tool({ destructiveHint: false })), ["escalated"]);
+  // open-world gained the same way
+  assert.deepEqual(toolMarks(tool({ openWorldHint: true, destructiveHint: false }), tool({ openWorldHint: false, destructiveHint: false })), ["escalated"]);
+  // less power, or the same, is not a mark; nor is a destructive hint on a read-only tool (it means nothing there)
+  assert.deepEqual(toolMarks(tool({ readOnlyHint: true }), tool({})), []);
+  assert.deepEqual(toolMarks(tool({ destructiveHint: false, openWorldHint: false }), tool({})), []);
+  assert.deepEqual(toolMarks(tool({ readOnlyHint: true, destructiveHint: true }), tool({ readOnlyHint: true })), []);
+  assert.deepEqual(toolMarks(tool({ destructiveHint: "true" }), tool({ destructiveHint: false })), ["escalated"], "only a boolean false keeps the default from applying");
+  // a marked name and an escalation together
+  assert.deepEqual(toolMarks({ name: "drop_table", annotations: { readOnlyHint: false } }, { name: "drop_table", annotations: { readOnlyHint: true } }), ["name", "escalated"]);
 });
 
 test("changedKeys names the defining keys that differ, by name and occurrence; added, removed and unchanged tools are not listed", () => {
@@ -89,10 +107,9 @@ test("relock writes the definitions file of a stdio server from its pending file
   assert.deepEqual(toolsRecord((await toolsParts((JSON.parse(text) as { tools: unknown[] }).tools)).parts), lockOf(dir).mcp?.playwright?.tools);
   assert.match(out, /server playwright \(from what the guard saw\): tools 7 added, 0 removed, 0 changed \(added /);
   assert.match(out, /browser_run_code_unsafe \[marked: name\]/);
-  assert.match(out, /browser_evaluate \[marked: destructive, open-world, name\]/);
-  assert.match(out, /browser_file_upload \[marked: destructive\]/);
-  assert.match(out, /browser_snapshot(,|\))/, "a readOnly open-world tool is not marked");
-  assert.match(out, /^ {4}4 of 7 added tools are marked for a harder look\.$/m);
+  assert.match(out, /browser_evaluate \[marked: name\]/);
+  assert.match(out, /browser_file_upload(,|\))/, "an added tool's annotations alone are not a mark");
+  assert.match(out, /^ {4}2 of 7 added tools are marked for a harder look\.$/m);
   for (const t of tools) assert.ok(!out.includes(t.description as string), "a description is never printed");
 });
 
@@ -104,14 +121,14 @@ test("a changed tool's line names the changed keys; the new description is in th
   const before = read(dir, definitionsPathOf("playwright"));
 
   const rugged = tools.map((t) =>
-    t.name === "browser_navigate" ? { ...t, description: RUG } : t.name === "browser_type" ? { ...t, inputSchema: { type: "object", properties: { text: { type: "string" }, submit: { type: "boolean" } } } } : t,
+    t.name === "browser_navigate" ? { ...t, description: RUG, annotations: { ...(t.annotations as Record<string, unknown>), destructiveHint: true } } : t.name === "browser_type" ? { ...t, inputSchema: { type: "object", properties: { text: { type: "string" }, submit: { type: "boolean" } } } } : t,
   );
   write(dir, { ".plumbline/pending/playwright.json": await pendingText(rugged) });
   // the real CLI in a child process: stdout and stderr (no http server or peer is read here: docs is kept on failure)
   write(dir, { [AGENT_FILE]: json({ ...(JSON.parse(read(dir, AGENT_FILE)) as AgentDeclaration), mcp: { playwright: STDIO } }) });
   const run = spawnSync(process.execPath, [CLI, "agent", "relock", "--root", dir], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
-  assert.match(run.stdout, /tools 0 added, 0 removed, 2 changed \(changed browser_navigate \[description; marked: open-world\], browser_type \[inputSchema\]\)/);
+  assert.match(run.stdout, /tools 0 added, 0 removed, 2 changed \(changed browser_navigate \[description, annotations; marked: escalated\], browser_type \[inputSchema\]\)/);
   assert.match(run.stdout, /^ {4}1 of 2 changed tools is marked for a harder look\.$/m);
   assert.ok(!run.stdout.includes(RUG) && !run.stderr.includes(RUG), "the new description never reaches stdout or stderr");
   assert.ok(!run.stdout.includes("id_ed25519") && !run.stderr.includes("id_ed25519"));
@@ -131,7 +148,7 @@ test("an http server's file is written from the list; its tool names are never p
   const file = JSON.parse(read(dir, definitionsPathOf("docs"))) as { server: string; tools: { name: string }[] };
   assert.equal(file.server, "docs");
   assert.equal(file.tools.length, 7);
-  assert.match(out, /server docs \(listed now\): tools 7 added, 2 removed, 0 changed\n {4}4 of 7 added tools are marked for a harder look\./);
+  assert.match(out, /server docs \(listed now\): tools 7 added, 2 removed, 0 changed\n {4}2 of 7 added tools are marked for a harder look\./);
   const changed = PLAYWRIGHT_TOOLS().map((t) => (t.name === "browser_close" ? { ...t, description: "Close it." } : t));
   s.lists.set("https://docs.example/mcp", { ok: true, tools: changed, protocol: "2025-06-18" });
   const second = await agent(s.deps, "relock", "--root", dir);
