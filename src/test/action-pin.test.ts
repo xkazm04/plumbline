@@ -24,6 +24,25 @@ test("the Action builds plumbline from its own checkout and runs the built CLI",
   assert.match(action, /cli="\$GITHUB_ACTION_PATH\/\.\.\/dist\/cli\/index\.js"/);
 });
 
+/**
+ * What the runner refuses when it loads an action.yml, before any step runs ("Unrecognized named-value: 'secrets'",
+ * every scheduled watch from 2026-11-18 to 11-23): it evaluates `${{ }}` everywhere in the file, descriptions included,
+ * and an action's metadata has no `secrets` or `vars` context (a workflow passes them in as inputs).
+ */
+function loadRefusals(text: string): string[] {
+  const out: string[] = [];
+  for (const [i, line] of text.split("\n").entries()) {
+    if (/^\s*description:.*\$\{\{/.test(line)) out.push(`line ${i + 1}: an expression in a description`);
+    for (const m of line.matchAll(/\$\{\{\s*([A-Za-z_]+)/g)) if (m[1] === "secrets" || m[1] === "vars") out.push(`line ${i + 1}: the ${m[1]} context`);
+  }
+  return out;
+}
+
+test("action.yml loads on the runner: no expression in a description, no secrets or vars context", () => {
+  assert.deepEqual(loadRefusals(action), []);
+  assert.deepEqual(loadRefusals('    description: "from `${{ secrets.KEY }}`"\n'), ["line 1: an expression in a description", "line 1: the secrets context"]);
+});
+
 test("nothing installs plumbline from a registry or by name: no npx, no plumbline@", () => {
   // the agent template (two jobs, two uses of the Action) has its pin checked in action/agent.test.mjs
   for (const text of [code(action), ...[...TEMPLATES, "action/templates/plumbline-agent.yml"].map((t) => code(read(t)))]) {

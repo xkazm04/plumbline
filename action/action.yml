@@ -40,7 +40,7 @@ inputs:
     required: false
     default: "false"
   signing-key:
-    description: "For `renew` only (a relock pull request is never signed by the run): the JSON of a plumbline.private.json, from a secret (`${{ secrets.PLUMBLINE_SIGNING_KEY }}`). It reaches the CLI through an environment variable only (`sign --key-env`), is never printed and never written to disk."
+    description: "For `renew` only (a relock pull request is never signed by the run): the JSON of a plumbline.private.json, from a secret (the renew template passes secrets.PLUMBLINE_SIGNING_KEY). It reaches the CLI through an environment variable only (`sign --key-env`), is never printed and never written to disk."
     required: false
     default: ""
   origin:
@@ -64,7 +64,7 @@ inputs:
     required: false
     default: "false"
   approvers:
-    description: "For `agent`: the JSON text of the approvers file (the people whose keys may approve the agent lock), from a repository variable a pull request cannot edit: `${{ vars.PLUMBLINE_APPROVERS }}`. It reaches the CLI as PLUMBLINE_APPROVERS. Empty, every approval is unverifiable and the check fails."
+    description: "For `agent`: the JSON text of the approvers file (the people whose keys may approve the agent lock), from a repository variable a pull request cannot edit (the agent template passes vars.PLUMBLINE_APPROVERS). It reaches the CLI as PLUMBLINE_APPROVERS. Empty, every approval is unverifiable and the check fails."
     required: false
     default: ""
 
