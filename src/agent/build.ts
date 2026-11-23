@@ -2,12 +2,13 @@
 // read goes through the injected lister (MCP over HTTP, src/net/mcp-http.ts) and fetcher (A2A cards, safeFetch), so
 // tests inject both and production passes the guarded ones.
 //
-// Rules: files are the declaration's globs expanded now, each hashed by the text rule (src/agent/text-hash.ts: CRLF read
-// as LF unless the file holds a NUL byte); the lock is written as version 2 with `hashing: "text-lf"`. A stdio server's tools come from the
-// guard's pending file when its `target` matches the declared command; else the previous lock's tools are kept when the
-// target did not change; else none (not yet observed). An http server's tools are listed now; one that cannot be read
-// keeps the previous record when its target did not change, else it is locked without tools, and either way a warn
-// says so. A peer is read now; one that cannot be read keeps its previous record, else it is left out, with a warn.
+// Rules: files are the declaration's globs expanded now, links followed (src/agent/discover.ts), each hashed by the text
+// rule (src/agent/text-hash.ts: CRLF read as LF unless the file holds a NUL byte); the lock is written as version 2 with
+// `hashing: "text-lf"` and the links followed. A stdio server's tools come from the guard's pending file when its
+// `target` matches the declared command; else the previous lock's tools are kept when the target did not change; else
+// none (not yet observed). An http server's tools are listed now; one that cannot be read keeps the previous record when
+// its target did not change, else it is locked without tools, and either way a warn says so. A peer is read now; one
+// that cannot be read keeps its previous record, else it is left out, with a warn.
 // Nothing the network said is ever dropped silently, and a server's own words never reach a finding.
 
 import { readFile } from "node:fs/promises";
@@ -61,6 +62,8 @@ export async function readPending(root: string, server: string): Promise<AgentPe
 export interface DeclaredFiles {
   /** Repository path to SHA-256 under the text rule (`text-lf`). */
   files: Record<string, string>;
+  /** The links followed that lead to a file in `files`, repository-relative, sorted (never where they point). */
+  links: string[];
   /**
    * The files whose hash differs from `exactBefore` (a version 1 lock's files) only because of the text rule: their
    * exact bytes still hash to the old record, so their contents did not change. Sorted; empty without `exactBefore`.
@@ -70,8 +73,8 @@ export interface DeclaredFiles {
 
 /**
  * The files the declaration's globs match now, hashed by the text rule. A matched file a lock cannot name is refused
- * (exit 2). `exactBefore`: the files of a version 1 lock being replaced, whose hashes are of exact bytes (for
- * `rehashed`).
+ * (exit 2), as are a link cycle and a walk over MAX_DECLARED_FILES (src/agent/discover.ts). `exactBefore`: the files of
+ * a version 1 lock being replaced, whose hashes are of exact bytes (for `rehashed`).
  */
 export async function hashDeclaredFiles(root: string, globs: readonly string[], exactBefore?: Record<string, string>): Promise<DeclaredFiles> {
   const matched = await matchFiles(root, globs);
@@ -93,7 +96,7 @@ export async function hashDeclaredFiles(root: string, globs: readonly string[], 
     const before = exactBefore?.[rel];
     if (before !== undefined && before !== files[rel] && (await declaredFileHash(bytes, undefined)) === before) rehashed.push(rel);
   }
-  return { files, rehashed };
+  return { files, links: matched.links, rehashed };
 }
 
 /** Why a list result is not a list, in words completing "could not be read (...)", and whether the address was refused. */
@@ -144,6 +147,8 @@ export interface Built {
    * otherwise.
    */
   rehashed: string[];
+  /** How many links the files were followed through (`lock.links`), and how many locked files sit under them. */
+  linked: { links: number; files: number };
 }
 
 function counted(server: string, source: ServerChange["source"], before: Record<string, string> | undefined, after: Record<string, string> | undefined): ServerChange {
@@ -186,7 +191,7 @@ export async function buildLock(
   const servers: ServerChange[] = [];
   const definitions: Record<string, Record<string, unknown>[]> = {};
   const exactBefore = previous !== undefined && previous.lock.hashing === undefined ? previous.lock.files : undefined;
-  const { files, rehashed } = await hashDeclaredFiles(root, declaration.files, exactBefore);
+  const { files, links, rehashed } = await hashDeclaredFiles(root, declaration.files, exactBefore);
   const mcp: Record<string, AgentMcpRecord> = {};
   for (const name of Object.keys(declaration.mcp ?? {}).sort(byPath)) {
     const decl = (declaration.mcp ?? {})[name]!;
@@ -253,12 +258,14 @@ export async function buildLock(
     declaration: await sha256Hex(declarationBytes),
     hashing: "text-lf",
     files,
+    ...(links.length > 0 ? { links } : {}),
     ...(declaration.models !== undefined && Object.keys(declaration.models).length > 0 ? { models: { ...declaration.models } } : {}),
     ...(Object.keys(mcp).length > 0 ? { mcp } : {}),
     ...(Object.keys(peers).length > 0 ? { peers } : {}),
     lockedAt: deps.now.toISOString(),
   };
-  return { lock, findings, servers, definitions, rehashed };
+  const linkedFiles = Object.keys(files).filter((rel) => links.some((l) => rel === l || rel.startsWith(`${l}/`))).length;
+  return { lock, findings, servers, definitions, rehashed, linked: { links: links.length, files: linkedFiles } };
 }
 
 /** The bytes a lock is written as: two-space JSON and a newline. */

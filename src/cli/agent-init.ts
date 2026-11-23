@@ -75,6 +75,7 @@ export async function init(root: string, wrap: boolean, json: boolean, out: Out,
     return 0;
   }
   out(`Locked: ${plural(counts.stdio + counts.http, "MCP server")} (${counts.stdio} stdio, ${counts.http} http), ${plural(counts.files, "file")}, ${plural(counts.models, "model")}, ${plural(counts.peers, "peer")}.`);
+  if (built.linked.links > 0) out(`${plural(built.linked.files, "file")} through ${plural(built.linked.links, "link")} (followed; the lock records each link's path, never where it points).`);
   out(`Wrote ${AGENT_FILE} (the declaration: edit it to add or remove what the agent is made of) and ${AGENT_LOCK_FILE} (the first lock).`);
   for (const e of hosts.entries.filter((x) => x.sse)) out(`${e.file}: ${printable(e.key)} is an SSE server; it is declared as http (Streamable HTTP), which is what Plumbline reads.`);
   for (const e of hosts.entries.filter((x) => x.name !== x.key)) out(`${e.file}: ${printable(e.key)} names a different server in another host, so it is declared as ${printable(e.name)}.`);

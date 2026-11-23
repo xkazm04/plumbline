@@ -1,11 +1,21 @@
-// The declared files under the text rule (src/agent/text-hash.ts, build.ts hashDeclaredFiles, check-files.ts): a CRLF
-// working tree and an LF checkout lock the same; a file with a NUL byte is exact; a version 1 lock is still checked by
-// exact bytes and its first version 2 relock reports re-hashed files, not changed ones.
+// The declared files (src/agent/text-hash.ts, discover.ts walk, build.ts hashDeclaredFiles, check-files.ts): the text
+// rule (a CRLF working tree and an LF checkout lock the same; a file with a NUL byte is exact; a version 1 lock is still
+// checked by exact bytes and its first version 2 relock reports re-hashed files, not changed ones), and links (followed,
+// recorded by path, never by target; a cycle and the walk bound refused; an absent link is `link-absent`, not removed).
+//
+// Links: a Windows junction needs no privilege, so every link test has a junction form that runs everywhere (on POSIX
+// `symlinkSync(..., "junction")` makes an ordinary symbolic link). A symbolic link to a file or a folder needs a
+// privilege on Windows (Developer Mode or an elevated shell); those two tests skip on Windows only when creating the link
+// is refused with EPERM. A file cannot be a junction, so the file link has no junction form.
 import assert from "node:assert/strict";
+import { mkdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
 import { sha256Hex } from "../core/canonical.js";
 import { AGENT_FILE, AGENT_LOCK_FILE, AGENT_LOCK_TYPE, type AgentLock, type AgentReport } from "../core/types.js";
+import { CliError } from "../cli/args.js";
 import { buildLock, lockText } from "../agent/build.js";
+import { matchFiles, MAX_DECLARED_FILES } from "../agent/discover.js";
 import { parseAgentLock, parseDeclaration } from "../agent/lock.js";
 import { declaredFileHash, textLfBytes } from "../agent/text-hash.js";
 import { agent, json, read, repo, spy, write } from "./agent-helpers.js";
@@ -35,6 +45,24 @@ async function check(dir: string): Promise<AgentReport> {
 
 /** The file and link findings of a report, as `severity code ref`. */
 const fileCodes = (r: AgentReport): string[] => r.findings.filter((f) => f.code.startsWith("file-") || f.code === "link-absent").map((f) => `${f.severity} ${f.code} ${f.ref}`);
+
+/** A junction (a symbolic link on POSIX) at `at` (repository-relative) to the folder `target`. */
+function junction(dir: string, at: string, target: string): void {
+  const full = path.join(dir, ...at.split("/"));
+  mkdirSync(path.dirname(full), { recursive: true });
+  symlinkSync(target, full, "junction");
+}
+
+/** A symbolic link, or undefined when Windows refuses it for want of the privilege (EPERM). */
+function trySymlink(target: string, at: string, type: "file" | "dir"): true | undefined {
+  try {
+    symlinkSync(target, at, type);
+    return true;
+  } catch (error) {
+    if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") return undefined;
+    throw error;
+  }
+}
 
 // ---- the text rule ----
 
@@ -116,4 +144,138 @@ test("the first version 2 relock of a version 1 lock: CRLF files are re-hashed, 
   assert.equal((await agent(spy().deps, "relock", "--root", dir)).code, 0);
   assert.equal(locked(dir).version, 2);
   assert.equal(locked(dir).hashing, "text-lf");
+});
+
+// ---- links ----
+
+/** A shared registry outside the repository: two skills, one with a nested folder. */
+function registry(): string {
+  return repo({ "skill-x/SKILL.md": "x\n", "skill-x/refs/notes.md": "notes\n", "skill-y/SKILL.md": "y\n" });
+}
+
+test("a junction under a declared glob is followed: its files sit under the link's path, links lists it, the target is never written", async () => {
+  const reg = registry();
+  const dir = repo({ "CLAUDE.md": "# rules\n", ".claude/skills/own/SKILL.md": "own\n" });
+  junction(dir, ".claude/skills/x", path.join(reg, "skill-x"));
+  junction(dir, ".claude/skills/y", path.join(reg, "skill-y"));
+  const { code, out } = await agent(spy().deps, "init", "--root", dir);
+  assert.equal(code, 0);
+  const lock = locked(dir);
+  assert.deepEqual(Object.keys(lock.files), [".claude/skills/own/SKILL.md", ".claude/skills/x/SKILL.md", ".claude/skills/x/refs/notes.md", ".claude/skills/y/SKILL.md", "CLAUDE.md"]);
+  assert.deepEqual(lock.links, [".claude/skills/x", ".claude/skills/y"]);
+  assert.match(out, /3 files through 2 links/);
+  const text = read(dir, AGENT_LOCK_FILE);
+  for (const needle of [reg, JSON.stringify(reg).slice(1, -1), path.basename(reg), "skill-x", "skill-y"]) assert.equal(text.includes(needle), false, `the lock holds ${needle}`);
+  assert.equal(parseAgentLock(text).ok, true);
+  assert.deepEqual(fileCodes(await check(dir)), []);
+});
+
+test("a default folder that is itself a junction is declared and followed; a link in a glob's literal prefix is recorded", async () => {
+  const reg = registry();
+  const dir = repo({ "CLAUDE.md": "# rules\n" });
+  junction(dir, ".claude/skills", reg);
+  assert.equal((await agent(spy().deps, "init", "--root", dir)).code, 0);
+  const declaration = JSON.parse(read(dir, AGENT_FILE)) as { files: string[] };
+  assert.ok(declaration.files.includes(".claude/skills/**"));
+  const lock = locked(dir);
+  assert.deepEqual(lock.links, [".claude/skills"]);
+  assert.ok(Object.hasOwn(lock.files, ".claude/skills/skill-y/SKILL.md"));
+});
+
+test("a symbolic link to a folder is followed like a junction", async (t) => {
+  const reg = registry();
+  const dir = repo({ "CLAUDE.md": "# rules\n", ".claude/skills/own/SKILL.md": "own\n" });
+  if (trySymlink(path.join(reg, "skill-y"), path.join(dir, ".claude", "skills", "y"), "dir") === undefined) {
+    t.skip("Windows refused a folder symbolic link (EPERM: no Developer Mode or elevation); the junction tests cover following a folder link");
+    return;
+  }
+  const matched = await matchFiles(dir, [".claude/skills/**"]);
+  assert.deepEqual(matched.paths, [".claude/skills/own/SKILL.md", ".claude/skills/y/SKILL.md"]);
+  assert.deepEqual(matched.links, [".claude/skills/y"]);
+});
+
+test("a symbolic link to a file is followed, by a glob and by a literal file name", async (t) => {
+  const reg = registry();
+  const dir = repo({ ".claude/skills/own/SKILL.md": "own\n" });
+  if (trySymlink(path.join(reg, "skill-x", "SKILL.md"), path.join(dir, "CLAUDE.md"), "file") === undefined) {
+    t.skip("Windows refused a file symbolic link (EPERM: no Developer Mode or elevation); a file cannot be a junction, so there is no junction form");
+    return;
+  }
+  trySymlink(path.join(reg, "skill-y", "SKILL.md"), path.join(dir, ".claude", "skills", "own", "linked.md"), "file");
+  const matched = await matchFiles(dir, ["CLAUDE.md", ".claude/skills/**"]);
+  assert.deepEqual(matched.paths, [".claude/skills/own/SKILL.md", ".claude/skills/own/linked.md", "CLAUDE.md"]);
+  assert.deepEqual(matched.links, [".claude/skills/own/linked.md", "CLAUDE.md"]);
+});
+
+test("links outside a declared glob's reach are not followed, and a link that leads to no locked file is not recorded", async () => {
+  const reg = registry();
+  const dir = repo({ "CLAUDE.md": "# rules\n", "docs/a.md": "a\n" });
+  junction(dir, "vendor/skills", reg); // outside every glob
+  junction(dir, "docs/linked", path.join(reg, "skill-x")); // reached by docs/*.md's walk, but holds no file it matches
+  const matched = await matchFiles(dir, ["CLAUDE.md", "docs/*.md"]);
+  assert.deepEqual(matched.paths, ["CLAUDE.md", "docs/a.md"]);
+  assert.deepEqual(matched.links, []);
+});
+
+test("a link to a folder that holds it is a cycle: refused with a sentence, not followed forever", async () => {
+  const dir = repo({ "CLAUDE.md": "# rules\n", ".claude/skills/own/SKILL.md": "own\n" });
+  junction(dir, ".claude/skills/own/loop", path.join(dir, ".claude"));
+  await assert.rejects(agent(spy().deps, "init", "--root", dir), (e: unknown) => e instanceof CliError && /^\.claude\/skills\/own\/loop is a link to a folder that holds it, so following it would never end/.test(e.message));
+  // to the repository itself, from a glob that starts at the root
+  const top = repo({ "a.md": "a\n" });
+  junction(top, "sub/up", top);
+  await assert.rejects(matchFiles(top, ["**"]), (e: unknown) => e instanceof CliError && /^sub\/up is a link to a folder that holds it/.test(e.message));
+});
+
+test(`a walk over ${MAX_DECLARED_FILES} files is refused with a sentence naming the bound`, async () => {
+  // 101 files reached through 100 links: 10,100 files, over the bound, with 101 files on disk
+  const files: Record<string, string> = {};
+  for (let i = 0; i < 101; i++) files[`f${i}.md`] = "x";
+  const reg = repo(files);
+  const dir = repo({ "CLAUDE.md": "# rules\n" });
+  for (let i = 0; i < 100; i++) junction(dir, `.claude/skills/s${i}`, reg);
+  await assert.rejects(matchFiles(dir, [".claude/skills/**"]), (e: unknown) => e instanceof CliError && e.message.includes(`more than ${MAX_DECLARED_FILES} files, the most one walk reads`));
+});
+
+test("a recorded link absent from the checkout is link-absent (warn), and its files are not reported removed", async () => {
+  const reg = registry();
+  const dir = repo({ "CLAUDE.md": "# rules\n" });
+  junction(dir, ".claude/skills/x", path.join(reg, "skill-x"));
+  junction(dir, ".claude/skills/y", path.join(reg, "skill-y"));
+  assert.equal((await agent(spy().deps, "init", "--root", dir)).code, 0);
+  unlinkSync(path.join(dir, ".claude", "skills", "x")); // a CI checkout: the untracked link is not there
+  const report = await check(dir);
+  assert.deepEqual(fileCodes(report), ["warn link-absent .claude/skills/x"]);
+  assert.equal(report.findings.find((f) => f.code === "link-absent")?.summary, "A link the lock records is not in the checkout, so the files under it were not checked.");
+  // a dangling link (its target gone) is absent too
+  rmSync(path.join(reg, "skill-y"), { recursive: true, force: true });
+  assert.deepEqual(fileCodes(await check(dir)), ["warn link-absent .claude/skills/x", "warn link-absent .claude/skills/y"]);
+});
+
+test("a recorded link replaced by a real folder holding the same files is clean; a different file there is changed", async () => {
+  const reg = registry();
+  const dir = repo({ "CLAUDE.md": "# rules\n" });
+  junction(dir, ".claude/skills/x", path.join(reg, "skill-x"));
+  assert.equal((await agent(spy().deps, "init", "--root", dir)).code, 0);
+  unlinkSync(path.join(dir, ".claude", "skills", "x"));
+  write(dir, { ".claude/skills/x/SKILL.md": "x\r\n", ".claude/skills/x/refs/notes.md": "notes\n" }); // vendored, CRLF on Windows
+  assert.deepEqual(fileCodes(await check(dir)), []);
+  write(dir, { ".claude/skills/x/SKILL.md": "x, edited\n" });
+  assert.deepEqual(fileCodes(await check(dir)), ["block file-changed .claude/skills/x/SKILL.md"]);
+});
+
+test("an agent file reached through a link is locked by hash, but its model is not read into the declaration", async () => {
+  const reg = repo({ "agents/helper.md": "---\nmodel: claude-opus-5-5\n---\nhelp\n" });
+  const dir = repo({ ".claude/agents/own.md": "---\nmodel: claude-sonnet-5\n---\nown\n" });
+  junction(dir, ".claude/agents/linked", path.join(reg, "agents"));
+  assert.equal((await agent(spy().deps, "init", "--root", dir)).code, 0);
+  const declaration = JSON.parse(read(dir, AGENT_FILE)) as { models?: Record<string, string> };
+  assert.deepEqual(declaration.models, { own: "claude-sonnet-5" });
+  assert.ok(Object.hasOwn(locked(dir).files, ".claude/agents/linked/helper.md"));
+  // the agents folder itself a link: no model read from it either
+  const top = repo({ "CLAUDE.md": "# rules\n" });
+  junction(top, ".claude/agents", path.join(reg, "agents"));
+  assert.equal((await agent(spy().deps, "init", "--root", top)).code, 0);
+  assert.equal((JSON.parse(read(top, AGENT_FILE)) as { models?: unknown }).models, undefined);
+  assert.deepEqual(locked(top).links, [".claude/agents"]);
 });
