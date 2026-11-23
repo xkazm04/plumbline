@@ -1,0 +1,128 @@
+{
+  "title": "Plumbline: is it still what it claims to be?",
+  "fps": 30,
+  "size": { "w": 1920, "h": 1080 },
+  "voice": { "role": "narrator", "model": "eleven_multilingual_v2", "settings": { "stability": 0.45, "similarity": 0.8, "style": 0.2 } },
+  "breathMs": 350,
+  "maxMs": 179000,
+  "beats": [
+    {
+      "id": "cold",
+      "chapter": "open",
+      "line": "An agentic website publishes an agent that runs in every visitor's browser. Once it ships, nobody checks it again.",
+      "settleMs": 2500,
+      "capture": { "beat": "desk-home", "from": "ready" }
+    },
+    {
+      "id": "gate",
+      "chapter": "open",
+      "line": "Plumbline checks any site, live, with three independent checkers. Here one of them has no answer, so the verdict is unavailable: never a quiet pass.",
+      "settleMs": 4000,
+      "capture": { "beat": "open-gate", "targets": ["#gate-result"] }
+    },
+    {
+      "id": "spectrum",
+      "chapter": "open",
+      "line": "Three examples: a guesthouse, a clinic, and the agent that writes your code.",
+      "settleMs": 2000
+    },
+    {
+      "id": "larch-intro",
+      "chapter": "guesthouse",
+      "line": "Larch House is a small guesthouse. Its website's agent tells guests a double room costs eighty-nine euros.",
+      "settleMs": 2500,
+      "capture": { "beat": "larch-rooms-before", "from": "ready" }
+    },
+    {
+      "id": "larch-change",
+      "chapter": "guesthouse",
+      "line": "The owner raises the price to ninety-five on the page, and nobody tells the agent.",
+      "settleMs": 2500,
+      "capture": { "beat": "larch-rooms-after", "from": "ready" }
+    },
+    {
+      "id": "larch-drift",
+      "chapter": "guesthouse",
+      "line": "Plumbline's daily watch reads the page against what was locked, and says it plainly: the assistant may still be quoting an old price.",
+      "settleMs": 4000,
+      "capture": { "beat": "larch-drift", "targets": ["#drift-result"] }
+    },
+    {
+      "id": "larch-cost",
+      "chapter": "guesthouse",
+      "line": "No key and no account: one command wrote the lock and the daily check.",
+      "settleMs": 2500,
+      "capture": { "beat": "larch-init" }
+    },
+    {
+      "id": "clinic-sign",
+      "chapter": "clinic",
+      "line": "Northgate Clinic signs its agent files with a key only the clinic holds. Before anything is signed, the page lists every file and its fingerprint.",
+      "settleMs": 3500,
+      "capture": { "beat": "clinic-sign-dialog" }
+    },
+    {
+      "id": "clinic-unknown",
+      "chapter": "clinic",
+      "line": "A pharmacy that works with the clinic checks those files. At first the answer is unverifiable: it has never met this key.",
+      "settleMs": 3000,
+      "capture": { "beat": "clinic-unknown", "targets": ["#verify-result"] }
+    },
+    {
+      "id": "clinic-trust",
+      "chapter": "clinic",
+      "line": "It compares the key with the clinic by phone, trusts it once, and the clinic's files verify.",
+      "settleMs": 3000,
+      "capture": { "beat": "clinic-trusted", "targets": ["#verify-result"] }
+    },
+    {
+      "id": "clinic-mirror",
+      "chapter": "clinic",
+      "line": "Then a copycat site serves the clinic's agent, changed to ask patients for their NHS number. Even signed with the clinic's stolen key, it is refused: the signature names the clinic's address, not this one.",
+      "settleMs": 4000,
+      "capture": { "beat": "clinic-mirror", "targets": ["#verify-result"] }
+    },
+    {
+      "id": "clinic-limit",
+      "chapter": "clinic",
+      "line": "Edit one file on the clinic's own site and the verdict is invalid: tampered. Verified says who published the files, never that a site is safe.",
+      "settleMs": 3500,
+      "capture": { "beat": "clinic-tampered", "targets": ["#verify-result"] }
+    },
+    {
+      "id": "agent-lock",
+      "chapter": "agent",
+      "line": "The same engine guards a coding agent: its instructions, its settings and every tool its servers offer, pinned and approved by a named person.",
+      "settleMs": 3000,
+      "capture": { "beat": "agent-locked" }
+    },
+    {
+      "id": "agent-poison",
+      "chapter": "agent",
+      "line": "One morning a tool server ships an update. Its search tool now tells the agent to read a private key and send it along.",
+      "settleMs": 3500,
+      "capture": { "beat": "agent-poisoned" }
+    },
+    {
+      "id": "agent-guard",
+      "chapter": "agent",
+      "line": "The guard hides the changed tool and refuses the call, so the agent never reads those words.",
+      "settleMs": 3000,
+      "capture": { "beat": "agent-guarded" }
+    },
+    {
+      "id": "agent-review",
+      "chapter": "agent",
+      "line": "In the pull request the check fails, and the new sentence sits in the diff until an approver reads it.",
+      "settleMs": 3500,
+      "capture": { "beat": "agent-review" }
+    },
+    {
+      "id": "close",
+      "chapter": "close",
+      "line": "A guesthouse, a clinic, a coding agent. Plumbline keeps each one what its owner approved, and says plainly when it cannot tell.",
+      "settleMs": 3000,
+      "capture": { "beat": "desk-home-end", "from": "ready" }
+    }
+  ]
+}
