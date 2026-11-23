@@ -156,6 +156,7 @@ test("version 2: a server's from and auth, the lock's hashing and links; version
   const http = (auth: unknown) => decl({ version: 2, mcp: { s: { transport: "http", url: "https://a.example/", auth } } });
   assert.match(refused(parseDeclaration(http({ "Content-Type": "X" }))), /one Plumbline sets itself/);
   assert.match(refused(parseDeclaration(http({ "mcp-session-id": "X" }))), /one Plumbline sets itself/);
+  assert.match(refused(parseDeclaration(http({ "User-Agent": "X" }))), /one Plumbline sets itself/);
   assert.match(refused(parseDeclaration(http({ "Bad Header": "X" }))), /not a header token/);
   assert.match(refused(parseDeclaration(http({ "X-Key": "1BAD" }))), /environment variable name/);
   assert.match(refused(parseDeclaration(http({ "X-Key": "A", "x-key": "B" }))), /names one auth header twice/);

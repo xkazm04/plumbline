@@ -58,11 +58,12 @@ export const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 export const MAX_AUTH_HEADERS = 8;
 /**
  * Headers an `auth` entry may not set, compared lower-case: the ones the guarded POST sets itself (content-type, accept,
- * content-length, host, the MCP session and protocol headers), cookies, and the hop-by-hop and proxy headers.
+ * content-length, host, the MCP session and protocol headers, user-agent), cookies, and the hop-by-hop and proxy headers.
  */
 export const RESERVED_AUTH_HEADERS: ReadonlySet<string> = new Set([
   "content-type", "accept", "accept-encoding", "content-length", "host", "cookie", "mcp-session-id", "mcp-protocol-version",
   "connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authorization", "proxy-connection",
+  "user-agent",
 ]);
 
 /** True for an auth header name a declaration may name. */
