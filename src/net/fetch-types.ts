@@ -212,6 +212,14 @@ export interface SafePostOptions {
   /** The `Mcp-Session-Id` the server issued at `initialize`: visible ASCII (0x21 to 0x7E), at most MAX_MCP_SESSION_ID_LENGTH. */
   sessionId?: string;
   /**
+   * Header name to VALUE (a declaration's `auth`, its variables read by the caller): sent on this one request to this
+   * one origin (a POST follows no redirect, so it never reaches another). A name must be an auth header name
+   * (src/agent/lock.ts isAuthHeaderName) and none of the headers safePost sets itself; a value printable ASCII
+   * (0x20 to 0x7E, so no CR or LF). Either refused with a TypeError before anything is sent, whose message never holds
+   * the value.
+   */
+  auth?: Record<string, string>;
+  /**
    * Called with the bytes so far after each chunk; true ends the read there (the connection is closed). An SSE response
    * may stay open after the event that answers the request, so the reader says when it has that event.
    */
@@ -221,6 +229,11 @@ export interface SafePostOptions {
 /** A session id the server issued is sent back only if it is visible ASCII and within the length cap (MCP spec). */
 export function isValidMcpSessionId(value: string): boolean {
   return value.length >= 1 && value.length <= MAX_MCP_SESSION_ID_LENGTH && /^[\x21-\x7e]+$/.test(value);
+}
+
+/** An auth header value Plumbline sends: printable ASCII, 0x20 to 0x7E (no CR, LF or other control), not empty. */
+export function isSendableHeaderValue(value: unknown): value is string {
+  return typeof value === "string" && /^[\x20-\x7e]+$/.test(value);
 }
 
 /** A protocol version is a date, YYYY-MM-DD. */

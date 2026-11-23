@@ -3,6 +3,8 @@
 // safePost and nowhere else; a caller never supplies one.
 //
 // Rules:
+//   - `auth` (a declared server's key headers, values read by the caller) goes on every request of the one listing,
+//     to the one origin; no reason ever holds a header value.
 //   - An answer is read as JSON (`application/json`) or as an event stream (`text/event-stream`, the `data:` lines of
 //     the event that carries the request's JSON-RPC id; every other event is ignored). Any other content type fails.
 //   - Strict UTF-8; a repeated key in one object fails closed (core/json-keys.ts: JSON.parse keeps the last, another
@@ -37,8 +39,12 @@ export type McpListResult =
   | { ok: false; status: number }
   | { ok: false; reason: string };
 
-/** What `agent init|check|relock` are given, so tests inject it and never touch the network. */
-export type McpToolLister = (url: string) => Promise<McpListResult>;
+/**
+ * What `agent init|check|relock` are given, so tests inject it and never touch the network. `auth` is header name to
+ * VALUE (the declaration's variables, read by the caller at list time), passed to every request of the listing; omitted
+ * when the server declares none.
+ */
+export type McpToolLister = (url: string, auth?: Record<string, string>) => Promise<McpListResult>;
 
 /** The guarded POST's shape (safePost); tests inject a replay of recorded answers. */
 export type McpPost = (url: string, body: McpRequestBody, options: SafePostOptions) => Promise<SafeFetchResponse>;
@@ -49,6 +55,8 @@ export interface ListMcpToolsOptions {
   timeoutMs?: number;
   /** Replaces safePost (tests replay recorded answers through it). */
   post?: McpPost;
+  /** Header name to value, sent with every request of this listing to this one server (SafePostOptions.auth). */
+  auth?: Record<string, string>;
 }
 
 /**
@@ -69,6 +77,7 @@ const R_CURSOR = `the server's tools/list cursor is not a string of 1 to ${MAX_M
 const R_LOOP = "the server's tools/list returned a cursor it had already returned";
 const R_PAGES = `the server's tool list runs past ${MAX_MCP_PAGES} pages`;
 const R_TIMEOUT = "the request timed out";
+const R_AUTH = "an auth header or value is one Plumbline does not send";
 const rpcError = (method: string): string => `the server answered ${method} with a JSON-RPC error`;
 
 type Failure = { ok: false; refused: string } | { ok: false; status: number } | { ok: false; reason: string };
@@ -156,7 +165,10 @@ function failureOf(error: unknown): Failure {
 export async function listMcpTools(url: string, options: ListMcpToolsOptions = {}): Promise<McpListResult> {
   const post = options.post ?? safePost;
   const deadline = Date.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-  const base: SafePostOptions = options.allowLocal === true ? { allowLocal: true } : {};
+  const base: SafePostOptions = {
+    ...(options.allowLocal === true ? { allowLocal: true } : {}),
+    ...(options.auth !== undefined ? { auth: options.auth } : {}),
+  };
 
   const send = async (body: McpRequestBody, extra: SafePostOptions): Promise<SafeFetchResponse | Failure> => {
     const left = deadline - Date.now();
@@ -164,6 +176,8 @@ export async function listMcpTools(url: string, options: ListMcpToolsOptions = {
     try {
       return await post(url, body, { ...base, ...extra, timeoutMs: left });
     } catch (error) {
+      // safePost refuses an auth header or value before sending, with a TypeError: said in this module's fixed words
+      if (error instanceof TypeError && options.auth !== undefined) return { ok: false, reason: R_AUTH };
       return failureOf(error);
     }
   };
