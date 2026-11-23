@@ -46,7 +46,7 @@ jobs:
       # The Action builds plumbline from its own checkout: pinning it by commit SHA pins the code that runs.
       - name: Run plumbline agent check
         id: agent
-        uses: xkazm04/plumbline/action@6e9fe13fb9902ebcd886184114f620aeb5ef6170
+        uses: xkazm04/plumbline/action@4c79e90e7ec10c3608619ab844ef5a624c914bf4
         with:
           command: agent
           root: "."
@@ -74,7 +74,7 @@ jobs:
 
       - name: Run plumbline agent check
         id: agent
-        uses: xkazm04/plumbline/action@6e9fe13fb9902ebcd886184114f620aeb5ef6170
+        uses: xkazm04/plumbline/action@4c79e90e7ec10c3608619ab844ef5a624c914bf4
         with:
           command: agent
           root: "."
