@@ -79,6 +79,14 @@ for (const file of TEMPLATES) test(`${file} uses this repository's Action pinned
   assert.ok(pkg.scripts?.build);
 });
 
+test("every template pins a commit whose action.yml the runner loads (the pins before 113e1a3 did not)", () => {
+  for (const file of [...TEMPLATES, "action/templates/plumbline-agent.yml"]) {
+    for (const [, sha] of read(file).matchAll(/uses: xkazm04\/plumbline\/action@([0-9a-f]{40})/g)) {
+      assert.deepEqual(loadRefusals(git("show", `${sha}:action/action.yml`)), [], `${file} pins ${sha}`);
+    }
+  }
+});
+
 test("the Action and the template never pass --allow-local (a comment may name it)", () => {
   assert.doesNotMatch(code(action), /allow-local/);
   for (const file of TEMPLATES) assert.doesNotMatch(code(read(file)), /allow-local/);
