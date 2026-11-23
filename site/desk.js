@@ -130,15 +130,28 @@ function safeDigest(value) {
   return typeof value === "string" && DIGEST_LIKE.test(value) ? value : withheld();
 }
 
-/** A drift finding as the model may see it: the summary is the Desk's own sentence; ref, expected and actual are checked. */
-function safeFinding(f) {
+/** A stale fact's value as the model may see it (StaleFact): Plumbline's own short token, else withheld. */
+function safeFactValue(value) {
+  return typeof value === "string" && value.length <= 40 && /^[\x20-\x7e€£…]+$/.test(value) ? value : withheld();
+}
+
+/**
+ * A drift finding as the model may see it: the summary is the Desk's own sentence; ref, expected and actual are checked;
+ * since 2026-11-23 the code, and a stale fact's values (facts: kind, was, now) as Plumbline normalised them.
+ */
+export function safeFinding(f) {
+  const facts = Array.isArray(f.facts) ? f.facts.slice(0, 3) : [];
   return {
     kind: f.kind,
     severity: f.severity,
+    ...(typeof f.code === "string" && /^[a-z-]+$/.test(f.code) ? { code: f.code } : {}),
     ref: safeRef(f.ref),
     ...(f.expected !== undefined ? { expected: safeDigest(f.expected) } : {}),
     ...(f.actual !== undefined ? { actual: safeDigest(f.actual) } : {}),
     summary: f.summary,
+    ...(facts.length > 0
+      ? { facts: facts.map((x) => ({ kind: String(x?.kind ?? ""), was: safeFactValue(x?.was), ...(x?.now !== undefined ? { now: safeFactValue(x.now) } : {}) })) }
+      : {}),
   };
 }
 
