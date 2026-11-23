@@ -1,13 +1,16 @@
 // `agent check`, the files part: what changed among the files the declaration matches since the lock. Node: reads the
 // checkout. Owned by the files work (line endings, links): hashing goes through one rule shared with build.ts.
+//
+// A file is hashed by the lock's own rule (src/agent/text-hash.ts): `text-lf` for a version 2 lock, exact bytes for a
+// version 1 lock (no `hashing`), so an older lock reads as it was written.
 
 import { readFile } from "node:fs/promises";
-import { sha256Hex } from "../core/canonical.js";
 import { type AgentDeclaration, type AgentFinding, type AgentLock } from "../core/types.js";
 import { CliError } from "../cli/args.js";
 import { repoPath } from "./build.js";
 import { matchFiles } from "./discover.js";
 import { byPath } from "./glob.js";
+import { declaredFileHash } from "./text-hash.js";
 
 /** A repository file's exact bytes, or undefined when it is absent. Any other read failure: exit 2. */
 export async function readBytesIfPresent(root: string, rel: string): Promise<Uint8Array | undefined> {
@@ -42,7 +45,7 @@ export async function fileFindings(root: string, lock: AgentLock, declaration: A
     const bytes = now.get(rel);
     if (held === undefined) out.push({ severity: "block", code: "file-added", ref: rel, summary: "A file the declaration matches is not in the lock." });
     else if (bytes === undefined) out.push({ severity: "block", code: "file-removed", ref: rel, summary: "A file the lock holds is no longer in the repository (or no longer matched)." });
-    else if ((await sha256Hex(bytes)) !== held) out.push({ severity: "block", code: "file-changed", ref: rel, summary: "A file the lock holds changed since the lock was written." });
+    else if ((await declaredFileHash(bytes, lock.hashing)) !== held) out.push({ severity: "block", code: "file-changed", ref: rel, summary: "A file the lock holds changed since the lock was written." });
   }
   return out;
 }
