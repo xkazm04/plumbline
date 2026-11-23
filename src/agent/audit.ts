@@ -6,6 +6,12 @@
 // each with its chain link (does `previous` name the prior version's byte hash?) and its approval: an approval file
 // committed from this version's commit up to the next lock change whose `lock` equals this version's hash, verified
 // against the caller's approvers. Unverifiable is never reported as verified; absent is never folded into invalid.
+//
+// What the result certifies (`clean`) has two rules. `since-first-approval` (the default): the current lock is verified,
+// and every version from the first approved one on is verified with each link between them intact; the versions before
+// the first approval (init's first lock, committed before anyone approved it) are listed as before approval began and do
+// not count. `all` (audit --all): every version verified and the whole chain intact, the rule before 2026-11-23.
+// A lock deleted and later created again starts a new chain: the re-created lock names no previous, so it reads `start`.
 // A sentence here is built from counts and fixed phrases; the only words shown that are not Plumbline's are the
 // approvers file's labels, which the trust store's owner chose.
 
@@ -28,6 +34,8 @@ export type ChainLink = "start" | "ok" | "broken";
 export interface AuditVersion {
   /** 1 for the oldest version. */
   index: number;
+  /** Set (true) on a version before the first approved one, under the since-first-approval rule: it does not count. */
+  beforeApproval?: true;
   commit: string;
   date: string;
   /** SHA-256 of this version's exact bytes. */
@@ -53,20 +61,37 @@ export interface AuditSummary {
   unverifiable: number;
   absent: number;
   chainBroken: number;
+  /** Versions before the first approved one (since-first-approval); 0 under `all`, or when no version is approved. */
+  beforeApproval: number;
 }
+
+/** Which versions the audit's result certifies: from the first approved version on (the default), or every version. */
+export const AUDIT_RULES = ["since-first-approval", "all"] as const;
+export type AuditRule = (typeof AUDIT_RULES)[number];
 
 export interface AuditFinding {
   code: AgentCode;
   /** The version's index (1-based) as a string, or `history`. */
   ref: string;
   summary: string;
+  /** Set (true) when the finding is about a version before approval began, or the link into the first approved one: listed, not counted. */
+  beforeApproval?: true;
 }
 
 export interface AuditResult {
+  /** The rule `clean` was decided by. */
+  rule: AuditRule;
+  /** The index of the first verified version, when one is. */
+  firstApproved?: number;
   versions: AuditVersion[];
   summary: AuditSummary;
+  /** Every problem found, each version's; those marked beforeApproval do not count against `clean`. */
   findings: AuditFinding[];
-  /** True when there is at least one version, every one is verified and the chain is whole. */
+  /**
+   * since-first-approval: at least one version, the current (newest) one verified, every version from the first
+   * verified one on verified, and every link after it intact. all: at least one version, every one verified, the chain
+   * whole.
+   */
   clean: boolean;
 }
 
@@ -90,6 +115,8 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 
 interface Span {
   start: AuditCommit;
+  /** True when the lock was deleted in the commits before this version: a new chain may start here. */
+  afterDeletion: boolean;
   bytes: Uint8Array;
   /** The commits from this version's commit up to (not including) the next lock change. */
   commits: AuditCommit[];
@@ -99,14 +126,17 @@ interface Span {
 export function lockSpans(commits: readonly AuditCommit[]): Span[] {
   const spans: Span[] = [];
   let current: Span | undefined;
+  let deleted = false;
   for (const c of commits) {
     if (c.lock === undefined) {
       // the lock was removed here: no version, and approvals after it belong to none
+      if (spans.length > 0) deleted = true;
       current = undefined;
       continue;
     }
     if (current === undefined || !sameBytes(current.bytes, c.lock)) {
-      current = { start: c, bytes: c.lock, commits: [] };
+      current = { start: c, afterDeletion: deleted, bytes: c.lock, commits: [] };
+      deleted = false;
       spans.push(current);
     }
     current.commits.push(c);
@@ -166,9 +196,15 @@ const APPROVAL_FINDING: Record<Exclude<ApprovalState, "verified">, { code: Agent
  * Walks the lock's history: distinct versions in order, each one's chain link and approval verdict, the summary counts
  * and a finding per problem. A version whose approval was committed one or more commits after it (before the next lock
  * change) counts as approved. The first version must name no `previous` (a first lock that names one points at a lock
- * this history does not hold: chain-broken). No version at all is a `lock-absent` finding.
+ * this history does not hold: chain-broken). A version re-created after the lock was deleted reads `start` when it names
+ * no previous (a re-init), `ok` when it names the last version before the deletion (a restore), else `broken`. No
+ * version at all is a `lock-absent` finding. `rule` decides `clean` (see the module comment).
  */
-export async function auditHistory(commits: readonly AuditCommit[], approvers: readonly ApproverEntry[]): Promise<AuditResult> {
+export async function auditHistory(
+  commits: readonly AuditCommit[],
+  approvers: readonly ApproverEntry[],
+  rule: AuditRule = "since-first-approval",
+): Promise<AuditResult> {
   const spans = lockSpans(commits);
   const versions: AuditVersion[] = [];
   const findings: AuditFinding[] = [];
@@ -177,8 +213,9 @@ export async function auditHistory(commits: readonly AuditCommit[], approvers: r
     const hash = await sha256Hex(span.bytes);
     const parsed = parsedObject(span.bytes);
     const previous = typeof parsed?.previous === "string" && SHA256.test(parsed.previous) ? parsed.previous : undefined;
+    const fresh = parsed !== undefined && parsed.previous === undefined;
     const chain: ChainLink =
-      i === 0 ? (parsed !== undefined && parsed.previous === undefined ? "start" : "broken") : previous !== undefined && previous === priorHash ? "ok" : "broken";
+      i === 0 ? (fresh ? "start" : "broken") : span.afterDeletion && fresh ? "start" : previous !== undefined && previous === priorHash ? "ok" : "broken";
     const version: AuditVersion = {
       index: i + 1,
       commit: span.start.commit,
@@ -196,7 +233,9 @@ export async function auditHistory(commits: readonly AuditCommit[], approvers: r
         summary:
           i === 0
             ? "The oldest lock in this history names a lock before it that the history does not hold, or is not a lock document."
-            : "This lock version does not name the version before it as its previous.",
+            : span.afterDeletion
+              ? "This lock version, created after the lock was deleted, names a previous that is not the version before the deletion."
+              : "This lock version does not name the version before it as its previous.",
       });
     }
     if (version.approval !== "verified") {
@@ -208,6 +247,26 @@ export async function auditHistory(commits: readonly AuditCommit[], approvers: r
   if (versions.length === 0) {
     findings.push({ code: "lock-absent", ref: "history", summary: "No commit in this history holds plumbline.agent.lock.json." });
   }
+
+  // since the first approval: what came before it is listed, not counted; so is the first approved version's own link
+  // when it leads into versions before approval began (a first version in the history that names a lock the history does
+  // not hold is still counted: nothing before it was listed). The current version must be verified under either rule.
+  const first = versions.find((v) => v.approval === "verified")?.index;
+  let beforeApproval = 0;
+  if (rule === "since-first-approval" && first !== undefined) {
+    for (const v of versions) {
+      if (v.index >= first) break;
+      v.beforeApproval = true;
+      beforeApproval++;
+    }
+    for (const f of findings) {
+      const index = Number(f.ref);
+      if (Number.isInteger(index) && (index < first || (index === first && first > 1 && f.code === "chain-broken"))) f.beforeApproval = true;
+    }
+  }
+  const current = versions[versions.length - 1];
+  const clean = current !== undefined && current.approval === "verified" && findings.every((f) => f.beforeApproval === true);
+
   const count = (state: ApprovalState): number => versions.filter((v) => v.approval === state).length;
   const summary: AuditSummary = {
     versions: versions.length,
@@ -216,8 +275,9 @@ export async function auditHistory(commits: readonly AuditCommit[], approvers: r
     unverifiable: count("unverifiable"),
     absent: count("absent"),
     chainBroken: versions.filter((v) => v.chain === "broken").length,
+    beforeApproval,
   };
-  return { versions, summary, findings, clean: versions.length > 0 && findings.length === 0 };
+  return { rule, ...(first !== undefined ? { firstApproved: first } : {}), versions, summary, findings, clean };
 }
 
 /** A label fit for a markdown table cell: pipes and backslashes escaped (labels hold no control characters). */
@@ -232,6 +292,16 @@ const VERDICT_WORDS: Record<ApprovalState, string> = {
   absent: "NOT APPROVED",
 };
 
+/** What the result certifies, in one sentence, by its rule. */
+export function cleanWords(result: AuditResult): string {
+  if (result.rule === "all") return result.clean ? "Every change was approved and the chain is whole." : "NOT every change is accounted for: see the rows not marked verified or ok.";
+  const before = result.summary.beforeApproval;
+  const listed = before > 0 ? ` ${before} version(s) before approval began are listed and not counted (audit --all counts them).` : "";
+  return result.clean
+    ? `The current lock is verified, and every change since approval began was approved with the chain whole.${listed}`
+    : `NOT every change since approval began is accounted for: see the rows not marked verified or ok.${listed}`;
+}
+
 /** The audit as a markdown document: a table fit to attach as change-management evidence. */
 export function auditMarkdown(result: AuditResult, context: { generatedAt: string; approversSource: string }): string {
   const s = result.summary;
@@ -240,7 +310,7 @@ export function auditMarkdown(result: AuditResult, context: { generatedAt: strin
     "",
     `Generated ${context.generatedAt} by plumbline audit from the git history of plumbline.agent.lock.json. Approvers: ${context.approversSource}.`,
     "",
-    `${s.versions} lock version(s): ${s.verified} verified, ${s.invalid} invalid, ${s.unverifiable} unverifiable, ${s.absent} not approved; ${s.chainBroken} chain break(s). ${result.clean ? "Every change was approved and the chain is whole." : "NOT every change is accounted for: see the rows not marked verified or ok."}`,
+    `${s.versions} lock version(s): ${s.verified} verified, ${s.invalid} invalid, ${s.unverifiable} unverifiable, ${s.absent} not approved; ${s.chainBroken} chain break(s). ${cleanWords(result)}`,
     "",
     "| Version | Date | Commit | Lock (SHA-256) | Approver | Verdict | Chain |",
     "| --- | --- | --- | --- | --- | --- | --- |",
@@ -248,7 +318,8 @@ export function auditMarkdown(result: AuditResult, context: { generatedAt: strin
   for (const v of result.versions) {
     const approver = v.approval === "verified" && v.label !== undefined ? `${cell(v.label)} (${v.kid ?? ""})` : v.kid !== undefined ? `key ${v.kid}` : "-";
     const verdict = v.approval === "invalid" && v.reason !== undefined ? `${VERDICT_WORDS.invalid} (${v.reason})` : VERDICT_WORDS[v.approval];
-    lines.push(`| ${v.index} | ${v.date} | ${v.commit.slice(0, 12)} | ${v.lock.slice(0, 16)} | ${approver} | ${verdict} | ${v.chain === "broken" ? "BROKEN" : v.chain} |`);
+    const before = v.beforeApproval === true ? " (before approval began)" : "";
+    lines.push(`| ${v.index} | ${v.date} | ${v.commit.slice(0, 12)} | ${v.lock.slice(0, 16)} | ${approver} | ${verdict}${before} | ${v.chain === "broken" ? "BROKEN" : v.chain} |`);
   }
   lines.push("");
   return lines.join("\n");
