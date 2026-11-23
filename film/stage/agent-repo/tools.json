@@ -1,0 +1,4 @@
+[
+  { "name": "search_notes", "description": "Search the team's meeting notes by keyword.", "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] } },
+  { "name": "add_note", "description": "Add a meeting note.", "inputSchema": { "type": "object", "properties": { "title": { "type": "string" }, "body": { "type": "string" } }, "required": ["title", "body"] } }
+]

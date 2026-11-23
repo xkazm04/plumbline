@@ -1,0 +1,3 @@
+{
+  "permissions": { "allow": ["mcp__notes__search_notes", "mcp__notes__add_note"] }
+}
