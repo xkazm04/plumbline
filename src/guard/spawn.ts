@@ -37,6 +37,31 @@ export function whichWindows(command: string, env: NodeJS.ProcessEnv): string | 
   return undefined;
 }
 
+/** True for a regular file with an execute bit (owner, group or other). */
+const isExecutableFile = (p: string): boolean => {
+  try {
+    const s = statSync(p);
+    return s.isFile() && (s.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The file a POSIX command name runs: as given when it has a `/`, else the first executable file of that name in a PATH
+ * folder. An empty PATH entry (the current folder, to a shell) is skipped: a repository's own folder is not a place
+ * to find Plumbline. `isExecutable` is injectable so a test does not depend on the machine's file modes.
+ */
+export function whichPosix(command: string, env: NodeJS.ProcessEnv, isExecutable: (file: string) => boolean = isExecutableFile): string | undefined {
+  if (command.includes("/")) return isExecutable(command) ? command : undefined;
+  for (const dir of (env.PATH ?? "").split(":")) {
+    if (dir === "") continue;
+    const file = path.posix.join(dir, command);
+    if (isExecutable(file)) return file;
+  }
+  return undefined;
+}
+
 /**
  * The file and arguments to spawn for `command args` on this platform. On Windows a `.cmd`/`.bat` is run only when it is
  * npm's npx/npm shim (the node script beside it, `node_modules/npm/bin/<name>-cli.js`) or an npm cmd-shim of a package
