@@ -31,8 +31,9 @@ export interface ServerReview {
 
 /**
  * The review of each server whose tools this build observed (Built.definitions): which tools are added or changed
- * against the earlier lock (the same rule as the change counts: the earlier tools count only when the target and
- * transport did not change), their marks, and the changed keys against the committed definitions file. Reads the
+ * against the earlier lock (the same baseline as the change counts in build.ts: the earlier record under this name when
+ * its transport is the same, even for another command or address, so a version bump reads as the tools it changed),
+ * their marks, and the changed keys against the committed definitions file. Reads the
  * definitions files, so it runs BEFORE writeDefinitions replaces them.
  */
 export async function reviewServers(root: string, old: AgentLock, built: Built): Promise<Record<string, ServerReview>> {
@@ -40,7 +41,7 @@ export async function reviewServers(root: string, old: AgentLock, built: Built):
   for (const [server, after] of Object.entries(built.definitions)) {
     const prev = old.mcp?.[server];
     const now = built.lock.mcp?.[server];
-    const held = prev !== undefined && now !== undefined && prev.target === now.target && prev.transport === now.transport ? (prev.tools ?? {}) : {};
+    const held = prev !== undefined && now !== undefined && prev.transport === now.transport ? (prev.tools ?? {}) : {};
     const keys = changedKeys(await readDefinitions(root, server), after);
     const review: ServerReview = { added: [], changed: [] };
     for (const part of (await toolsParts(after)).parts) {

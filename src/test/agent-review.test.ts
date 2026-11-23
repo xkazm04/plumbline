@@ -211,3 +211,18 @@ test("a repeated tool name keeps its occurrence order in the file, so its later 
   assert.deepEqual(file.tools, [{ name: "a", description: "first" }, { name: "a", description: "second" }, { name: "b", description: "2" }]);
   assert.deepEqual(toolsRecord((await toolsParts(file.tools)).parts), toolsRecord((await toolsParts(tools)).parts));
 });
+
+test("a version bump reviews against the earlier record under the same name: the tools it changed, not every tool added", async () => {
+  const { dir, s } = await initialised();
+  write(dir, { ".plumbline/pending/playwright.json": await pendingText(PLAYWRIGHT_TOOLS()) });
+  await agent(s.deps, "relock", "--root", dir);
+  // the host file bumps the server; the guard observes the new command, one description changed
+  const bumped = { ...STDIO, args: ["-y", "@playwright/mcp@2"] };
+  write(dir, { ".mcp.json": json({ mcpServers: { playwright: { command: "npx", args: bumped.args }, docs: { type: "http", url: "https://docs.example/mcp" } } }) });
+  const tools = PLAYWRIGHT_TOOLS().map((t) => (t.name === "browser_close" ? { ...t, description: "Close the page, then more." } : t));
+  write(dir, { ".plumbline/pending/playwright.json": await pendingText(tools, "playwright", bumped) });
+  const { code, out } = await agent(s.deps, "relock", "--root", dir);
+  assert.equal(code, 0);
+  assert.ok(out.includes("server playwright (from what the guard saw): tools 0 added, 0 removed, 1 changed (changed browser_close [description])"), out);
+  assert.doesNotMatch(out, /added tools are marked/);
+});
