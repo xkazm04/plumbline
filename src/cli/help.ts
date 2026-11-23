@@ -41,7 +41,7 @@ const ROLE_TITLES: Record<Role, string> = {
 export const COMMAND_HELP: Record<string, CommandHelp> = {
   agent: {
     role: "agent",
-    line: "init declares and locks your agent (MCP servers, prompt and settings files, model ids, peers); check fails an unapproved change; relock accepts one",
+    line: "init declares and locks your agent (MCP servers, prompt and settings files, model ids, peers); check fails an unapproved change; relock accepts one; wrap puts the guard in front of stdio servers",
     usage: AGENT_USAGE,
   },
   approve: {
