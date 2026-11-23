@@ -39,7 +39,7 @@ off the voice track.
 |---|---|
 | Real, live | The Desk as deployed from this repository; the open's gate on Agent Atlas' public site, with Agent Atlas' live answer and Agent Customs' published receipts; the CLI as built from this commit. |
 | Real product, staged world | The guesthouse, the clinic, the copycat and the pharmacy are the UAT fixture worlds (`uat/fixtures/`, played by `uat/driver/world.mjs up <world> --names`): fictional businesses served on this machine at `<name>.localhost` addresses, with throwaway keys made at `up`. The film's guesthouse links no partner (the world's `solo` act). Every verdict on them is the real product's. Label: "fictional sites, served locally". |
-| Scripted | The assistant's answer in the guesthouse chapter. The Desk's real runtime runs the turn and calls the real `read_drift` tool; the model's two replies (call the tool, then answer) come from a script the recorder serves at the router's address, and the answer's values are read from the tool's own result. The recorder covers the runtime's model badge with its own label, "SCRIPTED MODEL · not a live LLM". For the take, the owner's own key on hosted Otari makes the turn live and the label comes off. |
+| Scripted | The assistant's answer in the guesthouse chapter. The Desk's real runtime runs the turn and calls the real `read_drift` tool; the model's two replies (call the tool, then answer) come from a script the recorder serves at the router's address, and the answer's values are read from the tool's own result. The recorder covers the runtime's model badge with its own label, "SCRIPTED MODEL · not a live LLM". The owner decided on 2026-11-23 to keep it scripted at this stage; a live turn on the owner's own key would take the label off. |
 | Staged | The coding agent's repository and its notes server (`stage/agent-repo/`); the server's poisoned update is a scripted edit of its tool list. The agent host is `walk/host.mjs`, a minimal host that lists and calls tools the way a real host does. Label: "staged tool update". |
 | Added by the film | Titles, captions, zooms, the scripted-model label. No figure on screen is typed by hand. |
 
@@ -97,8 +97,8 @@ only the film's stage.
 
 ## Next rounds
 
-1. **Owner review of the second contact sheet.** The lines with their stills beside them, and the assistant beat: scripted
-   or the owner's own key for the take.
+1. **Owner review of the second contact sheet.** The lines with their stills beside them. The assistant beat stays
+   scripted and labelled (owner, 2026-11-23).
 2. **Another demo-led round** if the review asks for one, then walk again.
 3. **Narration:** audition voices on two real lines (`narrator-chosen-by-audition`). Then `narrate`, which measures
    every clip. The take paces to the measured holds.
