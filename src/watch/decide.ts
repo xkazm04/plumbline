@@ -23,6 +23,7 @@ import {
   type DriftCounts,
   type DriftFinding,
   type FactKind,
+  type StaleFact,
   type DriftReport,
   type RecordState,
   type WatchedRecord,
@@ -137,6 +138,8 @@ export type AnchorCheck =
       unplaced?: number;
       /** `byKind` (UAT-29): the same count by kind of fact, for DriftCounts.staleKinds. */
       stillStated?: { count: number; kinds: string; byKind?: Partial<Record<FactKind, number>> };
+      /** Since 2026-11-23: the stale facts' values (StaleFact), when they can be shown. */
+      facts?: StaleFact[];
     }
   | { total: number; problem: string };
 
@@ -267,7 +270,25 @@ export function groundingFinding(
       ...(byKind !== undefined && Object.keys(byKind).length > 0 ? { staleKinds: byKind } : {}),
     };
   }
-  return { kind: "grounding", severity: "warn", code: stale ? "grounding-stale-fact" : "grounding-changed", ref: source.ref, expected: source.sha256, actual: seen.sha256, summary, ...(counts !== undefined ? { counts } : {}) };
+  // since 2026-11-23: what the agent still says, from Plumbline's own tokens (StaleFact), never the page's prose
+  const staleFacts = stale && !("problem" in anchors) ? (anchors.facts ?? []) : [];
+  if (staleFacts.length > 0) summary = `${summary.replace(/\.$/, "")}: ${factWords(staleFacts)}.`;
+  return {
+    kind: "grounding",
+    severity: "warn",
+    code: stale ? "grounding-stale-fact" : "grounding-changed",
+    ref: source.ref,
+    expected: source.sha256,
+    actual: seen.sha256,
+    summary,
+    ...(counts !== undefined ? { counts } : {}),
+    ...(staleFacts.length > 0 ? { facts: staleFacts } : {}),
+  };
+}
+
+/** "the network says €89 where the page now says €95; ..." for the stale facts a finding carries. */
+export function factWords(facts: readonly StaleFact[]): string {
+  return facts.map((f) => (f.now !== undefined ? `the network says ${f.was} where the page now says ${f.now}` : `the network says ${f.was}, which the page no longer states`)).join("; ");
 }
 
 export function runtimeFinding(file: string, expected: string, seen: Observed, lineEndings?: LineEndingChange): DriftFinding | null {

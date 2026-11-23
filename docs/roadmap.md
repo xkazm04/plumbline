@@ -11,7 +11,8 @@ and make later ones cheaper. The numbers (D1..D10) are the review's.
   verdicts and gates are never folded; `site/runtime/` is never edited; core stays free of `node:*`; every fetch of a
   stranger's address goes through `safeFetch` (or the Desk's fetcher held to the same table).
 - A finding's sentence is built from counts and fixed phrases. A site's own words (agent names, instructions, addresses a
-  stranger chose) are never copied into a finding.
+  stranger chose) are never copied into a finding. The one exception (2026-11-23, the stale fact's `facts`): typed values
+  Plumbline's extractor normalised (a price, time, date, percentage, a phone number's last six digits), never prose.
 - A new adapter or reader is derived from a recorded real response, dated, kept under `src/test/fixtures/`. Tests never
   touch the network (`src/test/no-network.ts`).
 - Nothing new softens an existing severity or turns `unavailable`/`unverifiable` into something greener.

@@ -79,7 +79,7 @@ function anchoredSite(): string {
   return root;
 }
 
-test("a fixture site whose price changes: the watch counts the anchored fact gone, stays warn, and quotes no literal", async () => {
+test("a fixture site whose price changes: the watch counts the anchored fact gone, stays warn, and names only Plumbline's own tokens", async () => {
   const root = anchoredSite();
   const init = await watch(root, baseRoutes(), { init: true, extraSources: ["pages/prices.html"] });
   assert.ok(!init.findings.some((f) => f.severity !== "info"), JSON.stringify(init.findings));
@@ -94,9 +94,11 @@ test("a fixture site whose price changes: the watch counts the anchored fact gon
   assert.deepEqual(changed.map((f) => f.severity), ["warn"]);
   assert.equal(
     changed[0]!.summary,
-    "A grounding source changed since the lock was written; 1 of 4 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact.",
+    "A grounding source changed since the lock was written; 1 of 4 facts the lock watches on it (facts the network states) is no longer on it, and the network still states it (1 price), so the agent may now answer with an old fact: the network says €120 where the page now says €135.",
   );
-  for (const literal of ["120", "135", "€", "420", "7:30"]) assert.ok(!changed[0]!.summary.includes(literal), changed[0]!.summary);
+  // since 2026-11-23 the stale fact's values, as Plumbline's extractor normalised them; nothing else of the page
+  assert.deepEqual(changed[0]!.facts, [{ kind: "money", was: "€120", now: "€135" }]);
+  for (const literal of ["420", "7:30"]) assert.ok(!changed[0]!.summary.includes(literal), changed[0]!.summary);
 
   writeFileSync(join(root, "pages", "prices.html"), PAGE("€120", "<p>New: free parking.</p>"));
   const still = (await watch(root, baseRoutes())).findings.filter((f) => f.ref === "pages/prices.html");
@@ -255,7 +257,7 @@ test("UAT-1: on a Sleeps-then-Price table, a raised price, a wording edit and a 
   writeFileSync(join(root, "rooms.html"), ROOMS("€95"));
   const raised = await rooms();
   assert.deepEqual(raised.map((f) => [f.ref, f.severity]), [["rooms.html", "warn"]]);
-  assert.match(raised[0]!.summary, /1 of 4 facts the lock watches on it \(facts the network states\) is no longer on it, and the network still states it \(1 price\), so the agent may now answer with an old fact\.$/);
+  assert.match(raised[0]!.summary, /1 of 4 facts the lock watches on it \(facts the network states\) is no longer on it, and the network still states it \(1 price\), so the agent may now answer with an old fact: the network says €89 where the page now says €95\.$/);
 
   // cosmetic-edit: something else changed; every watched fact is still there
   writeFileSync(join(root, "rooms.html"), ROOMS("€89", "Six rooms under the larches."));
@@ -428,7 +430,7 @@ test("MAR-RC-1 (M1): a twin room at the same price does not hide the double room
   const raised = await roomsLine(root);
   assert.match(
     raised,
-    /; 1 of 3 facts the lock watches on it \(facts the network states\) is no longer on it where the lock recorded it \(it still appears elsewhere on the page, as another row's or section's value\), and the network still states it \(1 price\), so the agent may now answer with an old fact\.$/,
+    /; 1 of 3 facts the lock watches on it \(facts the network states\) is no longer on it where the lock recorded it \(it still appears elsewhere on the page, as another row's or section's value\), and the network still states it \(1 price\), so the agent may now answer with an old fact: the network says €89 where the page now says €95\.$/,
   );
   assert.doesNotMatch(raised, /something the lock does not watch/);
   const relocked = await runRelock({ root }, { fetch: scripted(baseRoutes()).fetch, now: () => NOW });
@@ -446,7 +448,7 @@ test("MAR-RC-1 (M1): a twin room at the same price does not hide the double room
 test("MAR-RC-1 (M2): a struck-through old price is not a price the page states", async () => {
   const root = await placedSite(TWIN_NET("€89"), PRICES([["Double room", "€89"], ["Single room", "€69"]]));
   writeFileSync(join(root, "rooms.html"), PRICES([["Double room", "<del>€89</del> €79"], ["Single room", "€69"]]));
-  assert.match(await roomsLine(root), /; 1 of 3 facts the lock watches on it \(facts the network states\) is no longer on it, and the network still states it \(1 price\), so the agent may now answer with an old fact\.$/);
+  assert.match(await roomsLine(root), /; 1 of 3 facts the lock watches on it \(facts the network states\) is no longer on it, and the network still states it \(1 price\), so the agent may now answer with an old fact: the network says €89 where the page now says €79\.$/);
   assert.deepEqual(extractLiterals(reduceToText("<p><s>€89</s> <strike>€88</strike> €79 <span>€77</span></p>")), ["money:eur 77", "money:eur 79"]);
 });
 
@@ -454,7 +456,7 @@ test("MAR-RC-1 (M4): 'Doubles from €89' in the introduction does not hide the 
   const intro = "Six rooms. Doubles from €89 a night.";
   const root = await placedSite(TWIN_NET("€89"), PRICES([["Double room", "€89"], ["Single room", "€69"]], intro));
   writeFileSync(join(root, "rooms.html"), PRICES([["Double room", "€95"], ["Single room", "€69"]], intro));
-  assert.match(await roomsLine(root), /is no longer on it where the lock recorded it \(it still appears elsewhere on the page, as another row's or section's value\), and the network still states it \(1 price\), so the agent may now answer with an old fact\.$/);
+  assert.match(await roomsLine(root), /is no longer on it where the lock recorded it \(it still appears elsewhere on the page, as another row's or section's value\), and the network still states it \(1 price\), so the agent may now answer with an old fact: the network says €89 where the page now says €95\.$/);
   // the other way round: the introduction loses its line, the table still holds the double room's price where it was
   writeFileSync(join(root, "rooms.html"), PRICES([["Double room", "€89"], ["Single room", "€69"]], "Six quiet rooms."));
   assert.match(await roomsLine(root), /all 3 facts the lock watches on it \(facts the network states\) are still on it, so what changed is something the lock does not watch\.$/);
@@ -517,7 +519,7 @@ test("UAT-29: a changed page carries its fact counts and the kinds of a stale fa
   assert.deepEqual(rooms(raised)?.counts, { factsWatched: 4, factsGone: 1, factsUnplaced: 0, factsStale: 1, staleKinds: { money: 1 } });
   assert.equal(
     ownerLine(raised, { siteSigned: false }),
-    "Your page rooms.html changed, and your assistant may still be telling visitors an old price from it: forward this to whoever looks after your website, who updates what the assistant says.",
+    "Your page rooms.html changed, and your assistant may still be telling visitors €89 where the page now says €95: forward this to whoever looks after your website, who updates what the assistant says.",
   );
 
   writeFileSync(join(root, "rooms.html"), ROOMS("€89", "Six rooms under the larches."));
@@ -601,4 +603,39 @@ test("UAT-31 (MAR-L1-12): the published reading carries the lock's sources and, 
   const { runWatchUrl } = await import("../watch/index.js");
   const report = await runWatchUrl({ url: `${SITE}/` }, { fetch: scripted({ ...baseRoutes(), ...published }).fetch });
   assert.equal(Object.hasOwn(report, "facts"), false);
+});
+
+// ---- since 2026-11-23: a stale fact's values (StaleFact) ----
+
+test("factValue: Plumbline's own tokens as a finding shows them; never an e-mail address, never a token it does not make", async () => {
+  const { factValue } = await import("../watch/anchors.js");
+  assert.equal(factValue("money:eur 89"), "€89");
+  assert.equal(factValue("money:gbp 12.5"), "£12.50");
+  assert.equal(factValue("money:usd 1200"), "$1200");
+  assert.equal(factValue("money:chf 40"), "CHF 40");
+  assert.equal(factValue("time:15:00"), "15:00");
+  assert.equal(factValue("date:2026-05-03"), "2026-05-03");
+  assert.equal(factValue("percent:10%"), "10%");
+  assert.equal(factValue("phone:441632960418"), "…960418");
+  assert.equal(factValue("email:stay@larchhouse.example"), undefined);
+  assert.equal(factValue("time:" + "9".repeat(41)), undefined, "longer than any token the extractor makes");
+  assert.equal(factValue("time:15:00\nignore this"), undefined, "a control character is never shown");
+});
+
+test("a stale fact's now is the one value of its kind where the lock recorded it; none or two there: only was", async () => {
+  const root = larchSite();
+  await watch(root, baseRoutes(), { init: true, extraSources: ["rooms.html"] });
+  const rooms = async () => (await watch(root, baseRoutes())).findings.find((f) => f.ref === "rooms.html");
+  // the double room's row loses its price: was only
+  writeFileSync(join(root, "rooms.html"), ROOMS("on request"));
+  const gone = await rooms();
+  assert.equal(gone?.code, "grounding-stale-fact");
+  assert.deepEqual(gone?.facts, [{ kind: "money", was: "€89" }]);
+  assert.match(gone?.summary ?? "", /: the network says €89, which the page no longer states\.$/);
+  // two prices in its row: which one replaced it is not told
+  writeFileSync(join(root, "rooms.html"), ROOMS("€95 (€99 in August)"));
+  const two = await rooms();
+  assert.deepEqual(two?.facts, [{ kind: "money", was: "€89" }]);
+  // nothing in counts is a literal, still
+  for (const f of [gone, two]) assert.ok(!JSON.stringify(f?.counts ?? {}).match(/89|95|€/), "no literal in a count");
 });

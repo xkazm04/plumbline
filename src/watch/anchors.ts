@@ -17,7 +17,7 @@
 // not a regular expression (a page of 512 Ki "<" took minutes through the stripper's earlier `<[^>]*>`; UAT-1).
 
 import { sha256Hex } from "../core/canonical.js";
-import { LINKS_FILE, MANIFEST_FILE, type DriftFinding, type GroundingSource } from "../core/types.js";
+import { LINKS_FILE, MANIFEST_FILE, type DriftFinding, type GroundingSource, type StaleFact } from "../core/types.js";
 import { MAX_BODY_BYTES } from "../net/fetch-types.js";
 import { groundingFinding, lineEndingChange, type AnchorCheck, type Observed, type SourceRole } from "./decide.js";
 
@@ -660,6 +660,43 @@ export function showLiteral(literal: string): string {
   return value;
 }
 
+const CURRENCY_SIGNS: Record<string, string> = { eur: "€", gbp: "£", usd: "$" };
+
+/**
+ * A stale fact's value as a finding shows it (StaleFact): a price with its sign where it has one (`€89`, `£12.50`),
+ * a phone number as its last six digits, any other kind as the extractor normalised it. Undefined for an e-mail address
+ * (never carried) or a token that is not one this extractor makes.
+ */
+export function factValue(literal: string): string | undefined {
+  const kind = literalKind(literal);
+  const value = literal.slice(literal.indexOf(":") + 1);
+  if (kind === "email" || value.length === 0 || value.length > 40 || !/^[\x20-\x7e]+$/.test(value)) return undefined;
+  if (kind === "money") {
+    const m = /^([a-z]{3}) (\d+)(?:\.(\d+))?$/.exec(value);
+    if (m === null) return showLiteral(literal);
+    const amount = m[3] === undefined ? m[2]! : `${m[2]}.${m[3].padEnd(2, "0")}`;
+    const sign = CURRENCY_SIGNS[m[1]!];
+    return sign !== undefined ? `${sign}${amount}` : `${m[1]!.toUpperCase()} ${amount}`;
+  }
+  if (kind === "phone") return `…${value.slice(-6)}`;
+  return value;
+}
+
+/**
+ * The one literal of `literal`'s kind the page now states where the lock recorded `literal` (one of its recorded place
+ * hashes is that literal at a place the page has now), or undefined when there is none or more than one.
+ */
+async function replacementAt(literal: string, recorded: readonly string[] | undefined, placed: Map<string, Place[]> | { problem: string }): Promise<string | undefined> {
+  if (recorded === undefined || recorded.length === 0 || "problem" in placed) return undefined;
+  const kind = literalKind(literal);
+  const found = new Set<string>();
+  for (const [other, places] of placed) {
+    if (other === literal || literalKind(other) !== kind) continue;
+    for (const p of places) if (recorded.includes(await placeHash(literal, p.key))) found.add(other);
+  }
+  return found.size === 1 ? [...found][0] : undefined;
+}
+
 /** Which of the network's literals a page states (watched there) and which it does not, or why it cannot be read. */
 export function pageFacts(literals: readonly string[], page: Uint8Array): { watched: string[]; notOnPage: string[] } | { problem: string } {
   const reduced = pageText(page);
@@ -834,8 +871,23 @@ export async function groundingFindingsWithAnchors(sources: readonly GroundingSo
                 ...gone.filter((h) => network.stated.has(h)),
                 ...moved.filter((h) => network.stated.has(h) && !("problem" in placesNow) && statedElsewhere(network.literals.get(h) ?? "", network.clauses, placesNow)),
               ];
+        // since 2026-11-23: the values of up to three stale facts (StaleFact), e-mail addresses never
+        const facts: StaleFact[] = [];
+        if (still !== undefined && still.length > 0) {
+          const placed = placedLiterals(s.bytes);
+          for (const h of still) {
+            if (facts.length === 3) break;
+            const literal = network!.literals.get(h);
+            const was = literal === undefined ? undefined : factValue(literal);
+            if (literal === undefined || was === undefined) continue;
+            const other = await replacementAt(literal, source.places?.[h], placed);
+            const now = other === undefined ? undefined : factValue(other);
+            facts.push({ kind: network!.stated.get(h)!, was, ...(now !== undefined ? { now } : {}) });
+          }
+        }
         const check: AnchorCheck = {
           total: anchors.length,
+          ...(facts.length > 0 ? { facts } : {}),
           present,
           ...(moved.length > 0 ? { moved: moved.length } : {}),
           ...(unplaced > 0 ? { unplaced } : {}),

@@ -191,7 +191,12 @@ with `-` means the member is omitted. A report written before 2026-11-18 has no 
 `skillsAdded`, `skillsRemoved`, `skillsChanged` and `signatures`), omitted when the sentence says what changed is not
 told. Since UAT-29, a changed page whose watched facts were checked (`grounding-changed`, `grounding-stale-fact`) carries
 `counts` too: `factsWatched`, `factsGone`, `factsUnplaced`, `factsStale` (omitted when the networks could not be read)
-and, for a stale fact, `staleKinds` (`{ "money": 1 }`: kinds, never values).
+and, for a stale fact, `staleKinds` (`{ "money": 1 }`: kinds, never values). Since 2026-11-23 a stale fact also
+carries `facts` (`[{ "kind": "money", "was": "€89", "now": "€95" }]`, at most three) and its sentence ends with them
+("the network says €89 where the page now says €95"), so the owner reads which fact moved. These are the one exception
+to "a finding never quotes the site": tokens Plumbline's extractor matched and normalised (a price, time, date,
+percentage, or a phone number's last six digits), never prose and never an e-mail address, so a page cannot put words
+into a finding. The owner's line names the values when one page has exactly one stale fact with both.
 
 **The owner's line.** The drift issue, the relock pull request and the Desk's drift reading open with one sentence in a
 site owner's words (`src/watch/owner.ts`; `action/report.mjs` keeps it word for word), made from these codes and counts,

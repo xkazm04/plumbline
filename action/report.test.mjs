@@ -1003,6 +1003,10 @@ const OWNER_CASES = [
   [{ findings: [{ severity: "warn", code: "grounding-not-locked", ref: "hours.html" }] }, {}],
   [{ findings: [{ severity: "warn", code: "grounding-changed", ref: "rooms.html", counts: { factsWatched: 3, factsGone: 0, factsUnplaced: 1 } }] }, {}],
   [{ findings: [{ severity: "block", kind: "runtime", ref: "runtime/x.js", summary: "changed" }] }, {}],
+  // since 2026-11-23: one stale fact with both values is named; without a now, or with two facts, the kinds as before
+  [{ findings: [{ severity: "warn", code: "grounding-stale-fact", ref: "rooms.html", counts: { staleKinds: { money: 1 } }, facts: [{ kind: "money", was: "€89", now: "€95" }] }] }, {}],
+  [{ findings: [{ severity: "warn", code: "grounding-stale-fact", ref: "rooms.html", counts: { staleKinds: { money: 1 } }, facts: [{ kind: "money", was: "€89" }] }] }, {}],
+  [{ findings: [{ severity: "warn", code: "grounding-stale-fact", ref: "rooms.html", counts: { staleKinds: { money: 2 } }, facts: [{ kind: "money", was: "€89", now: "€95" }, { kind: "money", was: "€69", now: "€72" }] }] }, {}],
 ];
 
 test("UAT-29: the owner's line is src/watch/owner.ts word for word, made from codes and counts", async () => {
@@ -1011,6 +1015,10 @@ test("UAT-29: the owner's line is src/watch/owner.ts word for word, made from co
   assert.equal(lines[0], null, "a clean report has no owner's line");
   assert.match(lines[3], /^Your page rooms\.html changed, and your assistant may still be telling visitors an old price from it/);
   assert.match(lines[4], /^Some of your pages changed, and your assistant may still be telling visitors old facts \(2 prices, 1 time\) from them/);
+  const n = OWNER_CASES.length;
+  assert.match(lines[n - 3], /^Your page rooms\.html changed, and your assistant may still be telling visitors €89 where the page now says €95: forward this/);
+  assert.match(lines[n - 2], /may still be telling visitors an old price from it:/);
+  assert.match(lines[n - 1], /may still be telling visitors old facts \(2 prices\) from it:/);
   assert.match(lines[6], /no old fact is left: one step remains for whoever looks after your website, to record the change and sign the site again\.$/);
   assert.match(lines[7], /to record the change\.$/);
   assert.match(lines[10], /expires on 2026-12-01/);

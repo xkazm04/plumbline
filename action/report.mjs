@@ -423,7 +423,13 @@ export function ownerLine(findings, context = {}) {
     const kinds = {};
     for (const f of stale) for (const [k, n] of Object.entries(f.counts?.staleKinds ?? {})) kinds[k] = (kinds[k] ?? 0) + Number(n ?? 0);
     const where = stale.length === 1 ? ownerPage(stale[0]?.ref) : "some of your pages";
-    lead = `${capital(where)} changed, and your assistant may still be telling visitors ${staleWords(kinds)} from ${stale.length === 1 ? "it" : "them"}: forward this to ${WHO}, who updates what the assistant says`;
+    // one stale fact with both values: say them (since 2026-11-23, src/watch/owner.ts); otherwise the kinds, as before
+    const only = stale.length === 1 && Array.isArray(stale[0]?.facts) && stale[0].facts.length === 1 ? stale[0].facts[0] : undefined;
+    const said =
+      only !== undefined && typeof only?.was === "string" && typeof only?.now === "string" && only.was !== "" && only.now !== ""
+        ? `${only.was} where the page now says ${only.now}`
+        : `${staleWords(kinds)} from ${stale.length === 1 ? "it" : "them"}`;
+    lead = `${capital(where)} changed, and your assistant may still be telling visitors ${said}: forward this to ${WHO}, who updates what the assistant says`;
     covered = stale;
   } else if (has(RUNTIME_CHANGE).length > 0 || has(PARTNER_CODE_CHANGE).length > 0) {
     const own = has(RUNTIME_CHANGE).length > 0;

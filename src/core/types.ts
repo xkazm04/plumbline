@@ -498,6 +498,21 @@ export interface DriftFinding {
   summary: string;
   /** Since 2026-11-18 (UAT-17): see DriftCounts. */
   counts?: DriftCounts;
+  /** Since 2026-11-23: see StaleFact. Only on `grounding-stale-fact`. */
+  facts?: StaleFact[];
+}
+
+/**
+ * Since 2026-11-23 (the demo film's walk): on a `grounding-stale-fact`, each stale fact's value, so the sentence can say
+ * what the agent still says: `was` is the value the network still states, `now` the one value of the same kind the
+ * page states where the lock recorded the fact (omitted when there is none, or more than one). Values are Plumbline's
+ * own normalised tokens as its extractor matched them (`EUR 89` shown `€89`, `15:00`, `2026-05-03`, `10%`, a phone
+ * number as its last six digits), never a site's prose; e-mail addresses are never carried. At most three facts.
+ */
+export interface StaleFact {
+  kind: FactKind;
+  was: string;
+  now?: string;
 }
 
 /**
