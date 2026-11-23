@@ -215,9 +215,14 @@ test("UAT-1: the network's replacement strings are what its agents state", () =>
 test("UAT-1: a 512 KiB page of pathological markup and numbers reduces and extracts in linear time", () => {
   const n = 512 * 1024;
   for (const text of ["<".repeat(n), "<a ".repeat(n / 3), "<!--".repeat(n / 4), "<script>".repeat(n / 8), "&a".repeat(n / 2), "100 200 ".repeat(n / 8), "+1 ".repeat(n / 3), "a.".repeat(n / 2), "1 2 3 ".repeat(n / 6), "0".repeat(n)]) {
-    const started = Date.now();
+    // CPU time, not wall-clock: under a loaded test run (node --test runs files in parallel) wall-clock time measured
+    // 16 s for an input that takes 184 ms alone (WSL, 2026-11-23), while a quadratic reduce or extract would still
+    // spend seconds of CPU here. Measured alone: at most 184 ms (WSL arm64) and 123 ms (Windows arm64); 3000 is 16x that.
+    const started = process.cpuUsage();
     extractLiterals(reduceToText(text));
-    assert.ok(Date.now() - started < 3000, `${JSON.stringify(text.slice(0, 12))}... took ${Date.now() - started} ms`);
+    const spent = process.cpuUsage(started);
+    const ms = (spent.user + spent.system) / 1000;
+    assert.ok(ms < 3000, `${JSON.stringify(text.slice(0, 12))}... took ${Math.round(ms)} ms of CPU`);
   }
 });
 
