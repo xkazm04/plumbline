@@ -119,7 +119,7 @@ export async function approve(dir: string, who: { privateKey: string }): Promise
   write(dir, { [AGENT_APPROVAL_FILE]: json(approval) });
 }
 
-/** The playwright-like tools list (src/test/fixtures/mcp/playwright-like): marked by name, by destructiveHint, by openWorldHint; one readOnly open-world tool unmarked. */
+/** The playwright-like tools list (src/test/fixtures/mcp/playwright-like): two tools marked by name; annotations of every kind. */
 export const PLAYWRIGHT_TOOLS = (): Record<string, unknown>[] =>
   JSON.parse(readFileSync(new URL("../../src/test/fixtures/mcp/playwright-like/tools.json", import.meta.url), "utf8")) as Record<string, unknown>[];
 
