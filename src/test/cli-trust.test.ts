@@ -191,8 +191,8 @@ test("adopt without --yes shows the verified rotation and changes nothing; with 
   const { site, trust, oldKeys, newKeys } = rotatedSite();
   const before = readFileSync(trust, "utf8");
   const stranger = run("verify", "--root", site, "--trust", trust);
-  assert.equal(stranger.code, 1);
-  assert.match(stranger.out, /^unverifiable/m);
+  assert.equal(stranger.code, 1, stranger.err);
+  assert.match(stranger.out, /^unverifiable/m, `stdout: ${stranger.out}\nstderr: ${stranger.err}`);
   assert.match(stranger.out, /plumbline adopt/, "verify points at adopt when a rotation is published");
   // UAT-17 (TOM-L1-02): the hint and the signer change are fields in --json, not only text
   const strangerJson = JSON.parse(run("verify", "--root", site, "--trust", trust, "--json").out);

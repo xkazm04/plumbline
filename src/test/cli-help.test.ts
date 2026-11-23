@@ -253,8 +253,8 @@ test("UAT-28 (MC-3): every command in the README's Use it runs as printed, from 
       assert.notEqual(r.code, 2, `${line}\n${r.out}\n${r.err}`);
       if (/^plumbline trust .*--yes$/.test(line) || /^plumbline (init|keygen|sign|revoke|dns) /.test(line)) assert.equal(r.code, 0, `${line}\n${r.out}\n${r.err}`);
       if (/^plumbline trust /.test(line) && !line.endsWith("--yes")) assert.equal(r.code, 1, `${line}\n${r.out}`);
-      if (/^plumbline watch --root site$/.test(line)) assert.match(r.out, /^watch: no drift/m);
-      if (/^plumbline verify /.test(line)) assert.match(r.out, /verified/, r.out);
+      if (/^plumbline watch --root site$/.test(line)) assert.match(r.out, /^watch: no drift/m, `${line} (exit ${r.code})\nstdout: ${r.out}\nstderr: ${r.err}`);
+      if (/^plumbline verify /.test(line)) assert.match(r.out, /verified/, `${line} (exit ${r.code})\nstdout: ${r.out}\nstderr: ${r.err}`);
       if (/^plumbline scan /.test(line)) assert.ok(existsSync(path.join(anywhere, "scan-report", "report.html")));
     }
   }
