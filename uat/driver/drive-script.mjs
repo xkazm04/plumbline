@@ -44,7 +44,9 @@
 // Wait on predicates, never on fixed sleeps.
 //
 // Environment: BASE_URL, SHOT_DIR (default: a new <OS temp>/plumbline-uat-shots-<time> folder), TIMEOUT (ms per wait,
-// default 15000), HEADED=1 (show the window), VIEWPORT=<width>x<height> (default 1280x900).
+// default 15000), HEADED=1 (show the window), VIEWPORT=<width>x<height> (default 1280x900), RECORD_DIR=<folder> (record the
+// page as video there at the viewport size; the script sees RECORD_T0, the wall-clock ms the recording began, and the
+// journal gains `video`, the file).
 // stdout: ONE JSON journal { ok, exit, playwright, baseUrl, shotDir, checks[], snaps[], probes, notes, console[], pageErrors[],
 // error? }. Progress goes to stderr. Exit 0: the script ran and every expect passed. 1: the driver or the script threw.
 // 2: an expect failed (a finding, not a driver fault).
@@ -143,6 +145,7 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+let recording = null;
 async function main() {
   const script = await readStdin();
   if (script.trim() === "") throw new Error("no step script on stdin");
@@ -166,8 +169,13 @@ async function main() {
     throw error;
   }
   try {
-    const context = await browser.newContext({ viewport: { width: w || 1280, height: h || 900 } });
+    // RECORD_DIR (the demo film's take): the page is recorded at the viewport's size; the journal's `video` names the
+    // file once the context closes, and RECORD_T0 (wall-clock ms) is when the page, and so the video, began
+    const size = { width: w || 1280, height: h || 900 };
+    const context = await browser.newContext({ viewport: size, ...(process.env.RECORD_DIR ? { recordVideo: { dir: process.env.RECORD_DIR, size } } : {}) });
     const page = await context.newPage();
+    const RECORD_T0 = Date.now();
+    recording = { context, page };
     page.setDefaultTimeout(TIMEOUT);
     page.on("console", (m) => {
       if (m.type() === "error" || m.type() === "warning") journal.console.push({ type: m.type(), text: m.text().slice(0, 500) });
@@ -179,6 +187,7 @@ async function main() {
       context,
       browser,
       BASE_URL: journal.baseUrl,
+      RECORD_T0,
       log,
       note: (key, value) => {
         journal.notes[key] = value;
@@ -278,6 +287,11 @@ async function main() {
     const run = new AsyncFunction(...Object.keys(helpers), script);
     await run(...Object.values(helpers));
   } finally {
+    if (recording && process.env.RECORD_DIR) {
+      const video = recording.page.video();
+      await recording.context.close().catch(() => {});
+      if (video) journal.video = await video.path().catch(() => null);
+    }
     await browser.close();
   }
 }

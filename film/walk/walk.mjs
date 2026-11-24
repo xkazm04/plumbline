@@ -8,7 +8,13 @@
 // checked against the rendered text while the walk runs. A beat that throws is recorded and the walk carries on; the
 // run fails at the end, naming every broken beat.
 //
-// usage: node film/walk/walk.mjs [--only open,larch,clinic,agent] [--keep]
+// --take (the real take): the same beats, recorded. Each beat's window opens before its action and closes once its
+// measured hold (film/audio/manifest.json: max(clip, settle) + breath) has passed and the view is still; every claim is
+// checked as in the walk. The windows are cut from the recordings and joined in film.json's order into
+// film/take/take.mp4, with film/take/take.json (the demo-film kit's Take) beside it. Stills and the raw recordings go to
+// film/out/take/. A take with a failed check or a missing window is written but exits 1: it is a diagnostic, not a take.
+//
+// usage: node film/walk/walk.mjs [--only open,larch,clinic,agent] [--keep] [--take]
 //   needs: npm run build && npm run build:site; Playwright as drive-script.mjs resolves it; ffmpeg on PATH for the
 //   contact sheet's thumbnails (without it the sheet links the full stills). --keep leaves the worlds up.
 // writes: film/out/walk/ (git-ignored): <capture>.png, walk.json, contact.html, thumbs/
@@ -21,7 +27,11 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO = fileURLToPath(new URL("../../", import.meta.url));
-const OUT = path.join(REPO, "film", "out", "walk");
+const args0 = process.argv.slice(2);
+const TAKE_MODE = args0.includes("--take");
+const OUT = path.join(REPO, "film", "out", TAKE_MODE ? "take" : "walk");
+const RAW = path.join(OUT, "raw");
+const TAKE_DIR = path.join(REPO, "film", "take");
 const CLI = path.join(REPO, "dist", "cli", "index.js");
 const film = JSON.parse(readFileSync(path.join(REPO, "film", "film.json"), "utf8"));
 const args = process.argv.slice(2);
@@ -29,6 +39,26 @@ const only = args.includes("--only") ? args[args.indexOf("--only") + 1].split(",
 const keep = args.includes("--keep");
 
 mkdirSync(OUT, { recursive: true });
+
+// --take: each capture's hold, from the measured narration, and its targets, from film.json
+let takeEnv = null;
+if (TAKE_MODE) {
+  const manifest = JSON.parse(readFileSync(path.join(REPO, "film", "audio", "manifest.json"), "utf8"));
+  if ((manifest.estimated ?? []).length > 0) {
+    console.error(`the narration is not measured for: ${manifest.estimated.join(", ")}; run the kit's narrate first`);
+    process.exit(2);
+  }
+  const holds = {};
+  const targets = {};
+  for (const b of film.beats) {
+    if (!b.capture) continue;
+    holds[b.capture.beat] = Math.max(manifest.clips[b.id].ms, b.settleMs) + film.breathMs;
+    targets[b.capture.beat] = b.capture.targets ?? [];
+  }
+  takeEnv = JSON.stringify({ holds, targets });
+  rmSync(RAW, { recursive: true, force: true });
+  mkdirSync(RAW, { recursive: true });
+}
 /** capture id -> { still?, text?, checks: [{label, ok, matched?}], error?, notes: [] } */
 const captures = {};
 const cap = (id) => (captures[id] ??= { checks: [], notes: [] });
@@ -57,7 +87,7 @@ function desk(baseUrl, script) {
     cwd: REPO,
     input: script,
     encoding: "utf8",
-    env: { ...process.env, BASE_URL: baseUrl, SHOT_DIR: OUT, VIEWPORT: "1920x1080", TIMEOUT: "90000" },
+    env: { ...process.env, BASE_URL: baseUrl, SHOT_DIR: OUT, VIEWPORT: "1920x1080", TIMEOUT: "90000", ...(takeEnv ? { TAKE: takeEnv, RECORD_DIR: RAW } : {}) },
     timeout: 600000,
   });
   try {
@@ -75,7 +105,8 @@ function fold(journal, segment) {
   }
   for (const [k, v] of Object.entries(journal.notes ?? {})) {
     const [id, key] = k.split("|");
-    if (key) cap(id).notes.push(`${key}: ${v}`);
+    if (key === "window") cap(id).window = { ...JSON.parse(v), video: journal.video ?? null };
+    else if (key) cap(id).notes.push(`${key}: ${v}`);
   }
   if (journal.error) cap(`segment:${segment}`).error = String(journal.error).split("\n")[0];
 }
@@ -100,11 +131,30 @@ const settled = async () => {
   }
   return false;
 };
+// The take (--take): begin(id) opens a beat's window before its action; shot(id) closes it once the beat's measured hold
+// has passed and the view has been still for a moment, and logs the window on the recording's clock and the rects of
+// the beat's targets. In the walk, begin does nothing and shot only takes the still.
+const TAKE = process.env.TAKE ? JSON.parse(process.env.TAKE) : null;
+const began = {};
+const begin = (id) => { if (TAKE) began[id] = Date.now() - RECORD_T0; };
 const shot = async (id) => {
   await page.waitForTimeout(300);
   if (!(await settled())) note(id + '|unsettled', 'a finite animation was still running after 4 s');
+  const still = Date.now() - RECORD_T0;
   await page.screenshot({ path: process.env.SHOT_DIR + '/' + id + '.png' });
   note(id + '|still', id + '.png');
+  if (!TAKE || began[id] === undefined) return;
+  const hold = TAKE.holds[id];
+  if (!hold) { note(id + '|window-error', 'no hold for this capture'); return; }
+  // the window ends after the hold, and never before the settled view has been on screen for 1.5 s
+  const end = Math.max(began[id] + hold, still + 1500);
+  await page.waitForTimeout(Math.max(0, end - (Date.now() - RECORD_T0)));
+  const rects = {};
+  for (const sel of TAKE.targets[id] ?? []) {
+    const box = await page.locator(sel).first().boundingBox().catch(() => null);
+    if (box) rects[sel] = { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.width), h: Math.round(box.height) };
+  }
+  note(id + '|window', JSON.stringify({ startMs: end - hold, endMs: end, actionStartMs: began[id], rects }));
 };
 `;
 
@@ -131,8 +181,12 @@ const segments = {
     const j = desk(w.desk.address, `${POLL}
 await goto(BASE_URL);
 await until('#portlist-items', /Check a site/, 'ports');
+await settled();
+begin('desk-home');
 await shot('desk-home');
+begin('desk-home-end');
 await shot('desk-home-end');
+begin('open-gate');
 await goto(BASE_URL + '#/check?target=https://agent-atlas-phi.vercel.app/');
 await waitFor('#gate-run');
 await click('#gate-run');
@@ -170,19 +224,36 @@ const before = await until('#drift-status', /^Drift (read|not read)/, 'drift bef
 await shot('larch-drift-before');
 expectMatch('larch-drift-before: nothing differs before the change', before, /^Drift read: nothing differs from the lock/);
 await goto('${site.address}rooms.html');
+await page.waitForLoadState('load');
+begin('larch-rooms-before');
 await shot('larch-rooms-before');
 expectMatch('larch-rooms-before: the page states the double room at 89', await page.locator('table').innerText(), /Double room[^\\n]*€89/);
 `);
     fold(j1, "larch-1");
     world("act", "larch-house", "raise-price");
     const j2 = desk(w.desk.address, `${POLL}
+// off camera, first: the assistant's key (a placeholder: the model is scripted, below). "Save and start" reloads the
+// page, so it comes before the beats; the Desk keeps the visitor's chosen addresses across that reload (434dc8b)
+await goto(BASE_URL + '#/drift');
+await click('#dock-tab');
+await waitFor('#ns-key');
+await fill('#ns-key', 'scripted-film-walk');
+await click('#ns-apply');
+await waitFor('#ns-input');
+await click('#dock-close');
 await goto('${site.address}rooms.html');
+await page.waitForLoadState('load');
+begin('larch-rooms-after');
 await shot('larch-rooms-after');
 expectMatch('larch-rooms-after: the page states 95', await page.locator('table').innerText(), /Double room[^\\n]*€95/);
-await goto(BASE_URL + '#/drift?target=${site.address}');
+await goto(BASE_URL + '#/drift');
 await waitFor('#drift-run');
+await settled();
+begin('larch-drift');
+await page.locator('#drift-target').pressSequentially('${site.address}', { delay: TAKE ? 35 : 0 });
 await click('#drift-run');
 const s = await until('#drift-status', /^Drift (read|not read)/, 'drift');
+await page.locator('#drift-result').scrollIntoViewIfNeeded();
 await shot('larch-drift');
 const r = await page.locator('#drift-result').innerText();
 expectMatch('larch-drift: the grounding finding names the page', r, /rooms\\.html/);
@@ -213,24 +284,28 @@ await context.route(/\\/chat\\/completions/, async (route) => {
   scripted.push('answer ' + (m ? m[1] + '->' + m[2] : 'none'));
   await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: sse({ content: text }, 'stop') });
 });
-await click('#dock-tab');
-await waitFor('#ns-key');
-await fill('#ns-key', 'scripted-film-walk');
-await click('#ns-apply');
-await waitFor('#ns-input');
-await fill('#ns-input', 'Is my assistant still telling guests the right prices?');
-await click('#ns-send');
-const answer = await until('#assistant', /still tells guests €89/, 'the assistant answers', 60);
+// the recorder's label sits over the runtime's model badge for the whole beat, re-placed as the panel moves
 await page.evaluate(() => {
-  const badge = document.querySelector('.ns-llmbadge');
-  if (!badge) return;
-  const r = badge.getBoundingClientRect();
   const label = document.createElement('div');
   label.textContent = 'SCRIPTED MODEL · not a live LLM';
   label.setAttribute('data-recorder', 'overlay');
-  Object.assign(label.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', minWidth: r.width + 'px', height: r.height + 'px', display: 'flex', alignItems: 'center', padding: '0 8px', background: '#7c2d12', color: '#fff', font: '600 12px system-ui', borderRadius: '6px', zIndex: 2147483647 });
+  Object.assign(label.style, { position: 'fixed', display: 'none', alignItems: 'center', padding: '0 8px', background: '#7c2d12', color: '#fff', font: '600 12px system-ui', borderRadius: '6px', zIndex: 2147483647 });
   document.body.append(label);
+  const place = () => {
+    const badge = document.querySelector('.ns-llmbadge');
+    const r = badge?.getBoundingClientRect();
+    if (!r || r.width === 0) { label.style.display = 'none'; return requestAnimationFrame(place); }
+    Object.assign(label.style, { display: 'flex', left: r.left + 'px', top: r.top + 'px', minWidth: r.width + 'px', height: r.height + 'px' });
+    requestAnimationFrame(place);
+  };
+  place();
 });
+begin('larch-assistant');
+await click('#dock-tab');
+await waitFor('#ns-input');
+await page.locator('#ns-input').pressSequentially('Is my assistant still telling guests the right prices?', { delay: TAKE ? 30 : 0 });
+await click('#ns-send');
+const answer = await until('#assistant', /still tells guests €89/, 'the assistant answers', 60);
 await shot('larch-assistant');
 expectMatch('larch-assistant: the answer names both values from the tool result', answer, /now says €95 for the double room, but your assistant still tells guests €89/);
 expect('larch-assistant: the runtime called read_drift, then answered', scripted.length === 2 && /^tool .*read_drift$/.test(scripted[0]), scripted.join(' | '));
@@ -273,6 +348,9 @@ const verify = async (url) => {
 // the signing dialog: the clinic's files and its key, picked as a publisher would; the walk cancels before signing
 try {
   await goto(BASE_URL + '#/sign');
+  await waitFor('#sign-button');
+  await settled();
+  begin('clinic-sign-dialog');
   await page.setInputFiles('#sign-files', ${JSON.stringify(files)});
   await page.setInputFiles('#sign-key', ${JSON.stringify(key)});
   await fill('#sign-origin', '${clinic.origin}');
@@ -284,16 +362,20 @@ try {
   expectMatch('clinic-sign-dialog: the dialog shows a SHA-256', d, /[0-9a-f]{64}/);
   await page.keyboard.press('Escape');
 } catch (e) { note('clinic-sign-dialog|error', String(e).split('\\n')[0]); }
+begin('clinic-unknown');
 let s = await verify('${clinic.address}');
 await shot('clinic-unknown');
 expectMatch('clinic-unknown: an unknown signer is unverifiable', s, /Unverifiable/);
+begin('clinic-trusted');
 await page.locator('#trust-button').scrollIntoViewIfNeeded();
 await page.check('#trust-compared');
-await shot('clinic-trust-card');
+if (!TAKE) await shot('clinic-trust-card');
+else await page.waitForTimeout(900);
 await click('#trust-button');
 s = await until('#verify-status', /Verified/, 'trusted');
 await shot('clinic-trusted');
 expectMatch('clinic-trusted: after trust, verified', s, /Verified/);
+begin('clinic-mirror');
 s = await verify('${mirror.address}');
 await shot('clinic-mirror');
 const m = await page.locator('#verify-result').innerText();
@@ -301,6 +383,7 @@ expectMatch('clinic-mirror: the copy is not verified', s, /Unverifiable|Invalid/
 expectMatch('clinic-mirror: the reason is the address the signature names', m, /signed for another address/);
 const { execFileSync } = await import('node:child_process');
 execFileSync(process.execPath, [${JSON.stringify(worldJs)}, 'act', 'northgate-clinic', 'tamper']);
+begin('clinic-tampered');
 s = await verify('${clinic.address}');
 await shot('clinic-tampered');
 expectMatch('clinic-tampered: the stamp says invalid, tampered', await page.locator('#verify-sheet').innerText(), /INVALID\\s+TAMPERED/i);
@@ -417,14 +500,37 @@ html,body{margin:0;background:#0b1220;height:100%}body{display:flex;align-items:
 .bar i{width:14px;height:14px;border-radius:50%;background:#475569;display:inline-block}
 .txt{padding:26px 34px;font:22px/1.42 Consolas,"Cascadia Mono",monospace;color:#cbd5e1;white-space:pre-wrap;word-break:break-word;overflow:hidden}
 .cmd{color:#f8fafc;font-weight:700}.gap{height:16px}.add{color:#4ade80}.del{color:#f87171}.bad{color:#fb7185}.warn{color:#fbbf24}.good{color:#34d399}
-</style><div class="win"><div class="bar"><i></i><i></i><i></i><span style="margin-left:12px">${esc(t.title)}</span></div><div class="txt">${body}</div></div>`,
+</style><div class="win"><div class="bar"><i></i><i></i><i></i><span style="margin-left:12px">${esc(t.title)}</span></div><div class="txt">${body}</div></div>
+<script>
+// the take (#type): each command is typed, then its output appears line by line; the still (#static) shows it all
+if (location.hash === "#type") {
+  const rows = [...document.querySelectorAll(".txt > div")];
+  for (const r of rows) r.style.visibility = "hidden";
+  let i = 0;
+  const next = () => {
+    const r = rows[i++];
+    if (!r) return;
+    r.style.visibility = "visible";
+    if (!r.classList.contains("cmd")) return setTimeout(next, 45);
+    const text = r.textContent;
+    let n = 2;
+    r.textContent = text.slice(0, n);
+    const step = () => { n += 2; r.textContent = text.slice(0, n); if (n < text.length) setTimeout(step, 22); else setTimeout(next, 250); };
+    setTimeout(step, 22);
+  };
+  setTimeout(next, 300);
+}
+</script>`,
     );
   }
   const j = desk(
     "http://127.0.0.1:1/",
-    terms.map((t) => `await page.goto(${JSON.stringify(pathToFileURL(path.join(dir, `${t.id}.html`)).href)}); await page.screenshot({ path: process.env.SHOT_DIR + '/${t.id}.png' });`).join("\n"),
+    TAKE_MODE
+      ? POLL + terms.map((t) => `begin('${t.id}'); await page.goto(${JSON.stringify(pathToFileURL(path.join(dir, `${t.id}.html`)).href + "#type")}); await page.waitForTimeout(2500); await shot('${t.id}');`).join("\n")
+      : terms.map((t) => `await page.goto(${JSON.stringify(pathToFileURL(path.join(dir, `${t.id}.html`)).href + "#static")}); await page.screenshot({ path: process.env.SHOT_DIR + '/${t.id}.png' });`).join("\n"),
   );
   if (j.error) cap("segment:terminal").error = String(j.error).split("\n")[0];
+  if (TAKE_MODE) fold(j, "terminal");
   for (const t of terms) if (existsSync(path.join(OUT, `${t.id}.png`))) cap(t.id).still = `${t.id}.png`;
 }
 for (const [id, c] of Object.entries(captures)) {
@@ -432,6 +538,49 @@ for (const [id, c] of Object.entries(captures)) {
   if (n) c.still = n.slice(7);
   c.notes = c.notes.filter((x) => !x.startsWith("still: "));
   if (!c.still && existsSync(path.join(OUT, `${id}.png`))) c.still = `${id}.png`;
+}
+
+// ---- the take: cut each window, join them in film.json's order ------------------------------------------------------
+
+let takeProblems = [];
+if (TAKE_MODE) {
+  mkdirSync(TAKE_DIR, { recursive: true });
+  const segDir = path.join(OUT, "segments");
+  rmSync(segDir, { recursive: true, force: true });
+  mkdirSync(segDir, { recursive: true });
+  const probeMs = (file) => Math.ceil(Number(run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]).out.trim()) * 1000);
+  const takeBeats = [];
+  const list = [];
+  let at = 0;
+  for (const b of film.beats) {
+    if (!b.capture) continue;
+    const c = captures[b.capture.beat];
+    const w = c?.window;
+    if (!w || !w.video) {
+      takeProblems.push(`${b.id}: no window recorded for ${b.capture.beat}`);
+      takeBeats.push({ id: b.id, startMs: at, endMs: at, rects: {}, clicks: [], error: "no window recorded" });
+      continue;
+    }
+    const seg = path.join(segDir, `${String(list.length + 1).padStart(2, "0")}-${b.id}.mp4`);
+    const cut = run("ffmpeg", ["-y", "-loglevel", "error", "-ss", (w.startMs / 1000).toFixed(3), "-i", w.video, // whole frames, rounded up, so a window is never shorter than its hold; the last frame is cloned where a
+    // recording ends before the window does (the last beat of a segment closes the browser right after it)
+    "-t", (Math.ceil(((w.endMs - w.startMs) * 30) / 1000) / 30).toFixed(4), "-vf", "scale=1920:1080,fps=30,tpad=stop_mode=clone:stop_duration=1", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-an", seg], { timeout: 300000 });
+    if (cut.status !== 0 || !existsSync(seg)) {
+      takeProblems.push(`${b.id}: ffmpeg could not cut the window (${cut.out.slice(0, 200)})`);
+      continue;
+    }
+    const ms = probeMs(seg);
+    const failedChecks = (c.checks ?? []).filter((k) => !k.ok).map((k) => k.label);
+    takeBeats.push({ id: b.id, startMs: at, endMs: at + ms, rects: w.rects ?? {}, clicks: [], ...(failedChecks.length || c.error ? { error: [...failedChecks, ...(c.error ? [c.error] : [])].join("; ") } : {}) });
+    list.push(`file '${seg.replace(/\\/g, "/")}'`);
+    at += ms;
+  }
+  writeFileSync(path.join(segDir, "list.txt"), list.join("\n") + "\n");
+  const joined = run("ffmpeg", ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", path.join(segDir, "list.txt"), "-c", "copy", path.join(TAKE_DIR, "take.mp4")], { timeout: 300000 });
+  if (joined.status !== 0) takeProblems.push(`joining the segments failed: ${joined.out.slice(0, 300)}`);
+  const take = { video: "take/take.mp4", width: 1920, height: 1080, fps: 30, offsetUncertaintyMs: 250, beats: takeBeats };
+  writeFileSync(path.join(TAKE_DIR, "take.json"), JSON.stringify(take, null, 2) + "\n");
+  log(`take: ${takeBeats.length} beats, ${(at / 1000).toFixed(1)} s of footage -> film/take/take.mp4`);
 }
 
 // ---- the contact sheet ---------------------------------------------------------------------------------------------
@@ -456,6 +605,7 @@ const rows = film.beats.map((b) => {
 });
 const failed = Object.entries(captures).flatMap(([id, c]) => [...(c.error ? [`${id}: ${c.error}`] : []), ...c.checks.filter((k) => !k.ok).map((k) => `${id}: ${k.label}`)]);
 const missing = rows.filter((r) => r.capture && !r.cap?.still).map((r) => r.capture.beat);
+failed.push(...takeProblems);
 const walk = { walkedAt: new Date().toISOString(), totalEstimatedMs: total, maxMs: film.maxMs, failed, missing, displaySubstitutions: subs.map(([, to]) => to), captures };
 writeFileSync(path.join(OUT, "walk.json"), JSON.stringify(walk, null, 2) + "\n");
 const fmt = (ms) => `${Math.floor(ms / 60000)}:${String(Math.round((ms % 60000) / 1000)).padStart(2, "0")}`;
