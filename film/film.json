@@ -26,9 +26,9 @@
       "muted": "#3a536f"
     },
     "fonts": {
-      "display": "Iowan Old Style, Palatino Linotype, Georgia, serif",
-      "body": "Segoe UI, system-ui, Helvetica Neue, Arial, sans-serif",
-      "mono": "Cascadia Mono, Consolas, monospace"
+      "display": "Palatino Linotype",
+      "body": "Segoe UI",
+      "mono": "Cascadia Mono"
     },
     "logo": "logo.svg",
     "radius": 10,
@@ -41,6 +41,28 @@
   },
   "beats": [
     {
+      "id": "intro",
+      "chapter": "intro",
+      "line": "Welcome to Plumbline, a plumb line for agentic websites: signed by the owner, checked before it ships, and watched every day after.",
+      "settleMs": 6000,
+      "moments": [
+        {
+          "id": "intro-hero",
+          "tier": 1,
+          "kind": "hero",
+          "component": "IntroHero",
+          "props": {
+            "tagAt": 1390,
+            "cues": [
+              3780,
+              4740,
+              6200
+            ]
+          }
+        }
+      ]
+    },
+    {
       "id": "cold",
       "chapter": "open",
       "line": "An agentic website ships an agent that runs in every visitor's browser. Once it's live, nobody checks it again. Plumbline does.",
@@ -48,7 +70,16 @@
       "capture": {
         "beat": "desk-home",
         "from": "ready"
-      }
+      },
+      "moments": [
+        {
+          "id": "cold-in",
+          "tier": 1,
+          "kind": "treatment",
+          "component": "ZoomThrough",
+          "durMs": 600
+        }
+      ]
     },
     {
       "id": "gate",
@@ -66,7 +97,23 @@
       "id": "spectrum",
       "chapter": "open",
       "line": "Here are three examples: a guesthouse, a clinic, and the agent that writes your code.",
-      "settleMs": 2000
+      "settleMs": 2000,
+      "moments": [
+        {
+          "id": "examples",
+          "tier": 1,
+          "kind": "hero",
+          "component": "ExamplesHero",
+          "props": {
+            "kicker": "Three examples",
+            "cues": [
+              1620,
+              2300,
+              3120
+            ]
+          }
+        }
+      ]
     },
     {
       "id": "larch-intro",
@@ -76,7 +123,28 @@
       "capture": {
         "beat": "larch-rooms-before",
         "from": "ready"
-      }
+      },
+      "moments": [
+        {
+          "id": "larch-in",
+          "tier": 1,
+          "kind": "treatment",
+          "component": "MaskWipe",
+          "durMs": 600
+        },
+        {
+          "id": "larch-concept",
+          "tier": 1,
+          "kind": "hero",
+          "component": "GuesthouseConcept",
+          "at": 0,
+          "durMs": 3600,
+          "props": {
+            "bubbleAt": 1830,
+            "lockAt": 2700
+          }
+        }
+      ]
     },
     {
       "id": "larch-change",
@@ -128,7 +196,31 @@
       "settleMs": 3500,
       "capture": {
         "beat": "clinic-sign-dialog"
-      }
+      },
+      "moments": [
+        {
+          "id": "clinic-in",
+          "tier": 1,
+          "kind": "treatment",
+          "component": "MaskWipe",
+          "durMs": 600
+        },
+        {
+          "id": "clinic-concept",
+          "tier": 1,
+          "kind": "hero",
+          "component": "ClinicConcept",
+          "at": 0,
+          "durMs": 4300,
+          "claim": "the clinic signs its agent files, each with its fingerprint, for its own address",
+          "props": {
+            "filesAt": 1100,
+            "keyAt": 2100,
+            "signAt": 3000,
+            "origin": "northgate-clinic.localhost"
+          }
+        }
+      ]
     },
     {
       "id": "clinic-unknown",
@@ -194,7 +286,32 @@
       "settleMs": 3000,
       "capture": {
         "beat": "agent-locked"
-      }
+      },
+      "moments": [
+        {
+          "id": "agent-in",
+          "tier": 1,
+          "kind": "treatment",
+          "component": "MaskWipe",
+          "durMs": 600
+        },
+        {
+          "id": "agent-concept",
+          "tier": 1,
+          "kind": "hero",
+          "component": "AgentConcept",
+          "at": 0,
+          "durMs": 5900,
+          "claim": "the lock pins the agent instructions, settings and every tool",
+          "props": {
+            "cues": [
+              2720,
+              3600,
+              4290
+            ]
+          }
+        }
+      ]
     },
     {
       "id": "agent-poison",
@@ -227,11 +344,48 @@
       "id": "close",
       "chapter": "close",
       "line": "A guesthouse, a clinic, a coding agent. Plumbline keeps each one what its owner approved, and says plainly when it can't tell. Thanks for watching.",
-      "settleMs": 3000,
+      "settleMs": 10500,
       "capture": {
         "beat": "desk-home-end",
         "from": "ready"
-      }
+      },
+      "moments": [
+        {
+          "id": "close-in",
+          "tier": 1,
+          "kind": "treatment",
+          "component": "MaskWipe",
+          "durMs": 600
+        },
+        {
+          "id": "reprise",
+          "tier": 1,
+          "kind": "hero",
+          "component": "ExamplesHero",
+          "at": 0,
+          "durMs": 4000,
+          "props": {
+            "variant": "reprise",
+            "cues": [
+              0,
+              300,
+              800
+            ],
+            "checkAt": 2600
+          }
+        },
+        {
+          "id": "end",
+          "tier": 1,
+          "kind": "plate",
+          "component": "EndCard",
+          "at": 6400,
+          "props": {
+            "line": "Is it still what it claims to be?",
+            "url": "github.com/xkazm04/plumbline"
+          }
+        }
+      ]
     }
   ]
 }

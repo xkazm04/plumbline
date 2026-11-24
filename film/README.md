@@ -12,6 +12,10 @@ and checks every claim it shows, and the cut is a command.
 - **`walk/walk.mjs`** is the provisional round: a dry walk of every capture beat, with stills instead of video, that
   spends nothing. `node film/walk/walk.mjs` (after `npm run build && npm run build:site`) writes
   `film/out/walk/contact.html`: every beat's still, its line, its estimated hold and the checks that held.
+- **`walk/walk.mjs --take`** records the same beats as video and joins each beat's window into `film/take/take.mp4`
+  with `film/take/take.json`, the kit's Take.
+- **`local/`** holds the film's motion heroes (the kit's `@film/local`): the intro, the three examples and each
+  example's concept opener. See [Motion](#motion).
 - **`stage/agent-repo/`** is the third example's stage: a small agent repository with one stdio MCP server whose tools
   the walk changes.
 
@@ -41,25 +45,22 @@ off the voice track.
 | Real product, staged world | The guesthouse, the clinic, the copycat and the pharmacy are the UAT fixture worlds (`uat/fixtures/`, played by `uat/driver/world.mjs up <world> --names`): fictional businesses served on this machine at `<name>.localhost` addresses, with throwaway keys made at `up`. The film's guesthouse links no partner (the world's `solo` act). Every verdict on them is the real product's. Label: "fictional sites, served locally". |
 | Scripted | The assistant's answer in the guesthouse chapter. The Desk's real runtime runs the turn and calls the real `read_drift` tool; the model's two replies (call the tool, then answer) come from a script the recorder serves at the router's address, and the answer's values are read from the tool's own result. The recorder covers the runtime's model badge with its own label, "SCRIPTED MODEL · not a live LLM". The owner decided on 2026-11-23 to keep it scripted at this stage; a live turn on the owner's own key would take the label off. |
 | Staged | The coding agent's repository and its notes server (`stage/agent-repo/`); the server's poisoned update is a scripted edit of its tool list. The agent host is `walk/host.mjs`, a minimal host that lists and calls tools the way a real host does. Label: "staged tool update". |
-| Added by the film | Titles, captions, zooms, the scripted-model label. No figure on screen is typed by hand. |
+| Added by the film | The intro, the concept diagrams that open each example, titles, the end card, the scripted-model label. A diagram draws an idea; the page after it is the evidence. Names in a diagram are the stage's real ones (the clinic's files, the stage repository's tools, the lock's file name), and fingerprints are drawn as bars, never as digits. No figure on screen is typed by hand. |
 
 No key material is ever in frame. The keys are throwaway, and the Sign dialog shows only the public key id.
 
-## Run of show (second round, 2026-11-23)
+## Run of show (the take and the motion pass, 2026-11-24)
 
-19 beats, estimated 2:38 against a 2:59 cap. The estimate is the kit's (15 characters a second, plus the breath and each
-beat's settle), so narration is not measured yet. The walk passed every check: 18 captures, 0 failed assertions.
+20 beats, 2:32 measured (Brian, `eleven_multilingual_v2`), against a 2:59 cap.
 
-| Chapter | Beats | Estimated |
+| Chapter | Beats | Picture |
 |---|---|---|
-| Open | cold (Desk home), gate (live, unavailable), spectrum (title plate) | 0:24 |
-| Guesthouse | rooms page at €89, at €95, Read drift (€89 where the page now says €95), the Desk's assistant, the one command | 0:39 |
-| Clinic | Sign dialog, unverifiable, trusted then verified, the copy refused, what the copy changed, tampered | 0:55 |
-| Agent | locked and approved, the poisoned update, the guard refuses, the pull request | 0:32 |
-| Close | Desk home | 0:09 |
-
-399 words in all. Narration speed varies about twofold between narrators, so expect the measured length to move by
-±20 s. A cut to 2:30 drops the "one command" beat or merges the trust and verified beats.
+| Intro | intro | IntroHero: the plumb line drops and settles, the name, then signed, checked, watched as they are said |
+| Open | cold, gate, spectrum | Desk home; the live gate (unavailable); ExamplesHero: the three examples as cards, each named as it is said |
+| Guesthouse | larch-intro to larch-cost | GuesthouseConcept (the page and its agent say €89; the lock holds the fact), then the rooms page, €95, Read drift, the assistant, the one command |
+| Clinic | clinic-sign to clinic-limit | ClinicConcept (three files, a fingerprint each, the clinic's key, a signature for its own address), then the Sign dialog, unverifiable, trusted, the copy refused, its diff, tampered |
+| Agent | agent-lock to agent-review | AgentConcept (instructions, settings and tools pinned into `plumbline.agent.lock.json`), then the lock, the poisoned update, the guard, the pull request |
+| Close | close | the three examples again, each checked; the Desk; the end card, held 2.5 s after the last word |
 
 ## The demo-led backlog, round one: resolved
 
@@ -95,12 +96,39 @@ only the film's stage.
    Agent Customs answers "no receipt" for Atlas' site today; if a receipt appears, the open's verdict turns pass and the
    gate line must change (the walk's check fails first).
 
+## Motion
+
+The film renders at the kit's `overlay` balance: every moment is tier 1. Motion opens the film and each example, then
+gives way to the product. A concept covers the first seconds of its example's first beat and lifts away to the real page
+as the narration reaches what the page shows.
+
+| Moment | Beat | Component |
+|---|---|---|
+| intro-hero | intro | `local/IntroHero.tsx` |
+| examples, reprise | spectrum, close | `local/ExamplesHero.tsx` |
+| larch-concept, clinic-concept, agent-concept | each example's first beat | `local/Concepts.tsx` |
+| cold-in, larch-in, clinic-in, agent-in, close-in | chapter turns | the kit's ZoomThrough and MaskWipe |
+| end | close | the kit's EndCard |
+
+Cue times in the moments' props are milliseconds from the beat's start, read from the measured clips' pauses
+(`ffmpeg -i audio/<beat>.mp3 -af silencedetect=noise=-35dB:d=0.15 -f null -`, less the chapter-turn lead of about
+330 ms). Re-narrating a line moves its pauses: re-read them and move the cues.
+
+The StyleLock's fonts are single family names. The kit quotes the whole value as one family, so a CSS list
+(`Iowan Old Style, Palatino Linotype, ...`) silently fell back to a sans.
+
+Render (on Windows ARM64 with x64 Node under emulation, as for the first cut):
+
+```sh
+node <kit>/tools/check.mjs film --balance overlay
+node <kit>/tools/render.mjs film --balance overlay --stills 2.5,30,33.5,66.6,118.9,149.5   # look before a full render
+node <kit>/tools/render.mjs film --balance overlay --out film/out/render/plumbline-overlay.mp4
+```
+
 ## Next rounds
 
-1. **Owner review of the second contact sheet.** The lines with their stills beside them. The assistant beat stays
-   scripted and labelled (owner, 2026-11-23).
-2. **Another demo-led round** if the review asks for one, then walk again.
-3. **Narration:** audition voices on two real lines (`narrator-chosen-by-audition`). Then `narrate`, which measures
-   every clip. The take paces to the measured holds.
-4. **The take:** the walk becomes the capture adapter (same beats, video instead of stills, with per-beat sync marks),
-   writing `film/take/take.json` for the kit's `check` and `render`.
+1. **Owner review of the motion cut.** The intro, the concept openers and the close.
+2. **Music:** a quiet bed under the voice (`music.mjs`, one cue from intro to close, gain about -20 dB), made last, to
+   the final length.
+3. **Sandwich and led renders** only if the owner wants to compare: every moment is tier 1 today, so they would match
+   overlay until tier 2 and 3 moments exist.
