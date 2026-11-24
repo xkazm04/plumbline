@@ -26,3 +26,15 @@ ecosystem/out/
 film/out/
 film/audio/
 film/take/
+# the film's media anywhere under film/: rendered, paid or regenerable from film.json, never committed
+film/**/*.mp4
+film/**/*.mov
+film/**/*.webm
+film/**/*.mp3
+film/**/*.wav
+film/**/*.m4a
+film/**/*.aac
+film/**/*.png
+film/**/*.jpg
+film/**/*.jpeg
+film/**/*.gif
